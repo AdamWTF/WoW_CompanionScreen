@@ -90,6 +90,9 @@ namespace wxl::offsets::engine::shader
     constexpr uintptr_t kGxStateSet      = 0x00685F50; // __thiscall(this=gx device, stateIdx, value)
     constexpr unsigned  kStateVertexShader = 0x4D;     // GxState slot the flush applies as vertex shader
     constexpr unsigned  kStatePixelShader  = 0x4E;     // GxState slot the flush applies as pixel shader
+    // Texture-stage slots: 16 consecutive states, one texture object per sampler. The setter itself
+    // range-checks `state - 0x15 < 0x10` for its async-touch side path, which pins the layout.
+    constexpr unsigned  kStateTexture0     = 0x15;     // + stage index (0..15)
     using GxStateSetFn = void(__thiscall*)(void* gxDevice, unsigned stateIdx, void* value);
 
     // --- CGxShader wrapper layout (the native per-permutation shader object) -----------------------

@@ -373,7 +373,7 @@ namespace
         Registrar()
         {
             // Install the host M3 provider/exists hooks only when the modern-M3 format is compiled in; disabled, the registrar is inert.
-            if constexpr (wxl::features::kModernM3)
+            if constexpr (wxl::features::modernM2Support)
             {
                 wxl::host::RegisterProvider("modern-m3", &Provide);
                 wxl::host::RegisterExists("modern-m3", &Exists);

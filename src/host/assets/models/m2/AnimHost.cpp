@@ -17,7 +17,7 @@
 #include "config.hpp"
 #include "Host.hpp"
 #include "common/Log.hpp"
-#include "engine/assets/m2/M2Format.hpp"
+#include "engine/assets/shared/models/m2/M2Format.hpp"
 
 #include "engine/assets/shared/common/Env.hpp"
 #include "engine/assets/shared/common/Text.hpp"
@@ -63,7 +63,7 @@ namespace
     {
         Registrar()
         {
-            if constexpr (wxl::features::kModernAnim)
+            if constexpr (wxl::features::modernM2Support)
                 wxl::host::RegisterTransform("modern-anim", &TransformAnim);
         }
     } g_registrar;

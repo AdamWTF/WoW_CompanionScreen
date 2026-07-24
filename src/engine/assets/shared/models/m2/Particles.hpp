@@ -16,7 +16,7 @@
 
 #pragma once
 
-#include "engine/assets/m2/M2Format.hpp"
+#include "engine/assets/shared/models/m2/M2Format.hpp"
 
 // The byte-transform half (Compact) compiles into both the DLL and the host; the draw half
 // (OnSetupBatchAlpha) is live-engine and DLL-only, so it and its event dependency are excluded from

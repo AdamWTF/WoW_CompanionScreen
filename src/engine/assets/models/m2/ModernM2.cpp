@@ -18,8 +18,8 @@
 
 #include "config.hpp"
 #include "common/Log.hpp"
-#include "game/m2/M2.hpp"
-#include "engine/assets/m2/M2Format.hpp"
+#include "client/CM2Shared/M2.hpp"
+#include "engine/assets/shared/models/m2/M2Format.hpp"
 
 #include "engine/assets/shared/models/m2/Contract.hpp"
 #include "engine/assets/shared/models/m2/Particles.hpp"
@@ -43,7 +43,7 @@ namespace wxl::modern::assets::m2
      */
     ModernM2::ModernM2()
     {
-        if constexpr (wxl::features::kNativeM2)
+        if constexpr (wxl::features::modernM2Support)
         {
             on<&ModernM2::OnModelLoadPre>(ev::Event::OnModelLoadPre);
             on<&ModernM2::OnSkinFinalize>(ev::Event::OnM2SkinFinalize);
@@ -132,7 +132,7 @@ namespace wxl::modern::assets::m2
      */
     void RegisterNativeLoaded(void* model)
     {
-        if constexpr (wxl::features::kNativeM2)
+        if constexpr (wxl::features::modernM2Support)
             g_modernM2.registry_.Remember(model, common::AssetRegistry::kFlagHotReshaped);
         else
             (void)model;
@@ -144,7 +144,7 @@ namespace wxl::modern::assets::m2
      */
     void ForgetNativeLoaded(void* model)
     {
-        if constexpr (wxl::features::kNativeM2)
+        if constexpr (wxl::features::modernM2Support)
             g_modernM2.registry_.Forget(model);
         else
             (void)model;

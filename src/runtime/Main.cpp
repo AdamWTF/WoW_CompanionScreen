@@ -21,7 +21,7 @@
 #include "engine/storage/StorageHook.hpp"
 #include "common/Log.hpp"
 #include "game/Catalog.hpp"
-#include "game/gx/Gx.hpp"
+#include "client/CGxDevice/Gx.hpp"
 #include "runtime/ModuleInstall.hpp"
 
 /**

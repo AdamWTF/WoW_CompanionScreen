@@ -876,9 +876,21 @@ namespace wxl::runtime::storage
 
     /**
      * @brief Launches the host, connects best-effort, and installs the archive file-I/O detours.
+     *
+     * The host is opt-out: WXL_HOST=0 (or a WarcraftXL_host.disable sentinel file) skips the launch,
+     * the connection, and the file-I/O detours entirely, so every read goes straight to the native
+     * archives. Used to test the client on the native path alone -- the state the host is meant to
+     * reach once the stock code is optimized in place. The archive-mount guard (installed separately)
+     * is independent of this and stays armed.
      */
     void Install()
     {
+        if (!wxl::config::Flag("WXL_HOST", "WarcraftXL_host.disable"))
+        {
+            WLOG_INFO("Storage: host DISABLED (WXL_HOST=0 / WarcraftXL_host.disable) -- all reads native, no host IPC");
+            return;
+        }
+
         // Launch the host (if installed) and connect best-effort. Absent host: the hooks fall through to
         // native; a later request reconnects if the host comes up after this point.
         ipc::EnsureHostRunning();

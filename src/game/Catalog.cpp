@@ -16,15 +16,15 @@
 
 #include "game/Catalog.hpp"
 
-#include "game/adt/Adt.hpp"
-#include "game/camera/Camera.hpp"
-#include "game/doodad/Doodad.hpp"
-#include "game/io/Io.hpp"
-#include "game/m2/M2.hpp"
+#include "client/CMapChunk/Adt.hpp"
+#include "client/CGCamera/Camera.hpp"
+#include "client/CMapDoodad/Doodad.hpp"
+#include "client/SFile/Io.hpp"
+#include "client/CM2Shared/M2.hpp"
 #include "game/mem/Mem.hpp"
 #include "game/ui/Ui.hpp"
-#include "game/wmo/Wmo.hpp"
-#include "game/world/Loading.hpp"
+#include "client/CMapObj/Wmo.hpp"
+#include "client/CWorldScene/Loading.hpp"
 
 namespace wxl::game
 {

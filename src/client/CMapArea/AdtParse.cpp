@@ -1,0 +1,522 @@
+// Native split-ADT reader: parses the root/_tex0/_obj0 trio and applies the in-place structural fixups.
+// Copyright (C) 2026 WarcraftXL
+//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+#include "config.hpp"
+#include "engine/fdid/Fdid.hpp"
+#include "client/CMapArea/AdtSplitInternal.hpp"
+
+#include "common/Log.hpp"
+
+#include <windows.h>
+
+#include <cstdint>
+#include <cstring>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+namespace
+{
+    using namespace wxl::runtime::adtsplit::detail;
+
+    /// Indexes one ROOT MCNK (0x80-byte SMChunk header + sub-chunks) into the chunk's fill record.
+    void WalkRootMcnk(ChunkFill& f, uint8_t* hdr, uint32_t chunkSize)
+    {
+        f.rootMcnkHdr = hdr;
+        if (chunkSize < 0x80) return;
+        uint8_t* p   = hdr + 8 + 0x80;
+        uint32_t rem = chunkSize - 0x80;
+        while (rem >= 8)
+        {
+            const uint32_t tag = Rd32(p);
+            const uint32_t sz  = Rd32(p + 4);
+            if (sz > rem - 8) break;
+            uint8_t* payload = p + 8;
+            switch (tag)
+            {
+            case FourCC("MCVT"): f.mcvt = payload; break;
+            case FourCC("MCCV"): f.mccv = payload; break;
+            case FourCC("MCLV"): f.mclv = payload; break;      // parked (Cata+ baked light)
+            case FourCC("MCNR"): f.mcnr = payload; break;
+            case FourCC("MCLQ"): f.mclq = payload; f.mclqSize = sz; break;
+            case FourCC("MCSE"): f.mcse = payload; f.mcseSize = sz; break;
+            default: break; // MCDD/MCBB/... silently skipped
+            }
+            uint32_t adv = 8 + sz;
+            // Monolithic-era MCNR stores size 0x1B3 with 13 physical pad bytes before the next tag;
+            // resync when a split root kept that layout. (Direct-fill itself never needs the pad: no
+            // consumer reads past the 435 normal bytes and the stock walker is bypassed.)
+            if (tag == FourCC("MCNR") && sz == 0x1B3 && rem >= adv + 13 + 8 &&
+                !LooksLikeSubTag(p + adv) && LooksLikeSubTag(p + adv + 13))
+                adv += 13;
+            if (adv > rem) break;
+            p += adv;
+            rem -= adv;
+        }
+    }
+
+    /// Indexes one HEADER-LESS _tex0 MCNK (sub-chunks from data+0).
+    void WalkTexMcnk(ChunkFill& f, uint8_t* data, uint32_t size)
+    {
+        uint32_t off = 0;
+        while (off + 8 <= size)
+        {
+            const uint32_t tag = Rd32(data + off);
+            const uint32_t sz  = Rd32(data + off + 4);
+            if (sz > size - off - 8) break;
+            uint8_t* payload = data + off + 8;
+            switch (tag)
+            {
+            case FourCC("MCLY"): f.mcly = payload; f.mclySize = sz; break;
+            case FourCC("MCAL"): f.mcal = payload; f.mcalSize = sz; break;
+            case FourCC("MCSH"): f.mcsh = payload; f.mcshSize = sz; break;
+            default: break; // MCMT/MAMP-level oddities skipped
+            }
+            off += 8 + sz;
+        }
+    }
+
+    /// Indexes one HEADER-LESS _obj0 MCNK (sub-chunks from data+0).
+    void WalkObjMcnk(ChunkFill& f, uint8_t* data, uint32_t size)
+    {
+        uint32_t off = 0;
+        while (off + 8 <= size)
+        {
+            const uint32_t tag = Rd32(data + off);
+            const uint32_t sz  = Rd32(data + off + 4);
+            if (sz > size - off - 8) break;
+            uint8_t* payload = data + off + 8;
+            switch (tag)
+            {
+            case FourCC("MCRD"): f.mcrd = payload; f.mcrdSize = sz; break;
+            case FourCC("MCRW"): f.mcrw = payload; f.mcrwSize = sz; break;
+            default: break; // MCBB etc. skipped
+            }
+            off += 8 + sz;
+        }
+    }
+
+    /// Collapses the Cata+ 8x8-bit high-res hole map to the stock 4x4-bit u16 (a low cell is holed when
+    /// ANY of its 2x2 high bits is).
+    uint16_t CollapseHoles(uint64_t hi)
+    {
+        uint16_t low = 0;
+        for (int r = 0; r < 4; ++r)
+            for (int c = 0; c < 4; ++c)
+            {
+                const int hr = r * 2, hc = c * 2;
+                const uint64_t mask = (3ull << (hr * 8 + hc)) | (3ull << ((hr + 1) * 8 + hc));
+                if (hi & mask) low |= uint16_t(1u << (r * 4 + c));
+            }
+        return low;
+    }
+
+    /**
+     * @brief In-place fixups of one root MCNK 0x80-byte header so the stock consumers read true counts:
+     *        nLayers/nDoodadRefs/nMapObjRefs from the walked split sizes, sizeAlpha/sizeLiquid/
+     *        nSndEmitters normalized, has_mcsh matched to actual MCSH presence, and high-res holes
+     *        collapsed to the u16 the index build masks live (the u64 overlaps the dead ofsHeight/
+     *        ofsNormal fields and is zeroed after parking).
+     */
+    void FixChunkHeader(SplitTile& t, ChunkFill& f)
+    {
+        uint8_t* h = f.rootMcnkHdr + 8;
+        uint32_t flags = Rd32(h);
+        if (flags & 0x10000u) // high_res_holes
+        {
+            f.hiResHoles    = Rd64(h + 0x14);
+            f.hadHiResHoles = true;
+            ++t.hiResHoleChunks;
+            Wr16(h + 0x3C, CollapseHoles(f.hiResHoles));
+            std::memset(h + 0x14, 0, 8);
+            flags &= ~0x10000u;
+        }
+        if (f.mcsh) flags |= 0x1u; else flags &= ~0x1u;   // has_mcsh gates the shadow unpack deref
+        Wr32(h, flags);
+        Wr32(h + 0x0C, f.mclySize / 16u);                          // nLayers
+        Wr32(h + 0x10, f.nDoodadRefs);                             // nDoodadRefs
+        Wr32(h + 0x28, f.mcalSize + 8u);                           // sizeAlpha (stock: data + hdr)
+        Wr32(h + 0x2C, f.mcsh ? f.mcshSize + 8u : 8u);             // sizeShadow (unread; hygiene)
+        Wr32(h + 0x38, f.nMapObjRefs);                             // nMapObjRefs
+        Wr32(h + 0x5C, f.mcse ? f.mcseSize / 0x1Cu : 0u);          // nSndEmitters
+        Wr32(h + 0x64, (f.mclq && f.mclqSize) ? f.mclqSize + 8u : 8u); // sizeLiquid (>8 gates MCLQ)
+        if (f.mclv) ++t.mclvChunks;
+    }
+
+    /**
+     * @brief The whole per-tile parse: indexes the three resident buffers, builds the MCRF concat pool,
+     *        fixes the 256 root headers in place, synthesizes MCIN (+ empty top-level chunks for absent
+     *        tables) and patches the root MHDR offsets so the UNCHANGED stock CMapArea::Create wires
+     *        every area field itself.
+     * @return false only on catastrophic input (no MVER/MHDR, zero MCNKs).
+     */
+    bool ParseAndPatch(SplitTile& t)
+    {
+        uint8_t* rb = t.rootBuf;
+        const uint32_t rs = t.rootSize;
+        if (!rb || rs < 0x60) return false;
+        if (Rd32(rb) != FourCC("MVER")) return false;
+        const uint32_t mverSize = Rd32(rb + 4);
+        if (mverSize > rs || 8 + mverSize + 8 > rs) return false;
+        uint8_t* mhdrHdr = rb + 8 + mverSize;
+        if (Rd32(mhdrHdr) != FourCC("MHDR")) return false;
+        const uint32_t mhdrSize = Rd32(mhdrHdr + 4);
+        if (mhdrSize < 0x34 || (mhdrHdr - rb) + 8ull + mhdrSize > rs) return false;
+        uint8_t* mhdr = mhdrHdr + 8;
+
+        // --- index the root ---
+        uint8_t* mh2o = nullptr; uint8_t* mfbo = nullptr;
+        uint32_t nRoot = 0;
+        WalkTop(rb, rs, [&](uint32_t tag, uint8_t* hdr, uint32_t sz) {
+            if (tag == FourCC("MCNK")) { if (nRoot < 256) WalkRootMcnk(t.chunks[nRoot], hdr, sz); ++nRoot; }
+            else if (tag == FourCC("MH2O")) mh2o = hdr;
+            else if (tag == FourCC("MFBO")) mfbo = hdr;
+        });
+        if (nRoot == 0) return false;
+        t.chunkCount = nRoot < 256 ? nRoot : 256;
+        if (nRoot != 256)
+            WLOG_WARN("adt-split: tile %d_%d root has %u MCNKs (expected 256)", t.tileFirst, t.tileSecond, nRoot);
+
+        // --- index _tex0 ---
+        uint8_t* mtex = nullptr; uint8_t* mtxf = nullptr;
+        if (t.texBuf)
+        {
+            uint32_t nTex = 0;
+            WalkTop(t.texBuf, t.texSize, [&](uint32_t tag, uint8_t* hdr, uint32_t sz) {
+                if (tag == FourCC("MCNK")) { if (nTex < 256) WalkTexMcnk(t.chunks[nTex], hdr + 8, sz); ++nTex; }
+                else if (tag == FourCC("MTEX")) { mtex = hdr; t.mtexData = hdr + 8; t.mtexSizeParked = sz; }
+                else if (tag == FourCC("MTXF")) { mtxf = hdr; t.mtxfData = hdr + 8; t.mtxfSize = sz; }
+                else if (tag == FourCC("MDID"))                                               // texture FileDataIDs
+                {
+                    const uint32_t n = sz / 4u;
+                    t.mdid.resize(n);
+                    for (uint32_t i = 0; i < n; ++i) t.mdid[i] = Rd32(hdr + 8 + i * 4);
+                }
+                else if (tag == FourCC("MHID"))                                               // height FileDataIDs
+                {
+                    const uint32_t n = sz / 4u;
+                    t.mhid.resize(n);
+                    for (uint32_t i = 0; i < n; ++i) t.mhid[i] = Rd32(hdr + 8 + i * 4);
+                }
+                else if (tag == FourCC("MTXP")) { t.mtxp = hdr + 8; t.mtxpSize = sz; }        // height params
+                else if (tag == FourCC("MAMP")) { if (sz) t.mampValue = hdr[8]; }             // parked
+            });
+        }
+
+        // --- index _obj0 ---
+        uint8_t* mmdx = nullptr; uint8_t* mmid = nullptr; uint8_t* mwmo = nullptr;
+        uint8_t* mwid = nullptr; uint8_t* mddf = nullptr; uint8_t* modf = nullptr;
+        if (t.objBuf)
+        {
+            uint32_t nObj = 0;
+            WalkTop(t.objBuf, t.objSize, [&](uint32_t tag, uint8_t* hdr, uint32_t sz) {
+                if (tag == FourCC("MCNK")) { if (nObj < 256) WalkObjMcnk(t.chunks[nObj], hdr + 8, sz); ++nObj; }
+                else if (tag == FourCC("MMDX")) mmdx = hdr;
+                else if (tag == FourCC("MMID")) mmid = hdr;
+                else if (tag == FourCC("MWMO")) mwmo = hdr;
+                else if (tag == FourCC("MWID")) mwid = hdr;
+                else if (tag == FourCC("MDDF")) mddf = hdr;
+                else if (tag == FourCC("MODF")) modf = hdr;
+            });
+        }
+
+        // --- doodad FileDataID resolution. A Legion+ _obj0 places doodads by FileDataID: the MDDF entry
+        // flag 0x40 means nameId IS the model's FileDataID and there is no MMDX/MMID name table. Resolve
+        // each via ModelFilePath into a synthesized MMDX (paths) + MMID (offsets), rewrite every such
+        // entry's nameId to its MMID index and clear the 0x40 flag -- so the stock placement path hands
+        // the native M2 reader a valid name. Entry COUNT/order is preserved (per-chunk MCRD refs index
+        // it); only nameId/flags change. Unresolved ids share one empty-name slot (stock -> ErrorCube).
+        if (mddf)
+        {
+            const uint32_t nDood = Rd32(mddf + 4) / 0x24u;
+            std::vector<uint8_t>  paths;   // MMDX payload
+            std::vector<uint32_t> offs;    // MMID payload (byte offset into paths, one per name slot)
+            std::unordered_map<uint32_t, uint32_t> fidToIdx;
+            uint32_t unresolvedIdx = 0xFFFFFFFFu, resolved = 0;
+            auto intern = [&](const char* p) -> uint32_t {
+                const uint32_t idx = static_cast<uint32_t>(offs.size());
+                offs.push_back(static_cast<uint32_t>(paths.size()));
+                const size_t len = p ? std::strlen(p) : 0;
+                paths.insert(paths.end(), p, p + len);
+                paths.push_back('\0');
+                return idx;
+            };
+            for (uint32_t i = 0; i < nDood; ++i)
+            {
+                uint8_t*  e = mddf + 8 + i * 0x24u;
+                uint16_t  flags; std::memcpy(&flags, e + 0x22, 2);
+                if ((flags & 0x40u) == 0) continue;                 // already a name-table index
+                const uint32_t fid = Rd32(e);
+                uint32_t idx;
+                auto it = fidToIdx.find(fid);
+                if (it != fidToIdx.end()) idx = it->second;
+                else
+                {
+                    const char* path = wxl::fdid::ResolveModel(fid);
+                    if (path && path[0]) { idx = intern(path); ++resolved; }
+                    else { if (unresolvedIdx == 0xFFFFFFFFu) unresolvedIdx = intern(""); idx = unresolvedIdx; }
+                    fidToIdx.emplace(fid, idx);
+                }
+                Wr32(e, idx);                                       // nameId -> MMID index
+                flags &= ~0x40u; std::memcpy(e + 0x22, &flags, 2);  // clear the filedata-id flag
+            }
+            if (!offs.empty())
+            {
+                t.mmdxChunk.assign(8, 0);
+                Wr32(t.mmdxChunk.data(), FourCC("MMDX"));
+                Wr32(t.mmdxChunk.data() + 4, static_cast<uint32_t>(paths.size()));
+                t.mmdxChunk.insert(t.mmdxChunk.end(), paths.begin(), paths.end());
+                t.mmidChunk.assign(8, 0);
+                Wr32(t.mmidChunk.data(), FourCC("MMID"));
+                Wr32(t.mmidChunk.data() + 4, static_cast<uint32_t>(offs.size() * 4u));
+                for (uint32_t o : offs) { uint8_t b[4]; Wr32(b, o); t.mmidChunk.insert(t.mmidChunk.end(), b, b + 4); }
+                mmdx = t.mmdxChunk.data();
+                mmid = t.mmidChunk.data();
+            }
+            g_statDoodadModels.fetch_add(resolved, std::memory_order_relaxed);
+        }
+
+        // --- map-object FileDataID resolution. Same shape as the doodads above, with one hard
+        // difference: a doodad whose name does not resolve degrades to the ErrorCube, a MAP OBJECT kills
+        // the client. CMapChunk::CreateRefs hands the ref straight to CMap::CreateMapObjDef ->
+        // CMapObj::Create, which hashes the path immediately -- an absent name faults in SStrHash before
+        // any "file not found" path can run. So a resolved entry is rewritten to an MWID index exactly
+        // like a doodad, and an UNRESOLVED entry is left untouched in MODF but struck from every MCRW
+        // ref list, which is the only thing that would have spawned it.
+        if (modf)
+        {
+            const uint32_t nWmo = Rd32(modf + 4) / 0x40u;
+            std::vector<uint8_t>  paths;   // MWMO payload
+            std::vector<uint32_t> offs;    // MWID payload (byte offset into paths, one per name slot)
+            std::unordered_map<uint32_t, uint32_t> fidToIdx;
+            uint32_t resolved = 0, dropped = 0;
+            t.modfDead.assign(nWmo, 0);
+            auto intern = [&](const char* p) -> uint32_t {
+                const uint32_t idx = static_cast<uint32_t>(offs.size());
+                offs.push_back(static_cast<uint32_t>(paths.size()));
+                const size_t len = p ? std::strlen(p) : 0;
+                paths.insert(paths.end(), p, p + len);
+                paths.push_back('\0');
+                return idx;
+            };
+            for (uint32_t i = 0; i < nWmo; ++i)
+            {
+                uint8_t*  e = modf + 8 + i * 0x40u;
+                uint16_t  flags; std::memcpy(&flags, e + 0x38, 2);
+                if ((flags & 0x8u) == 0) continue;                  // already a name-table index
+                const uint32_t fid = Rd32(e);
+                auto it = fidToIdx.find(fid);
+                if (it != fidToIdx.end())
+                {
+                    if (it->second == 0xFFFFFFFFu) { t.modfDead[i] = 1; ++dropped; continue; }
+                    Wr32(e, it->second);
+                    flags &= ~0x8u; std::memcpy(e + 0x38, &flags, 2);
+                    continue;
+                }
+                const char* path = wxl::fdid::ResolveModel(fid);
+                if (path && path[0])
+                {
+                    const uint32_t idx = intern(path);
+                    fidToIdx.emplace(fid, idx);
+                    Wr32(e, idx);
+                    flags &= ~0x8u; std::memcpy(e + 0x38, &flags, 2);
+                    ++resolved;
+                }
+                else
+                {
+                    fidToIdx.emplace(fid, 0xFFFFFFFFu);
+                    t.modfDead[i] = 1;
+                    ++dropped;
+                }
+            }
+            if (!offs.empty())
+            {
+                t.mwmoChunk.assign(8, 0);
+                Wr32(t.mwmoChunk.data(), FourCC("MWMO"));
+                Wr32(t.mwmoChunk.data() + 4, static_cast<uint32_t>(paths.size()));
+                t.mwmoChunk.insert(t.mwmoChunk.end(), paths.begin(), paths.end());
+                t.mwidChunk.assign(8, 0);
+                Wr32(t.mwidChunk.data(), FourCC("MWID"));
+                Wr32(t.mwidChunk.data() + 4, static_cast<uint32_t>(offs.size() * 4u));
+                for (uint32_t o : offs) { uint8_t b[4]; Wr32(b, o); t.mwidChunk.insert(t.mwidChunk.end(), b, b + 4); }
+                mwmo = t.mwmoChunk.data();
+                mwid = t.mwidChunk.data();
+            }
+            g_statMapObjects.fetch_add(resolved, std::memory_order_relaxed);
+            g_statMapObjectsDropped.fetch_add(dropped, std::memory_order_relaxed);
+            if (dropped)
+                WLOG_WARN("adt-split: tile %d_%d dropped %u unresolved map object(s) of %u "
+                          "(no ModelFilePath entry; refs struck from MCRW)",
+                          t.tileFirst, t.tileSecond, dropped, nWmo);
+        }
+
+        // Interim: a Legion+ MH2O uses liquid-type ids beyond 3.3.5's LiquidType.dbc, which the stock
+        // liquid-sound query dereferences as a null record (#132 near water). Drop the tile's water by
+        // zeroing its MHDR offset -- CMapArea::Create then builds no liquid, so the query finds none.
+        if constexpr (wxl::features::modernADTSupport)
+            mh2o = nullptr;
+
+        // --- strike unresolved map objects from the per-chunk MCRW ref lists. Runs before the MCRF pool
+        // so the concat below already sees the final sizes. The payload is rebuilt into a tile-owned
+        // buffer sized to the worst case UP FRONT, so the per-chunk pointers taken here can never be
+        // invalidated by a regrow. MODF itself is left intact -- entry indices stay valid.
+        if (!t.modfDead.empty())
+        {
+            uint32_t deadCount = 0;
+            for (uint8_t d : t.modfDead) deadCount += d;
+            if (deadCount)
+            {
+                uint32_t total = 0;
+                for (uint32_t i = 0; i < t.chunkCount; ++i) total += t.chunks[i].mcrwSize;
+                t.mcrwFiltered.resize(total);
+                const uint32_t nWmo = static_cast<uint32_t>(t.modfDead.size());
+                uint32_t poolAt = 0;
+                for (uint32_t i = 0; i < t.chunkCount; ++i)
+                {
+                    ChunkFill& f = t.chunks[i];
+                    if (!f.mcrw || !f.mcrwSize) continue;
+                    uint8_t* dst = t.mcrwFiltered.data() + poolAt;
+                    uint32_t kept = 0;
+                    for (uint32_t r = 0; r < f.mcrwSize / 4u; ++r)
+                    {
+                        const uint32_t idx = Rd32(f.mcrw + r * 4u);
+                        if (idx >= nWmo || t.modfDead[idx]) continue;
+                        Wr32(dst + kept * 4u, idx);
+                        ++kept;
+                    }
+                    f.mcrw     = dst;
+                    f.mcrwSize = kept * 4u;
+                    poolAt    += kept * 4u;
+                }
+            }
+        }
+
+        // --- MCRF fixup pool: refs must be ONE contiguous u32 array, doodads first then wmos. When only
+        // one side exists the split payload is aliased directly (zero copy). Both lists stay index-
+        // aligned with their own table: MDDF keeps its entry count (only nameId/flags were rewritten),
+        // and MODF keeps every entry too -- an unresolved map object was removed from the ref lists just
+        // above, never from the table, so no index shifts.
+        uint32_t poolBytes = 0;
+        for (uint32_t i = 0; i < t.chunkCount; ++i)
+        {
+            ChunkFill& f = t.chunks[i];
+            if (f.mcrdSize && f.mcrwSize) poolBytes += f.mcrdSize + f.mcrwSize;
+        }
+        t.mcrfPool.resize(poolBytes);
+        uint32_t poolOff = 0;
+        for (uint32_t i = 0; i < t.chunkCount; ++i)
+        {
+            ChunkFill& f = t.chunks[i];
+            const uint32_t dr = f.mcrdSize;
+            const uint32_t wr = f.mcrwSize;
+            f.nDoodadRefs = dr / 4u;
+            f.nMapObjRefs = wr / 4u;
+            if (dr && wr)
+            {
+                uint8_t* dst = t.mcrfPool.data() + poolOff;
+                std::memcpy(dst, f.mcrd, dr);
+                std::memcpy(dst + dr, f.mcrw, wr);
+                f.mcrf = dst;
+                poolOff += dr + wr;
+            }
+            else if (dr) f.mcrf = f.mcrd;
+            else if (wr) f.mcrf = f.mcrw;
+            else         f.mcrf = nullptr;
+        }
+        g_statMcrfBytes.fetch_add(poolBytes, std::memory_order_relaxed);
+
+        // --- per-chunk root header fixups (counts, holes, has_mcsh) ---
+        for (uint32_t i = 0; i < t.chunkCount; ++i)
+            FixChunkHeader(t, t.chunks[i]);
+
+        // --- synthesize MCIN (absolute offsets into the root buffer, as stock PrepareChunk adds them to
+        // area+0x80). Missing slots on a short root duplicate the last chunk so a stray PrepareChunk
+        // never dereferences garbage.
+        t.mcin.assign(8 + 256 * 16, 0);
+        Wr32(t.mcin.data(), FourCC("MCIN"));
+        Wr32(t.mcin.data() + 4, 256 * 16);
+        for (uint32_t i = 0; i < 256; ++i)
+        {
+            const ChunkFill& f = t.chunks[i < t.chunkCount ? i : t.chunkCount - 1];
+            uint8_t* e = t.mcin.data() + 8 + i * 16;
+            Wr32(e + 0, static_cast<uint32_t>(f.rootMcnkHdr - rb)); // absolute file offset
+            Wr32(e + 4, Rd32(f.rootMcnkHdr + 4) + 8);               // size (unread; hygiene)
+            // flags(+8) = 0 (not built), asyncId(+12) = 0
+        }
+
+        // --- synthesize empty top-level chunks for whatever the split trio did not provide;
+        // CMapArea::Create dereferences these eight unconditionally.
+        t.synthEmpty.reserve(8 * 8);
+        auto synth = [&](uint32_t tag) -> uint8_t* {
+            const size_t at = t.synthEmpty.size();
+            t.synthEmpty.resize(at + 8, 0);
+            Wr32(t.synthEmpty.data() + at, tag);
+            return t.synthEmpty.data() + at;
+        };
+        if (!mtex) mtex = synth(FourCC("MTEX"));
+        if (!mmdx) mmdx = synth(FourCC("MMDX"));
+        if (!mmid) mmid = synth(FourCC("MMID"));
+        if (!mwmo) mwmo = synth(FourCC("MWMO"));
+        if (!mwid) mwid = synth(FourCC("MWID"));
+        if (!mddf) mddf = synth(FourCC("MDDF"));
+        if (!modf) modf = synth(FourCC("MODF"));
+
+        // --- patch the root MHDR so the stock parser finds everything. Offsets are stored as
+        // (chunkHeader - mhdr); 32-bit wraparound makes cross-buffer deltas exact.
+        auto delta = [&](const uint8_t* hdr) -> uint32_t {
+            return hdr ? static_cast<uint32_t>(hdr - mhdr) : 0u;
+        };
+        Wr32(mhdr + 0x04, delta(t.mcin.data()));
+        Wr32(mhdr + 0x08, delta(mtex));
+        Wr32(mhdr + 0x0C, delta(mmdx));
+        Wr32(mhdr + 0x10, delta(mmid));
+        Wr32(mhdr + 0x14, delta(mwmo));
+        Wr32(mhdr + 0x18, delta(mwid));
+        Wr32(mhdr + 0x1C, delta(mddf));
+        Wr32(mhdr + 0x20, delta(modf));
+        Wr32(mhdr + 0x24, delta(mfbo));
+        Wr32(mhdr + 0x28, delta(mh2o)); // gated by non-zero offset + chunk size, both true iff found
+        Wr32(mhdr + 0x2C, delta(mtxf));
+        uint32_t mhdrFlags = Rd32(mhdr);
+        mhdrFlags = mfbo ? (mhdrFlags | 0x1u) : (mhdrFlags & ~0x1u);
+        Wr32(mhdr, mhdrFlags);
+        // 3.3.5 derives the alpha texture dim as 0x40 >> byte(MHDR+0x30); Cata parks its MAMP amplitude
+        // there. Park the value and zero the byte so the dim stays the stock 64.
+        if (mhdrSize > 0x30)
+        {
+            if (mhdr[0x30]) t.mampValue = mhdr[0x30];
+            mhdr[0x30] = 0;
+        }
+        return true;
+    }
+}
+
+namespace wxl::runtime::adtsplit::detail
+{
+    /// SEH shell around the parser: a fault on malformed data becomes a logged failure, never a crash.
+    /// No unwindable locals here (C2712).
+    bool ParseAndPatchGuarded(SplitTile* t)
+    {
+        __try
+        {
+            return ParseAndPatch(*t);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return false;
+        }
+    }
+}

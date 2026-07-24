@@ -61,7 +61,6 @@ namespace wxl::events
         OnWorldEnter,    // the world/map finished loading, in-world   (WorldEnterArgs)
         OnWorldLeave,    // the world/map is being torn down           (WorldLeaveArgs)
         OnBeforeHostLaunch, // the DLL is about to launch the asset host (HostLaunchArgs)
-        OnUiDraw,        // wxl.ui immediate-mode draw slot, between NewFrame and Render (UiDrawArgs)
         OnGrassWind,     // grass wind integrator advanced this frame (GrassWindArgs)
         OnAdtHeightBlend,// a terrain PS permutation was patched for height blending (AdtHeightBlendArgs)
         OnM2NativeLoad,  // a modern MD21 model was direct-filled by the native reader (M2NativeLoadArgs)
@@ -242,12 +241,6 @@ namespace wxl::events
      *        cancel is never null and starts false. Fired once, before the CreateProcess.
      */
     struct HostLaunchArgs    { const char* exePath; bool* cancel; };
-    /**
-     * @brief Args for OnUiDraw, the once-per-frame wxl.ui immediate-mode slot. Emitted by the ImGui host
-     *        between ImGui::NewFrame and ImGui::Render, so a subscriber's wxl.ui.* calls land in the open
-     *        frame. Carries nothing: the drawing target is the implicit ImGui frame.
-     */
-    struct UiDrawArgs        { };
     /**
      * @brief Args for OnGrassWind, emitted once per frame when the grass-wind integrator advances (only
      *        while grass is drawing — the tick lives on the detail-doodad chunk pass). dirX/dirY is the

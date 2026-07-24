@@ -61,7 +61,7 @@ namespace wxl::modern::assets::m3
         ParticleProbe()
         {
             // Subscribe the probe only when the modern-M3 format is compiled in; disabled, the instance is inert.
-            if constexpr (!wxl::features::kModernM3) return;
+            if constexpr (!wxl::features::modernM2Support) return;
             char env[8]{};
             const DWORD n = GetEnvironmentVariableA("WXL_PARTICLE_PROBE", env, sizeof env);
             const bool armed = n > 0 && env[0] != '0' && env[0] != 'n' && env[0] != 'N' &&

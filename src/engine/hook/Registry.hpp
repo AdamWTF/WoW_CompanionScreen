@@ -71,7 +71,7 @@ namespace wxl::hook
 /**
  * @brief Registers a feature installer at static-init time, run in the Normal phase.
  * @param name    string label for logging.
- * @param toggle  a wxl::features::k* constexpr bool; when false the feature never installs.
+ * @param toggle  a constexpr bool (e.g. a wxl::features switch); when false the feature never installs.
  * @param fn      bool(*)() installer.
  */
 #define WXL_REGISTER_FEATURE(name, toggle, fn)                                 \
@@ -84,7 +84,7 @@ namespace wxl::hook
 /**
  * @brief Registers a feature installer at static-init time in an explicit phase.
  * @param name    string label for logging.
- * @param toggle  a wxl::features::k* constexpr bool; when false the feature never installs.
+ * @param toggle  a constexpr bool (e.g. a wxl::features switch); when false the feature never installs.
  * @param fn      bool(*)() installer.
  * @param phase   a ::wxl::hook::Phase value.
  */

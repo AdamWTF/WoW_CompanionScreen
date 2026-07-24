@@ -59,9 +59,8 @@ namespace wxl::modern::assets::textures::blp
         {
             Registrar()
             {
-                // Install the mip-scratch widen only when the modern-BLP format is compiled in; disabled, the registrar is inert.
-                if constexpr (wxl::features::kModernBlp)
-                    wxl::runtime::modules::RegisterBoot("wxl-modern-assets blp scratch", &WidenMipScratch);
+                // Install the mip-scratch widen ahead of the client's boot-time scratch allocation.
+                wxl::runtime::modules::RegisterBoot("wxl-modern-assets blp scratch", &WidenMipScratch);
             }
         } g_registrar;
     }

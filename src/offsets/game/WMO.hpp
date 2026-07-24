@@ -68,6 +68,17 @@ namespace wxl::offsets::game::wmo
     // root (which ships no MOTX at all). The last 8 bytes are NOT file data: the client stores the two
     // live GPU texture handles there, which is why CreateMaterials zeroes them at load.
     constexpr size_t kMomtStride       = 0x40;
+    constexpr size_t kOffMomtFlags     = 0x00; // u32; read at material+0 by both batch draws (0x007A9380 /
+                                               // 0x007AC6A0) to fork the per-batch lighting mode
+    // Bit 0x1 = unlit material: both draws pass `~flags & 1` (or the trans/exterior-segment variant) to
+    // the per-batch light setter, so an unlit batch renders with lighting OFF (vertex colour multiplies
+    // the texture) while a lit batch renders from the scene/WMO ambient light. The modern combine keys
+    // the SAME bit: unlit multiplies 2x vertex colour, lit ADDS 2x vertex colour to its ambient.
+    constexpr uint32_t kMomtFlagUnlit  = 0x1;
+    // Bits 0x40 / 0x80 = clamp S / clamp T: both batch draws bind stage 0 with wrap = the INVERSE of
+    // these bits (`~(flags >> 6) & 1`, `~(flags >> 7) & 1`), so a clear bit means repeat.
+    constexpr uint32_t kMomtFlagClampS = 0x40;
+    constexpr uint32_t kMomtFlagClampT = 0x80;
     constexpr size_t kOffMomtShader    = 0x04; // u32; CreateMaterial rewrites 3/5/6 -> 4 when tex2 is empty
     // Highest shader id this client has an effect for. The lookup behind it is UNCHECKED: a higher id
     // selects past the effect table, CShaderEffect::SetCurrent stores a null current effect, and the
@@ -76,8 +87,18 @@ namespace wxl::offsets::game::wmo
     constexpr size_t kOffMomtBlend     = 0x08; // u32
     constexpr size_t kOffMomtTexture1  = 0x0C; // u32 MOTX offset | modern FileDataID
     constexpr size_t kOffMomtTexture2  = 0x18; // u32 MOTX offset | modern FileDataID
+    constexpr size_t kOffMomtDiffColor = 0x1C; // u32 BGRA diffuse tint colour
     constexpr size_t kOffMomtHandle1   = 0x38; // runtime texture handle (0 = not loaded yet)
     constexpr size_t kOffMomtHandle2   = 0x3C; // runtime texture handle
+    // Modern shader 23: a four-layer height-blended material. Its MOMT record repurposes the fields past
+    // texture_2 as SEVEN extra texture FileDataIDs: diffuse layers A..D at +0x0C/+0x18/+0x24/+0x28, an
+    // environment map at +0x2C, and height maps A..D at +0x30..+0x3C. The last two height slots ALIAS the
+    // runtime handle fields above, which material creation overwrites -- a reader must copy all nine ids
+    // out of the record BEFORE the client's material path runs (i.e. during the root walk).
+    constexpr uint32_t kShaderIdLayered = 23;
+    constexpr size_t kOffMomtLayerDiffuse[4] = { 0x0C, 0x18, 0x24, 0x28 };
+    constexpr size_t kOffMomtLayerEnv        = 0x2C;
+    constexpr size_t kOffMomtLayerHeight[4]  = { 0x30, 0x34, 0x38, 0x3C };
     // Name CreateMaterial substitutes for an empty texture_1, and the global that disables the second
     // texture entirely when the shader pipeline is off.
     constexpr const char kFallbackTextureName[] = "createcrappygreentexture.blp";

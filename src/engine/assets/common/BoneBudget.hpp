@@ -21,8 +21,8 @@
 #include <string_view>
 #include <vector>
 
-#include "game/m2/M2.hpp"
-#include "engine/assets/m2/M2Format.hpp"
+#include "client/CM2Shared/M2.hpp"
+#include "engine/assets/shared/models/m2/M2Format.hpp"
 
 /**
  * @brief Partitions any drawn submesh whose per-draw bone palette exceeds the client ceiling into

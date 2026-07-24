@@ -117,6 +117,11 @@ namespace wxl::offsets::engine::gx
     constexpr uintptr_t kWorldRenderEpilogueAnchor = 0x004FB074; // landmark only, do NOT hook
     using WorldRenderFinalizeFn = void(__cdecl*)(void* worldFrame);
 
+    // Sets a texture object's wrap mode (tex, wrapU, wrapV): 1 = repeat, 0 = clamp. The WMO batch draws
+    // derive both flags from the material record before binding stage 0.
+    constexpr uintptr_t kGxTexSetWrap = 0x00681450;
+    using GxTexSetWrapFn = void(__cdecl*)(void* gxTex, int wrapU, int wrapV);
+
     // Central texture-data upload to the device (deviceTex, x, y, x2, y2, flag). Full-surface uploads pass
     // (tex, 0, 0, width, height, 1), so width = x2 - x, height = y2 - y. The single __cdecl choke point all
     // upload paths funnel through.

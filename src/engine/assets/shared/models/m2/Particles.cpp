@@ -23,7 +23,7 @@
 #include <cstring>
 
 #ifndef WXL_HOST
-#include "game/m2/M2.hpp" // PushAlphaRef: live-engine, DLL-only draw path
+#include "client/CM2Shared/M2.hpp" // PushAlphaRef: live-engine, DLL-only draw path
 #endif
 
 namespace wxl::modern::assets::m2::particles

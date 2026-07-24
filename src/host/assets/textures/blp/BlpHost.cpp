@@ -228,9 +228,8 @@ namespace
     {
         Registrar()
         {
-            // Install the host BLP transform only when the modern-BLP format is compiled in; disabled, the registrar is inert.
-            if constexpr (wxl::features::kModernBlp)
-                wxl::host::RegisterTransform("modern-blp", &TransformBlp);
+            // Install the host BLP transform.
+            wxl::host::RegisterTransform("modern-blp", &TransformBlp);
         }
     } g_registrar;
 }
