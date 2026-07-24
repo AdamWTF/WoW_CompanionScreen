@@ -310,7 +310,19 @@ namespace wxl::offsets::game::m2
     // POST-hook guarantees the bone copy is the last write before GPU upload, regardless of
     // scene-list ordering. Both sites use fastcall (ecx = instance) with 5 stack args; ret 0x14.
     constexpr uintptr_t kBuildBonePalette = 0x0082F0F0;
+    // Single-bone fast-path palette build: same call shape (fastcall, 5 stack args, ret 0x14).
+    // Instances with init-flag bit 0x1000 route here; the build is one matrix copy, so the cadence
+    // skip never applies to it and the recomposition walk calls it directly for such children.
+    constexpr uintptr_t kBuildBonePaletteSimple = 0x0082E140;
     constexpr uintptr_t kRenderBatchShadowMap = 0x00829BA0;
+
+    // Return addresses of the scene walk's per-model palette-build calls. Cadence skipping engages
+    // only when the build was invoked from one of these three sites; every other caller (on-demand
+    // rebuilds after a sequence change, attachment recursion, particle spawn models) expects a
+    // fresh full pose and must always get one.
+    constexpr uintptr_t kPaletteCallRetSceneA = 0x00821B53; // frame driver walk (also threaded main half)
+    constexpr uintptr_t kPaletteCallRetSceneB = 0x00821BDD; // frame driver walk, second branch
+    constexpr uintptr_t kPaletteCallRetWorker = 0x0081CEFF; // worker thread's half of the interleaved walk
 
     // --- track evaluators (sampled per bone / per light each frame from the bone-palette build) ---
     // Vec3 track evaluator (model, runtimeBone, track, out, baseValue): samples a translation/scale
@@ -319,6 +331,29 @@ namespace wxl::offsets::game::m2
     // Quaternion track evaluator (model, runtimeBone, track, out, baseValue): samples a rotation track
     // for the current animation index and writes the interpolated quaternion into out.
     constexpr uintptr_t kTrackEvalQuat = 0x00828680;
+
+    // --- matrix/vector helpers the palette build routes its math through -----------------------
+    // The recomposition walk calls these same entries so a recomposed palette is bit-identical to a
+    // fully built one; only a handful of scalar expressions are ever evaluated outside them.
+    // Rotation-matrix build from a quaternion: this = destination matrix, one stack arg (quat).
+    // Writes all 16 elements (row 3 = 0,0,0,1).
+    constexpr uintptr_t kMatrixFromQuat = 0x004C1DE0;
+    using C44_FromQuatFn = void*(__thiscall*)(void* mat, const float* quat);
+    // Row scale: rows 0..2 multiplied component-wise by v.x / v.y / v.z.
+    constexpr uintptr_t kMatrixScaleRows = 0x004C1B90;
+    using C44_ScaleRowsFn = void(__thiscall*)(void* mat, const float* vec3);
+    // Pre-translate: folds a translation (applied before the matrix) into the translation row.
+    constexpr uintptr_t kMatrixPreTranslate = 0x004C1B30;
+    using C44_PreTranslateFn = void(__thiscall*)(void* mat, const float* vec3);
+    // In-place multiply: this = this * other (row-vector convention).
+    constexpr uintptr_t kMatrixMulAssign = 0x004C2370;
+    using C44_MulAssignFn = void(__thiscall*)(void* mat, const void* other);
+    // Affine point transform: out = vec * mat, including the translation row. cdecl, returns out.
+    constexpr uintptr_t kVec3Transform = 0x004C21B0;
+    using C3_TransformFn = float*(__cdecl*)(float* out, const float* vec3, const void* mat);
+    // In-place 3-component normalize.
+    constexpr uintptr_t kVec3Normalize = 0x004C3600;
+    using C3_NormalizeFn = void(__thiscall*)(float* vec3);
 
     // --- ribbon ---
     // Ribbon-emitter de-relocator: pointer-fixes each ribbon emitter's sub-array offsets.
@@ -369,12 +404,43 @@ namespace wxl::offsets::game::m2
     constexpr uintptr_t kCharModelSlotClear    = 0x004EE6D0;
 
     // --- runtime instance object fields ---
+    // Low bit set on a PARENT instance: its children derive their own view distance instead of
+    // inheriting the parent's (read by the palette build's distance step).
+    constexpr size_t kOffInstOwnerFlags     = 0x04;
     constexpr size_t kOffInstInitFlags      = 0x10;  // init flags (bit 0 = anim init done; bit 6 = char-select present)
     constexpr size_t kOffInstModel          = 0x2C;  // -> runtime model
     constexpr size_t kOffInstScene          = 0x28;  // -> the CM2Scene this instance belongs to
+    constexpr size_t kOffInstCmdRingHead    = 0x34;  // deferred-command ring cursor; equal to the tail when idle
+    constexpr size_t kOffInstCmdRingTail    = 0x38;
     constexpr size_t kOffInstLastAnimFrame  = 0x3C;  // uint32: scene frame this instance last animated on
+    constexpr size_t kOffSceneClock         = 0x0C;  // uint32 on the scene: absolute animation clock (ms)
     constexpr size_t kOffSceneFrame         = 0x14;  // uint32 on CM2Scene: the current frame counter
     constexpr size_t kOffInstParent         = 0x48;  // -> parent M2 instance (null for root)
+    constexpr size_t kOffInstAttachEnable   = 0x4C;  // -> per-attachment enable records (stride 0xC, u8 at +0x8)
+    constexpr size_t kOffInstAttachSlot     = 0x54;  // uint32: attachment index this instance hangs on (0xFFFF = none)
+    constexpr size_t kOffInstAttachedHead   = 0x58;  // -> first attached child instance
+    constexpr size_t kOffInstAttachedNext   = 0x60;  // -> next sibling in the parent's attached-child list
+    constexpr size_t kOffInstFreezeAnchor   = 0x64;  // uint32: nonzero arms externally driven pose freezing
+    constexpr size_t kOffInstViewDistSq     = 0x88;  // float: squared view-space distance (also the draw sort key)
+    constexpr size_t kOffInstConstTrackGate = 0x90;  // uint32: once-only constant-track sampling gate
+    constexpr size_t kOffInstBoneStates     = 0x94;  // -> runtime bone-state block (stride kRuntimeBoneStride)
+    constexpr size_t kOffInstTexBinding     = 0x174; // shared texture-binding slot mirrored from the parent
+    constexpr size_t kOffInstSpeedBase      = 0x178; // float: base playback speed
+    constexpr size_t kOffInstAlphaBase      = 0x17C; // float: base alpha factor
+    constexpr size_t kOffInstScaleBase      = 0x180; // float[3]: base scale
+    constexpr size_t kOffInstTransBase      = 0x18C; // float[3]: base translation
+    constexpr size_t kOffInstSpeedStage     = 0x198; // float: staged speed consumed by children/particles
+    constexpr size_t kOffInstAlphaStage     = 0x19C; // float: staged alpha
+    constexpr size_t kOffInstScaleStage     = 0x1A0; // float[3]: staged scale passed into child recursion
+    constexpr size_t kOffInstTransStage     = 0x1AC; // float[3]: staged translation
+
+    // Init-flag bits (kOffInstInitFlags) the palette build and its cadence logic consult.
+    constexpr uint32_t kInstFlagLive       = 0x1;      // instance participates in animation at all
+    constexpr uint32_t kInstFlagAnimDirty  = 0x400;    // pending state change; cleared by the full build tail
+    constexpr uint32_t kInstFlagSimplePath = 0x1000;   // routed to the single-bone fast-path build
+    constexpr uint32_t kInstFlagChildBase  = 0x40000;  // unslotted child rides the parent's palette slot 0
+    constexpr uint32_t kInstFlagFixedTrans = 0x80000;  // staged translation ignores the caller's offset
+    constexpr uint32_t kInstFlagFixedSpeed = 0x100000; // staged speed ignores the caller's multiplier
     constexpr size_t kOffInstBonePalette    = 0x98;  // -> bone matrices, row-major 4x4
     constexpr size_t kBonePaletteStride     = 0x40;  // one bone matrix
     // Model->world placement, an INLINE 64-byte C44Matrix (the shadow loop reads &instance+0xb4).
@@ -426,8 +492,20 @@ namespace wxl::offsets::game::m2
 
     // --- parsed file-header fields ---
     constexpr size_t kOffHdrGlobalFlags    = 0x10; // bit 0x20 = model carries physics
+    // Global-flag bit 0x4: the staged speed/scale/translation ignore the caller's arguments and
+    // come from the instance's base fields alone (the palette build's alternate staging branch).
+    constexpr uint32_t kHdrFlagFixedStaging = 0x4;
+    constexpr size_t kOffHdrSeqCount       = 0x1C; // sequence records
+    constexpr size_t kOffHdrSeqPtr         = 0x20; // -> sequence records (stride kSeqStride)
+    constexpr size_t kSeqStride            = 0x40;
+    constexpr size_t kOffSeqFlags          = 0x0C; // bit 0x1 = plays once to its end, then holds
     constexpr size_t kOffHdrBoneCount      = 0x2C;
     constexpr size_t kOffHdrBoneArray      = 0x30; // -> bone records (post-fixup data ptr)
+    constexpr size_t kOffHdrAttachCount    = 0xF0; // attachment records
+    constexpr size_t kOffHdrAttachPtr      = 0xF4; // -> attachment records (stride kAttachStride)
+    constexpr size_t kAttachStride         = 0x28;
+    constexpr size_t kOffAttachBone        = 0x04; // uint16: palette slot a child attached here rides
+    constexpr size_t kOffAttachPos         = 0x08; // float[3]: offset applied to that slot
     // boneCombos M2Array {count, offset}: the per-section bone-index window the palette upload walks.
     // After the load walk the offset field holds a real pointer, hence the separate ...Ptr spelling.
     constexpr size_t kOffHdrBoneCombosCount = 0x78;
@@ -441,8 +519,33 @@ namespace wxl::offsets::game::m2
     constexpr size_t   kOffBoneFlags      = 0x04; // bone flags
     constexpr size_t   kOffBoneParent     = 0x08; // int16 parent index (0xFFFF = root)
     constexpr size_t   kOffBoneNameCrc    = 0x0C; // CRC32 of the bone name string (for name-based remap)
+    constexpr size_t   kOffBoneTransTrack = 0x10; // translation track head (kOffTrackTimestampsCount = outer slots)
+    constexpr size_t   kOffBoneRotTrack   = 0x24; // rotation track head
+    constexpr size_t   kOffBoneScaleTrack = 0x38; // scale track head
     constexpr size_t   kOffBonePivot      = 0x4C; // pivot (bone origin in bind space)
     constexpr uint32_t kBoneBillboardMask = 0x78; // spherical + cylindrical-lock bits
+    // Effective bone flags = runtime override mask OR'd with the static flags. Masks the build tests:
+    constexpr uint32_t kBoneIgnoreParentMask = 0x07;  // rebuild against the instance root instead of the parent
+    constexpr uint32_t kBoneAnimatedMask     = 0x280; // bone carries its own local transform
+    constexpr uint32_t kBoneProceduralFlag   = 0x80;  // multiplies in the externally supplied matrix
+
+    // --- runtime bone-state block (per bone, stride kRuntimeBoneStride) ---
+    // The persisted sampling records the recomposition walk reads instead of re-sampling tracks;
+    // the anchor/sequence fields feed the cadence eligibility scan and its mutation fingerprint.
+    constexpr size_t kRuntimeBoneStride     = 0xAC;
+    constexpr size_t kOffRtBoneTransValue   = 0x08; // float[3]: last sampled translation
+    constexpr size_t kOffRtBoneQuatValue    = 0x1C; // float[4]: last sampled rotation quaternion
+    constexpr size_t kOffRtBoneScaleValue   = 0x34; // float[3]: last sampled scale
+    constexpr size_t kOffRtBoneAssignedSeq  = 0x48; // uint16: assigned sequence (0xFFFF = inherit)
+    constexpr size_t kOffRtBoneSeqStart     = 0x4C; // int32: sequence start anchor (absolute clock ms)
+    constexpr size_t kOffRtBoneSeqEnd       = 0x50; // int32: sequence end (absolute clock ms)
+    constexpr size_t kOffRtBoneTimeScale    = 0x54; // float: playback speed factor
+    constexpr size_t kOffRtBoneTimeOffset   = 0x5C; // int32: offset into the sequence
+    constexpr size_t kOffRtBoneBlendSeq     = 0x6C; // uint16: blend-from sequence (0xFFFF = no blend)
+    constexpr size_t kOffRtBoneProcMatrix   = 0x88; // -> externally driven per-frame matrix (null = none)
+    constexpr size_t kOffRtBoneFlagMask     = 0x8C; // uint32: runtime bone-flag override mask
+    constexpr size_t kOffRtBonePendingSeq   = 0x90; // uint32: pending sequence bookkeeping (0xFFFFFFFF idle)
+    constexpr size_t kOffRtBoneBlendWeight  = 0xA8; // float: current blend weight (0 = none)
 
     // --- CharModelObject fields ---
     constexpr size_t kOffCmoRace      = 0x18; // uint32 race id
@@ -511,23 +614,87 @@ namespace wxl::offsets::game::m2
 
     /** @brief Runtime instance (= render context wrapper returned by GetRenderCtx).
      *         Both the character's scene node (cmo+0x38) and collection M2 render contexts
-     *         share this layout. The model it draws, its init flags, and a pointer to the
-     *         heap-allocated per-frame bone-matrix output buffer (stride kBonePaletteStride). */
+     *         share this layout. Covers the fields the per-frame palette build and its cadence
+     *         logic touch: flags, links, anchors, the bone-state/palette pointers, the inline
+     *         placement/root matrices and the staged speed/scale/translation block. */
     struct M2Instance
     {
         uint8_t  _pad00[kOffInstInitFlags];
-        uint32_t initFlags;        // kOffInstInitFlags (bit 0 = anim init done; bit 1 = geometry ready)
-        uint8_t  _pad14[kOffInstModel - (kOffInstInitFlags + sizeof(uint32_t))];
-        void*    model;            // kOffInstModel -> M2Model (raw M2 instance)
-        uint8_t  _pad30[kOffInstParent - (kOffInstModel + sizeof(void*))];
+        uint32_t initFlags;        // kOffInstInitFlags (kInstFlag* bits)
+        uint8_t  _pad14[kOffInstScene - (kOffInstInitFlags + sizeof(uint32_t))];
+        void*    scene;            // kOffInstScene -> owning scene
+        void*    model;            // kOffInstModel -> M2Model (shared model object)
+        uint8_t  _pad30[kOffInstCmdRingHead - (kOffInstModel + sizeof(void*))];
+        uint32_t cmdRingHead;      // kOffInstCmdRingHead (== cmdRingTail when no deferred commands)
+        uint32_t cmdRingTail;      // kOffInstCmdRingTail
+        uint32_t lastAnimFrame;    // kOffInstLastAnimFrame (0 = never posed)
+        uint8_t  _pad40[kOffInstParent - (kOffInstLastAnimFrame + sizeof(uint32_t))];
         void*    parent;           // kOffInstParent -> native parent M2 instance
-        uint8_t  _pad4c[kOffInstBonePalette - (kOffInstParent + sizeof(void*))];
+        void*    attachEnable;     // kOffInstAttachEnable -> enable records (stride 0xC, u8 at +0x8)
+        uint8_t  _pad50[kOffInstAttachSlot - (kOffInstAttachEnable + sizeof(void*))];
+        uint32_t attachSlot;       // kOffInstAttachSlot (0xFFFF = not slot-attached)
+        void*    attachedHead;     // kOffInstAttachedHead -> first attached child
+        uint8_t  _pad5c[kOffInstAttachedNext - (kOffInstAttachedHead + sizeof(void*))];
+        void*    attachedNext;     // kOffInstAttachedNext -> next sibling under the same parent
+        uint32_t freezeAnchor;     // kOffInstFreezeAnchor (nonzero = externally frozen pose)
+        uint8_t  _pad68[kOffInstViewDistSq - (kOffInstFreezeAnchor + sizeof(uint32_t))];
+        float    viewDistSq;       // kOffInstViewDistSq
+        uint8_t  _pad8c[kOffInstConstTrackGate - (kOffInstViewDistSq + sizeof(float))];
+        uint32_t constTrackGate;   // kOffInstConstTrackGate
+        void*    boneStates;       // kOffInstBoneStates -> RuntimeBone[boneCount]
         void*    bonePalettePtr;   // kOffInstBonePalette -> heap bone-matrix buffer (row-major 4x4, kBonePaletteStride each)
+        uint8_t  _pad9c[kOffInstPlacement - (kOffInstBonePalette + sizeof(void*))];
+        float    placement[16];    // kOffInstPlacement (inline model->world matrix)
+        float    viewRoot[16];     // kOffInstViewRoot (inline placement * view matrix)
+        uint8_t  _pad134[kOffInstTexBinding - (kOffInstViewRoot + 16 * sizeof(float))];
+        void*    texBinding;       // kOffInstTexBinding (mirrored from the parent each build)
+        float    speedBase;        // kOffInstSpeedBase
+        float    alphaBase;        // kOffInstAlphaBase
+        float    scaleBase[3];     // kOffInstScaleBase
+        float    transBase[3];     // kOffInstTransBase
+        float    speedStage;       // kOffInstSpeedStage
+        float    alphaStage;       // kOffInstAlphaStage
+        float    scaleStage[3];    // kOffInstScaleStage
+        float    transStage[3];    // kOffInstTransStage
     };
-    static_assert(offsetof(M2Instance, initFlags)     == kOffInstInitFlags,   "M2Instance.initFlags");
-    static_assert(offsetof(M2Instance, model)         == kOffInstModel,       "M2Instance.model");
-    static_assert(offsetof(M2Instance, parent)        == kOffInstParent,      "M2Instance.parent");
-    static_assert(offsetof(M2Instance, bonePalettePtr)== kOffInstBonePalette, "M2Instance.bonePalettePtr");
+    static_assert(offsetof(M2Instance, initFlags)     == kOffInstInitFlags,     "M2Instance.initFlags");
+    static_assert(offsetof(M2Instance, scene)         == kOffInstScene,         "M2Instance.scene");
+    static_assert(offsetof(M2Instance, model)         == kOffInstModel,         "M2Instance.model");
+    static_assert(offsetof(M2Instance, cmdRingHead)   == kOffInstCmdRingHead,   "M2Instance.cmdRingHead");
+    static_assert(offsetof(M2Instance, cmdRingTail)   == kOffInstCmdRingTail,   "M2Instance.cmdRingTail");
+    static_assert(offsetof(M2Instance, lastAnimFrame) == kOffInstLastAnimFrame, "M2Instance.lastAnimFrame");
+    static_assert(offsetof(M2Instance, parent)        == kOffInstParent,        "M2Instance.parent");
+    static_assert(offsetof(M2Instance, attachEnable)  == kOffInstAttachEnable,  "M2Instance.attachEnable");
+    static_assert(offsetof(M2Instance, attachSlot)    == kOffInstAttachSlot,    "M2Instance.attachSlot");
+    static_assert(offsetof(M2Instance, attachedHead)  == kOffInstAttachedHead,  "M2Instance.attachedHead");
+    static_assert(offsetof(M2Instance, attachedNext)  == kOffInstAttachedNext,  "M2Instance.attachedNext");
+    static_assert(offsetof(M2Instance, freezeAnchor)  == kOffInstFreezeAnchor,  "M2Instance.freezeAnchor");
+    static_assert(offsetof(M2Instance, viewDistSq)    == kOffInstViewDistSq,    "M2Instance.viewDistSq");
+    static_assert(offsetof(M2Instance, constTrackGate)== kOffInstConstTrackGate,"M2Instance.constTrackGate");
+    static_assert(offsetof(M2Instance, boneStates)    == kOffInstBoneStates,    "M2Instance.boneStates");
+    static_assert(offsetof(M2Instance, bonePalettePtr)== kOffInstBonePalette,   "M2Instance.bonePalettePtr");
+    static_assert(offsetof(M2Instance, placement)     == kOffInstPlacement,     "M2Instance.placement");
+    static_assert(offsetof(M2Instance, viewRoot)      == kOffInstViewRoot,      "M2Instance.viewRoot");
+    static_assert(offsetof(M2Instance, texBinding)    == kOffInstTexBinding,    "M2Instance.texBinding");
+    static_assert(offsetof(M2Instance, speedBase)     == kOffInstSpeedBase,     "M2Instance.speedBase");
+    static_assert(offsetof(M2Instance, alphaBase)     == kOffInstAlphaBase,     "M2Instance.alphaBase");
+    static_assert(offsetof(M2Instance, scaleBase)     == kOffInstScaleBase,     "M2Instance.scaleBase");
+    static_assert(offsetof(M2Instance, transBase)     == kOffInstTransBase,     "M2Instance.transBase");
+    static_assert(offsetof(M2Instance, speedStage)    == kOffInstSpeedStage,    "M2Instance.speedStage");
+    static_assert(offsetof(M2Instance, alphaStage)    == kOffInstAlphaStage,    "M2Instance.alphaStage");
+    static_assert(offsetof(M2Instance, scaleStage)    == kOffInstScaleStage,    "M2Instance.scaleStage");
+    static_assert(offsetof(M2Instance, transStage)    == kOffInstTransStage,    "M2Instance.transStage");
+
+    /** @brief Scene clock/frame block read by the per-frame build and its cadence decisions. */
+    struct M2SceneClock
+    {
+        uint8_t  _pad00[kOffSceneClock];
+        uint32_t clock;            // kOffSceneClock (absolute animation clock, ms)
+        uint32_t delta;            // this frame's clock delta
+        uint32_t frame;            // kOffSceneFrame
+    };
+    static_assert(offsetof(M2SceneClock, clock) == kOffSceneClock, "M2SceneClock.clock");
+    static_assert(offsetof(M2SceneClock, frame) == kOffSceneFrame, "M2SceneClock.frame");
 
     /** @brief Runtime model: flags, path stem, the parsed .m2 buffer, its size, and the live skin profile. */
     struct M2Model
@@ -547,40 +714,91 @@ namespace wxl::offsets::game::m2
     static_assert(offsetof(M2Model, fileSize) == kOffModelFileSize, "M2Model.fileSize");
     static_assert(offsetof(M2Model, skin)     == kOffModelSkin,     "M2Model.skin");
 
-    /** @brief Parsed file header: the global flags, bone array, and bone-index-by-id LUT. */
+    /** @brief Parsed file header: the global flags, sequence/bone/attachment arrays, and the
+     *         bone-index-by-id LUT. */
     struct M2FileHeader
     {
         uint8_t  _pad00[kOffHdrGlobalFlags];
-        uint32_t globalFlags;       // kOffHdrGlobalFlags (bit 0x20 = model carries physics)
-        uint8_t  _pad14[kOffHdrBoneCount - (kOffHdrGlobalFlags + sizeof(uint32_t))];
+        uint32_t globalFlags;       // kOffHdrGlobalFlags (bit 0x20 = physics; kHdrFlagFixedStaging)
+        uint8_t  _pad14[kOffHdrSeqCount - (kOffHdrGlobalFlags + sizeof(uint32_t))];
+        uint32_t seqCount;          // kOffHdrSeqCount
+        void*    seqPtr;            // kOffHdrSeqPtr -> M2SequenceRec records (stride kSeqStride)
+        uint8_t  _pad24[kOffHdrBoneCount - (kOffHdrSeqPtr + sizeof(void*))];
         uint32_t boneCount;         // kOffHdrBoneCount
         void*    boneArray;         // kOffHdrBoneArray -> M2Bone records (post-fixup data ptr)
-        uint8_t  _pad34[kOffHdrBoneIdxLutCount - (kOffHdrBoneArray + sizeof(void*))];
+        uint8_t  _pad34[kOffHdrAttachCount - (kOffHdrBoneArray + sizeof(void*))];
+        uint32_t attachCount;       // kOffHdrAttachCount
+        void*    attachPtr;         // kOffHdrAttachPtr -> M2Attachment records
         uint32_t boneIdxLutCount;   // kOffHdrBoneIdxLutCount (number of entries in the LUT)
         void*    boneIdxLutPtr;     // kOffHdrBoneIdxLutPtr -> uint16 array indexed by key_bone_id
     };
     static_assert(offsetof(M2FileHeader, globalFlags)    == kOffHdrGlobalFlags,     "M2FileHeader.globalFlags");
+    static_assert(offsetof(M2FileHeader, seqCount)       == kOffHdrSeqCount,        "M2FileHeader.seqCount");
+    static_assert(offsetof(M2FileHeader, seqPtr)         == kOffHdrSeqPtr,          "M2FileHeader.seqPtr");
     static_assert(offsetof(M2FileHeader, boneCount)      == kOffHdrBoneCount,       "M2FileHeader.boneCount");
     static_assert(offsetof(M2FileHeader, boneArray)      == kOffHdrBoneArray,       "M2FileHeader.boneArray");
+    static_assert(offsetof(M2FileHeader, attachCount)    == kOffHdrAttachCount,     "M2FileHeader.attachCount");
+    static_assert(offsetof(M2FileHeader, attachPtr)      == kOffHdrAttachPtr,       "M2FileHeader.attachPtr");
     static_assert(offsetof(M2FileHeader, boneIdxLutCount)== kOffHdrBoneIdxLutCount, "M2FileHeader.boneIdxLutCount");
     static_assert(offsetof(M2FileHeader, boneIdxLutPtr)  == kOffHdrBoneIdxLutPtr,   "M2FileHeader.boneIdxLutPtr");
+
+    /** @brief In-model track head: interpolation, global-sequence link, and the per-sequence outer
+     *         arrays (timestamps + values). outerCount == 0 means the track carries no data at all. */
+    struct M2TrackHead
+    {
+        uint16_t interp;           // interpolation type
+        uint16_t globalSeq;        // global-sequence index (0xFFFF = sequence-driven)
+        uint32_t outerCount;       // kOffTrackTimestampsCount relative to the head
+        void*    outerPtr;         // kOffTrackTimestampsPtr
+        uint32_t valuesOuterCount; // kOffTrackValuesCount
+        void*    valuesOuterPtr;   // kOffTrackValuesPtr
+    };
+    static_assert(sizeof(M2TrackHead) == 0x14, "M2TrackHead size");
 
     /** @brief Bone record in the header bone array (stride kBoneStride). */
     struct M2Bone
     {
-        int32_t  keyBoneId;        // kOffBoneKeyId (canonical slot id; negative = no key bone)
-        uint32_t flags;            // kOffBoneFlags
-        int16_t  parent;           // kOffBoneParent (0xFFFF = root)
-        uint8_t  _pad0a[kOffBoneNameCrc - (kOffBoneParent + sizeof(int16_t))];
-        uint32_t nameCrc;          // kOffBoneNameCrc (CRC32 of the bone name, for name-based remap)
-        uint8_t  _pad10[kOffBonePivot - (kOffBoneNameCrc + sizeof(uint32_t))];
-        float    pivot[3];         // kOffBonePivot (bone origin in bind space)
+        int32_t     keyBoneId;     // kOffBoneKeyId (canonical slot id; negative = no key bone)
+        uint32_t    flags;         // kOffBoneFlags
+        int16_t     parent;        // kOffBoneParent (0xFFFF = root)
+        uint8_t     _pad0a[kOffBoneNameCrc - (kOffBoneParent + sizeof(int16_t))];
+        uint32_t    nameCrc;       // kOffBoneNameCrc (CRC32 of the bone name, for name-based remap)
+        M2TrackHead transTrack;    // kOffBoneTransTrack
+        M2TrackHead rotTrack;      // kOffBoneRotTrack
+        M2TrackHead scaleTrack;    // kOffBoneScaleTrack
+        float       pivot[3];      // kOffBonePivot (bone origin in bind space)
     };
-    static_assert(offsetof(M2Bone, keyBoneId) == kOffBoneKeyId,  "M2Bone.keyBoneId");
-    static_assert(offsetof(M2Bone, flags)     == kOffBoneFlags,  "M2Bone.flags");
-    static_assert(offsetof(M2Bone, parent)    == kOffBoneParent, "M2Bone.parent");
-    static_assert(offsetof(M2Bone, nameCrc)   == kOffBoneNameCrc,"M2Bone.nameCrc");
-    static_assert(offsetof(M2Bone, pivot)     == kOffBonePivot,  "M2Bone.pivot");
+    static_assert(offsetof(M2Bone, keyBoneId)  == kOffBoneKeyId,      "M2Bone.keyBoneId");
+    static_assert(offsetof(M2Bone, flags)      == kOffBoneFlags,      "M2Bone.flags");
+    static_assert(offsetof(M2Bone, parent)     == kOffBoneParent,     "M2Bone.parent");
+    static_assert(offsetof(M2Bone, nameCrc)    == kOffBoneNameCrc,    "M2Bone.nameCrc");
+    static_assert(offsetof(M2Bone, transTrack) == kOffBoneTransTrack, "M2Bone.transTrack");
+    static_assert(offsetof(M2Bone, rotTrack)   == kOffBoneRotTrack,   "M2Bone.rotTrack");
+    static_assert(offsetof(M2Bone, scaleTrack) == kOffBoneScaleTrack, "M2Bone.scaleTrack");
+    static_assert(offsetof(M2Bone, pivot)      == kOffBonePivot,      "M2Bone.pivot");
+    static_assert(sizeof(M2Bone) == kBoneStride, "M2Bone size");
+
+    /** @brief Attachment record (stride kAttachStride): the palette slot and offset a slot-attached
+     *         child instance rides, plus the enable track sampled during full builds. */
+    struct M2Attachment
+    {
+        uint32_t    id;
+        uint16_t    bone;          // kOffAttachBone
+        uint16_t    _pad06;
+        float       pos[3];        // kOffAttachPos
+        M2TrackHead enableTrack;
+    };
+    static_assert(offsetof(M2Attachment, bone) == kOffAttachBone, "M2Attachment.bone");
+    static_assert(offsetof(M2Attachment, pos)  == kOffAttachPos,  "M2Attachment.pos");
+    static_assert(sizeof(M2Attachment) == kAttachStride, "M2Attachment size");
+
+    /** @brief Sequence record view (stride kSeqStride): the flags word the cadence scan reads. */
+    struct M2SequenceRec
+    {
+        uint8_t  _pad00[kOffSeqFlags];
+        uint32_t flags;            // kOffSeqFlags (bit 0x1 = plays once, then holds)
+    };
+    static_assert(offsetof(M2SequenceRec, flags) == kOffSeqFlags, "M2SequenceRec.flags");
 
     /** @brief Track object read by the evaluators: the timestamp and value sub-arrays (count + ptr each). */
     struct M2Track
@@ -596,13 +814,54 @@ namespace wxl::offsets::game::m2
     static_assert(offsetof(M2Track, valuesCount)     == kOffTrackValuesCount,     "M2Track.valuesCount");
     static_assert(offsetof(M2Track, valuesPtr)       == kOffTrackValuesPtr,       "M2Track.valuesPtr");
 
-    /** @brief Runtime bone state: the current animation index used to pick the per-animation inner slot. */
+    /** @brief Runtime bone state (stride kRuntimeBoneStride): the persisted sampling records the
+     *         recomposition walk consumes, and the sequence/blend anchors the cadence scan reads. */
     struct RuntimeBone
     {
-        uint8_t  _pad00[kOffRuntimeBoneAnimIdx];
-        uint32_t animIndex;        // kOffRuntimeBoneAnimIdx
+        uint32_t transHint[2];     // key-search hints (channel A/B)
+        float    transValue[3];    // kOffRtBoneTransValue: last sampled translation
+        uint32_t rotHint[2];
+        float    quatValue[4];     // kOffRtBoneQuatValue: last sampled rotation
+        uint32_t scaleHint[2];
+        float    scaleValue[3];    // kOffRtBoneScaleValue: last sampled scale
+        uint32_t time;             // current channel-A time within the sequence (ms)
+        uint16_t animIndex;        // kOffRuntimeBoneAnimIdx: per-animation inner-slot selector
+        uint16_t boneIndex;
+        uint16_t assignedSeq;      // kOffRtBoneAssignedSeq (0xFFFF = inherit from the parent bone)
+        uint8_t  clampDone;
+        uint8_t  callbackFlag;
+        int32_t  seqStart;         // kOffRtBoneSeqStart (absolute clock ms)
+        int32_t  seqEnd;           // kOffRtBoneSeqEnd (absolute clock ms)
+        float    timeScale;        // kOffRtBoneTimeScale
+        float    invSpeed;
+        int32_t  timeOffset;       // kOffRtBoneTimeOffset
+        int32_t  repeatCount;
+        uint32_t timeB;            // channel-B (blend-from) mirror of +0x40..+0x5C
+        uint16_t animIndexB;
+        uint8_t  _pad6a[kOffRtBoneBlendSeq - 0x6A];
+        uint16_t blendSeq;         // kOffRtBoneBlendSeq (0xFFFF = no blend running)
+        uint8_t  _pad6e[kOffRtBoneProcMatrix - (kOffRtBoneBlendSeq + sizeof(uint16_t))];
+        float*   procMatrix;       // kOffRtBoneProcMatrix (externally driven 4x4; null = none)
+        uint32_t flagMask;         // kOffRtBoneFlagMask (OR'd into the static bone flags)
+        uint32_t pendingSeq;       // kOffRtBonePendingSeq (0xFFFFFFFF idle)
+        uint8_t  _pad94[kOffRtBoneBlendWeight - 0x94];
+        float    blendWeight;      // kOffRtBoneBlendWeight (0 = no blend contribution)
     };
-    static_assert(offsetof(RuntimeBone, animIndex) == kOffRuntimeBoneAnimIdx, "RuntimeBone.animIndex");
+    static_assert(offsetof(RuntimeBone, transValue)  == kOffRtBoneTransValue,  "RuntimeBone.transValue");
+    static_assert(offsetof(RuntimeBone, quatValue)   == kOffRtBoneQuatValue,   "RuntimeBone.quatValue");
+    static_assert(offsetof(RuntimeBone, scaleValue)  == kOffRtBoneScaleValue,  "RuntimeBone.scaleValue");
+    static_assert(offsetof(RuntimeBone, animIndex)   == kOffRuntimeBoneAnimIdx,"RuntimeBone.animIndex");
+    static_assert(offsetof(RuntimeBone, assignedSeq) == kOffRtBoneAssignedSeq, "RuntimeBone.assignedSeq");
+    static_assert(offsetof(RuntimeBone, seqStart)    == kOffRtBoneSeqStart,    "RuntimeBone.seqStart");
+    static_assert(offsetof(RuntimeBone, seqEnd)      == kOffRtBoneSeqEnd,      "RuntimeBone.seqEnd");
+    static_assert(offsetof(RuntimeBone, timeScale)   == kOffRtBoneTimeScale,   "RuntimeBone.timeScale");
+    static_assert(offsetof(RuntimeBone, timeOffset)  == kOffRtBoneTimeOffset,  "RuntimeBone.timeOffset");
+    static_assert(offsetof(RuntimeBone, blendSeq)    == kOffRtBoneBlendSeq,    "RuntimeBone.blendSeq");
+    static_assert(offsetof(RuntimeBone, procMatrix)  == kOffRtBoneProcMatrix,  "RuntimeBone.procMatrix");
+    static_assert(offsetof(RuntimeBone, flagMask)    == kOffRtBoneFlagMask,    "RuntimeBone.flagMask");
+    static_assert(offsetof(RuntimeBone, pendingSeq)  == kOffRtBonePendingSeq,  "RuntimeBone.pendingSeq");
+    static_assert(offsetof(RuntimeBone, blendWeight) == kOffRtBoneBlendWeight, "RuntimeBone.blendWeight");
+    static_assert(sizeof(RuntimeBone) == kRuntimeBoneStride, "RuntimeBone size");
 
     /** @brief Ribbon emitter: the draw-loop layer count and the per-layer texture-handle array pointer. */
     struct RibbonEmitter
