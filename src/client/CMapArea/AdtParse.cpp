@@ -32,6 +32,18 @@ namespace
 {
     using namespace wxl::runtime::adtsplit::detail;
 
+    // Coverage sizing. The tile normalizes the map-header amplitude byte below, so a chunk's alpha
+    // grid is always 64x64 texels; what one layer then occupies follows from the map's alpha layout
+    // alone -- one byte per texel (wide) or one nibble (narrow) -- and the shadow bitmap from one bit.
+    constexpr uint32_t kAlphaDim          = 64;
+    constexpr uint32_t kAlphaWideBytes    = kAlphaDim * kAlphaDim;
+    constexpr uint32_t kAlphaNarrowBytes  = kAlphaDim * kAlphaDim / 2;
+    constexpr uint32_t kShadowBytes       = kAlphaDim * kAlphaDim / 8;
+    constexpr uint32_t kMaxLayers         = 4;      ///< layer records one chunk has room for
+    constexpr uint32_t kLayerEntrySize    = 16;
+    constexpr uint32_t kLayerUsesAlpha    = 0x100u; ///< the layer carries a coverage map
+    constexpr uint32_t kLayerAlphaPacked  = 0x200u; ///< run-length packed, honoured on the wide layout only
+
     /// Indexes one ROOT MCNK (0x80-byte SMChunk header + sub-chunks) into the chunk's fill record.
     void WalkRootMcnk(ChunkFill& f, uint8_t* hdr, uint32_t chunkSize)
     {
@@ -125,11 +137,93 @@ namespace
     }
 
     /**
+     * @brief Bytes one run-length packed coverage layer consumes, or 0 when the walk would leave the
+     *        blob or overrun a decoded row.
+     *
+     * The decode is row by row and carries no end-of-input guard of its own: it stops when the row is
+     * full, wherever the input cursor has reached. A truncated or mislabelled payload is therefore only
+     * safe if the whole walk is proven to fit BEFORE the data is published.
+     */
+    uint32_t PackedAlphaFootprint(const uint8_t* blob, uint32_t size, uint32_t start)
+    {
+        uint32_t at = start;
+        for (uint32_t row = 0; row < kAlphaDim; ++row)
+        {
+            uint32_t produced = 0;
+            while (produced < kAlphaDim)
+            {
+                if (at >= size) return 0;
+                const uint8_t  control = blob[at++];
+                const uint32_t count   = control & 0x7Fu;
+                if (count == 0) return 0;                 // a run that emits nothing never ends the row
+                if ((control & 0x80u) != 0)               // fill: one repeated value
+                {
+                    if (at >= size) return 0;
+                    ++at;
+                }
+                else                                      // copy: count literal bytes
+                {
+                    if (count > size - at) return 0;
+                    at += count;
+                }
+                produced += count;                        // a run may overshoot the row, as the decode allows
+            }
+        }
+        return at - start;
+    }
+
+    /**
+     * @brief Drops the coverage of any layer whose payload does not provably fit its chunk's own blob.
+     *
+     * Coverage is read straight out of the resident tile buffer, at a per-layer offset, for an extent
+     * implied by the map's alpha layout -- nothing in the data bounds it. So a payload shorter than the
+     * layout implies (packed bytes described as unpacked, a truncated tile, a layer whose chunk has no
+     * blob at all) is walked past the end of the buffer, and on the tile's last chunk that leaves the
+     * allocation entirely. A layer that cannot be proven to fit has its coverage flag cleared, which
+     * reads as fully transparent: the chunk draws with the layers underneath it instead, which is
+     * always better than the read.
+     *
+     * @return how many layers of this chunk lost their coverage.
+     */
+    uint32_t ClampChunkAlpha(ChunkFill& f, bool wideAlpha)
+    {
+        uint32_t layers  = f.mclySize / kLayerEntrySize;
+        uint32_t dropped = 0;
+        if (layers > kMaxLayers) layers = kMaxLayers;
+        for (uint32_t i = 0; i < layers; ++i)
+        {
+            uint8_t* entry = f.mcly + i * kLayerEntrySize;
+            const uint32_t flags = Rd32(entry + 4);
+            if ((flags & kLayerUsesAlpha) == 0) continue;
+
+            const uint32_t start = Rd32(entry + 8);
+            bool fits = f.mcal != nullptr && start < f.mcalSize;
+            if (fits)
+            {
+                if (wideAlpha && (flags & kLayerAlphaPacked) != 0)
+                    fits = PackedAlphaFootprint(f.mcal, f.mcalSize, start) != 0;
+                else
+                    fits = (wideAlpha ? kAlphaWideBytes : kAlphaNarrowBytes) <= f.mcalSize - start;
+            }
+            if (!fits)
+            {
+                Wr32(entry + 4, flags & ~kLayerUsesAlpha);
+                ++dropped;
+            }
+        }
+        return dropped;
+    }
+
+    /**
      * @brief In-place fixups of one root MCNK 0x80-byte header so the stock consumers read true counts:
      *        nLayers/nDoodadRefs/nMapObjRefs from the walked split sizes, sizeAlpha/sizeLiquid/
-     *        nSndEmitters normalized, has_mcsh matched to actual MCSH presence, and high-res holes
-     *        collapsed to the u16 the index build masks live (the u64 overlaps the dead ofsHeight/
-     *        ofsNormal fields and is zeroed after parking).
+     *        nSndEmitters normalized, has_mcsh matched to a shadow bitmap that is actually whole, and
+     *        high-res holes collapsed to the u16 the index build masks live (the u64 overlaps the dead
+     *        ofsHeight/ofsNormal fields and is zeroed after parking).
+     *
+     * Both counts published here bound a read with no bound of its own: the layer count indexes a
+     * fixed-size record block, and the shadow flag alone decides whether the bitmap is walked for its
+     * full 64x64 bits. Neither may exceed what this chunk really carries.
      */
     void FixChunkHeader(SplitTile& t, ChunkFill& f)
     {
@@ -144,12 +238,15 @@ namespace
             std::memset(h + 0x14, 0, 8);
             flags &= ~0x10000u;
         }
-        if (f.mcsh) flags |= 0x1u; else flags &= ~0x1u;   // has_mcsh gates the shadow unpack deref
+        const bool shadowWhole = f.mcsh != nullptr && f.mcshSize >= kShadowBytes;
+        if (shadowWhole) flags |= 0x1u; else flags &= ~0x1u;       // gates the shadow bitmap walk
         Wr32(h, flags);
-        Wr32(h + 0x0C, f.mclySize / 16u);                          // nLayers
+        uint32_t layers = f.mclySize / kLayerEntrySize;
+        if (layers > kMaxLayers) layers = kMaxLayers;
+        Wr32(h + 0x0C, layers);                                    // nLayers
         Wr32(h + 0x10, f.nDoodadRefs);                             // nDoodadRefs
         Wr32(h + 0x28, f.mcalSize + 8u);                           // sizeAlpha (stock: data + hdr)
-        Wr32(h + 0x2C, f.mcsh ? f.mcshSize + 8u : 8u);             // sizeShadow (unread; hygiene)
+        Wr32(h + 0x2C, shadowWhole ? f.mcshSize + 8u : 8u);        // sizeShadow (unread; hygiene)
         Wr32(h + 0x38, f.nMapObjRefs);                             // nMapObjRefs
         Wr32(h + 0x5C, f.mcse ? f.mcseSize / 0x1Cu : 0u);          // nSndEmitters
         Wr32(h + 0x64, (f.mclq && f.mclqSize) ? f.mclqSize + 8u : 8u); // sizeLiquid (>8 gates MCLQ)
@@ -438,9 +535,21 @@ namespace
         }
         g_statMcrfBytes.fetch_add(poolBytes, std::memory_order_relaxed);
 
-        // --- per-chunk root header fixups (counts, holes, has_mcsh) ---
+        // --- per-chunk root header fixups (counts, holes, has_mcsh) + the coverage bound. The layout
+        // is read live: the tile-load path has already made it agree with what a split map ships, and
+        // the same value decides how much of each blob the terrain build will walk.
+        const bool wideAlpha =
+            (Rd32(reinterpret_cast<const void*>(adt::kMphdFlags)) & kMapWideAlpha) != 0;
+        uint32_t alphaDropped = 0;
         for (uint32_t i = 0; i < t.chunkCount; ++i)
+        {
+            alphaDropped += ClampChunkAlpha(t.chunks[i], wideAlpha);
             FixChunkHeader(t, t.chunks[i]);
+        }
+        if (alphaDropped)
+            WLOG_WARN("adt-split: tile %d_%d dropped %u layer coverage map(s) that do not fit their "
+                      "chunk's blob (%s layout); those layers draw transparent",
+                      t.tileFirst, t.tileSecond, alphaDropped, wideAlpha ? "wide" : "narrow");
 
         // --- synthesize MCIN (absolute offsets into the root buffer, as stock PrepareChunk adds them to
         // area+0x80). Missing slots on a short root duplicate the last chunk so a stray PrepareChunk

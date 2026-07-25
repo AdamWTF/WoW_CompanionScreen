@@ -14,10 +14,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-// The in-place deltas run on the RAW body (M2Array offsets still body-relative), before the pointer
-// walk; the injections run after it (offsets are raw pointers). They are this module's own expression of
-// the delta list (m2-loading.md section 4.2); the shared downport modules encode the same knowledge but
-// are never invoked here.
+// The in-place deltas run on the RAW body (array offsets still body-relative), before the pointer walk;
+// the injections run after it (offsets are raw pointers). Each is a field the source model states
+// differently from the target -- a value rewritten, never a value dropped.
 
 #include "engine/fdid/Fdid.hpp"
 #include "client/CM2Shared/M2NativeInternal.hpp"
@@ -159,8 +158,19 @@ namespace wxl::runtime::m2native::detail
         }
     }
 
-    /// Clamps each ribbon's texture/material reference values into the header tables (the modern exporter
-    /// can emit indices past the client tables; delta list section 4.2).
+    /// Drops each camera reference that points past the camera array. The source exporter already emits
+    /// the "no camera" sentinel for unused slots, so a consumer reads a dropped entry the same way.
+    void ClampCameraRefs(fmt::M2Header* h)
+    {
+        if (!h->cameraLookup.count || !h->cameraLookup.offset) return;
+        auto* lookup = reinterpret_cast<int16_t*>(static_cast<uintptr_t>(h->cameraLookup.offset));
+        const auto limit = static_cast<int32_t>(h->cameras.count);
+        for (uint32_t i = 0; i < h->cameraLookup.count; ++i)
+            if (lookup[i] >= limit) lookup[i] = -1;
+    }
+
+    /// Clamps each ribbon's texture/material reference values into the header tables: the source
+    /// exporter can emit indices past what the model itself declares.
     void ClampRibbonRefs(fmt::M2Header* h)
     {
         if (!h->ribbonEmitters.count || !h->ribbonEmitters.offset) return;

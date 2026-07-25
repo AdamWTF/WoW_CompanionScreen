@@ -184,6 +184,11 @@ namespace
             std::string key;
             if (IsSplitTileName(filename, key))
             {
+                // The alpha-layout flag lives in map-header state that is rebuilt whenever a world
+                // loads, so every tile re-arms it (idempotent) instead of it being set once when the
+                // map is first recognised. This runs before the tile's coverage is ever sized.
+                EnsureAlphaLayoutFlag();
+
                 // stage 1 (root), shaped exactly like the native body
                 void* file = OpenFile(filename);
                 if (file)
@@ -219,6 +224,16 @@ namespace
                         At<void*>(area, adt::kOffTileAsyncRead)    = async;
                         {
                             std::lock_guard<std::mutex> lock(g_mutex);
+                            // Records are keyed by the loading tile object, and that address is
+                            // recycled across world loads. A leftover here means a teardown bypassed
+                            // the teardown seam, so the record is dropped rather than inherited by the
+                            // new tile -- its raw buffers are left alone, since ownership of them can
+                            // no longer be established.
+                            if (g_tiles.erase(area) != 0)
+                            {
+                                g_statTilesResident.fetch_sub(1, std::memory_order_relaxed);
+                                WLOG_WARN("adt-split: stale tile record found on a recycled tile slot, dropped");
+                            }
                             g_tiles[area] = std::move(tile);
                         }
                         g_statTilesResident.fetch_add(1, std::memory_order_relaxed);

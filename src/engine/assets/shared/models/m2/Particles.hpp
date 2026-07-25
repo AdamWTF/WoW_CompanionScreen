@@ -1,4 +1,4 @@
-// Compacts the source particle emitter and scopes the source alpha-key cutoff at draw time.
+// Scopes the source alpha-key cutoff at draw time.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -18,34 +18,24 @@
 
 #include "engine/assets/shared/models/m2/M2Format.hpp"
 
-// The byte-transform half (Compact) compiles into both the DLL and the host; the draw half
-// (OnSetupBatchAlpha) is live-engine and DLL-only, so it and its event dependency are excluded from
-// the host build (WXL_HOST).
+// Live-engine, DLL-only: this half is device state at draw time, so it and its event dependency are
+// excluded from the host build (WXL_HOST).
 #ifndef WXL_HOST
 #include "engine/events/Event.hpp"
 #endif
 
 /**
- * @brief Compacts source particle emitters onto the client stride and scopes the alpha-key cutoff at draw.
+ * @brief Scopes the alpha-key cutoff a source-authored batch expects, at draw time.
  *
- * The source particle emitter is wider than the client's and carries source-only encodings (packed
- * multi-texture id, BlendAdd mode, wrapping flipbook cells, compressed gravity). This theme slides
- * each emitter onto the client stride and normalizes those encodings at load, and lowers the
- * alpha-key cutoff for source content at draw.
+ * Source content authors coverage alpha against a lower cutoff than the target's default, so an
+ * alpha-key batch of a reshaped model needs its own reference pushed for the duration of that batch.
+ * It is device state, not a record field, which is why it lives at draw and not at load.
  */
 namespace wxl::modern::assets::m2::particles
 {
-    /// Blend mode 1 = alpha key — the only mode the lowered source cutoff applies to. Public so
+    /// Blend mode 1 = alpha key -- the only mode the lowered source cutoff applies to. Public so
     /// draw-frequency callers can test it BEFORE paying any per-batch lookup.
     inline constexpr uint16_t kBlendAlphaKey = 1;
-
-    /**
-     * @brief Compacts every source emitter onto the client stride in place and normalizes its
-     *        source-only encodings.
-     * @param md        Model header (pre-parse, offsets model-relative).
-     * @param fileSize  Total model size, bounding the sub-array reads.
-     */
-    void Compact(wxl::structure::m2::M2Header* md, uint32_t fileSize);
 
 #ifndef WXL_HOST
     /**

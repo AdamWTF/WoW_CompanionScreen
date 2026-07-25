@@ -62,9 +62,13 @@ namespace
         const uint64_t nativeStarted = aprof::Now();
         int r;
         if (wxl::features::modernM2Support && wxl::runtime::m2native::IsModernContainer(model))
+        {
             r = wxl::runtime::m2native::NativeLoad(model);
+        }
         else
+        {
             r = g_origM2Init(model);
+        }
         if (nativeStarted) aprof::Record(aprof::Phase::M2Native, aprof::Now() - nativeStarted);
 
         const uint64_t postStarted = aprof::Now();

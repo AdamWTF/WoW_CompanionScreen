@@ -99,6 +99,9 @@ namespace wxl::offsets::game::m2
     constexpr uintptr_t kReadUVAnimation  = 0x00838B10; // stride 0x3C (trans/rot/scale tracks)
     constexpr uintptr_t kReadAttachments  = 0x00839080; // stride 0x28 (animateAttached track)
     constexpr uintptr_t kReadLights       = 0x00839270; // stride 0x9C (7 tracks)
+    // Camera reader, stride kCameraStrideClient (3 tracks). Valid on any body whose cameras carry
+    // that layout, which is every body the native reader hands on.
+    constexpr uintptr_t kReadCameras      = 0x00839EF0;
     // Ribbons (stride 0xB0, identical 264 vs 272-274): the reader IS the already-curated
     // kRibbonDeRelocate (0x83A460); reuse that constant.
     using M2_HeaderReadFn = int(__cdecl*)(uint8_t* base, uint32_t size, void* header, void* array);
@@ -174,18 +177,20 @@ namespace wxl::offsets::game::m2
     // --- particle emitter stride sites ------------------------------------------------------
     // A modern (inner version 272-274) M2 particle emitter record is 0x1EC bytes; the client's is
     // 0x1DC. Every field below 0x1DC is at an IDENTICAL offset in both -- the 16 extra bytes
-    // (multiTexScrollMid/Range) are appended at the END. So the client can read a modern record in
-    // place; the only thing it gets wrong is how far to step between records.
+    // (multiTexScrollMid/Range) are appended at the END.
     //
-    // These are every site in the binary that hardcodes the 0x1DC step (verified by scanning all of
-    // .text for the dword, not just these instruction forms -- there is no tenth). Each is replaced
-    // by a call to a generated thunk that derives the stride from the model being processed, so a
-    // scene mixing stock v264 and modern doodads stays correct. Flags are DEAD at all nine sites
-    // (each is followed by another flag-setting op before any conditional branch), so the thunks do
-    // not need to reproduce OF/CF/ZF.
+    // NOT APPLIED as patches. The native reader normalizes every emitter to 0x1DC at load, so no site
+    // in the binary ever steps a 0x1EC record and all nine keep their stock immediate. The table is
+    // curated because it is the complete, verified answer to "where does the binary hardcode the
+    // emitter stride" (verified by scanning all of .text for the dword, not just these instruction
+    // forms -- there is no tenth), which any future emitter-layout work needs.
     //
-    // The gate is `header[0x04] > 271`. It is NOT `globalFlags & 0x200`: not one of the 970 modern
-    // models in the corpus sets that bit, so testing it would silently yield 0x1DC for every one.
+    // Recorded with each site: how the model header is reachable there, and what the original
+    // instruction did -- the two facts a stride redirect would need. Flags are DEAD at all nine
+    // (each is followed by another flag-setting op before any conditional branch).
+    //
+    // The version gate for the wide form is `header[0x04] > 271`. It is NOT `globalFlags & 0x200`:
+    // not one of the 970 modern models in the corpus sets that bit.
     struct ParticleStrideSite
     {
         uintptr_t va;        ///< instruction address
@@ -228,19 +233,28 @@ namespace wxl::offsets::game::m2
     constexpr uint32_t kParticleStrideModern = 0x1EC; // v272-274
     constexpr uint32_t kParticleModernMinVer = 272;   // gate: header[0x04] > 271
 
+    // --- camera record stride by source era ---------------------------------------------------
+    // Unlike the emitter, the wider source camera is not the client record with fields appended: the
+    // fov float at +0x04 is GONE and an animated FoV track (0x14) is appended after the roll track, so
+    // every field from +0x08 on sits 4 bytes earlier in the source form. 0x64 - 4 + 0x14 = 0x74.
+    // The native reader reshapes each record to the client layout at load (fov filled from the first
+    // key of the source track), so nothing downstream ever steps 0x74.
+    constexpr uint32_t kCameraStrideClient = 0x64;  // v264
+    constexpr uint32_t kCameraStrideModern = 0x74;  // v272-274
+    constexpr uint32_t kCameraModernMinVer = 272;   // gate: header[0x04] > 271
+
     // --- packed multi-texture textureId read sites ------------------------------------------
     // With emitter flag 0x10000000 the textureId at record+0x16 is three packed 5-bit ids, so the raw
     // value (e.g. 5284) is far past the model's texture table. The stock client uses it as a FLAT
     // index and reads out of bounds -- InitializeLoaded then AddRefs table[hugeId] and faults.
     //
-    // We teach the client to unpack AT THE READ, leaving the record exactly as the file has it. Each
-    // site below is ONE COMPLETE INSTRUCTION replaced by a call to a thunk that redoes that
-    // instruction's work and then masks to id1 when the flag is set. Patching a whole instruction (not
-    // a multi-instruction window) is what makes this safe: a branch to the instruction's address still
-    // lands on our call, and a branch into the middle of an instruction cannot exist in valid code.
+    // NOT APPLIED as patches: the native reader unpacks the field at load, so every read site sees a
+    // flat in-range index. The two sites stay curated as the complete list of where the client reads
+    // this field -- each is ONE COMPLETE INSTRUCTION, which is what would make a read-site redirect
+    // safe without a full disassembly.
     //
     // id2/id3 drive multi-texture particle blending the 3.3.5 renderer has no path for, so id1 is the
-    // whole of what this client can consume -- reading it is not a reduction of the data.
+    // whole of what this client can consume.
     constexpr uintptr_t kParticleTexIdInitLoaded  = 0x00833ED9; // mov ecx,[eax+0x174]  (6 bytes)
     constexpr uint32_t  kParticleTexIdInitLen     = 6;
     constexpr uintptr_t kParticleTexIdReplaceTex  = 0x00825349; // movzx eax,[ecx+edx+0x16] (5 bytes)
@@ -258,8 +272,12 @@ namespace wxl::offsets::game::m2
 
     // --- external animation ---
     // External-anim read-completion callback (node): runs once after the bytes are read and before the
-    // per-sequence track offsets are rebased.
+    // per-sequence track offsets are rebased. __cdecl(node); the node's I/O record (kOffNodeRecord)
+    // carries the resident buffer + size that the rebase then reads, so this is the point at which a
+    // wrapped .anim payload can be unwrapped in place without touching the allocation pointer the
+    // model destructor frees.
     constexpr uintptr_t kAnimLoadComplete = 0x0083D840;
+    using M2_AnimLoadCompleteFn = void(__cdecl*)(void* node);
     // External-anim loader (model, seqIdx): resolves the sequence alias chain, builds the path, opens
     // the file, allocates a buffer, and schedules the async read whose completion rebases the tracks.
     constexpr uintptr_t kSequenceLoad = 0x0083DA10;
@@ -359,9 +377,9 @@ namespace wxl::offsets::game::m2
     // Ribbon-emitter de-relocator: pointer-fixes each ribbon emitter's sub-array offsets.
     constexpr uintptr_t kRibbonDeRelocate = 0x0083A460;
     // M2ModelHeader::ReadParticleEmitters -- same (base, fileSize, header, arrayField) shape as the
-    // other kRead* walkers. Safe on a modern body ONLY once features/m2native/ParticleStride.cpp has
-    // redirected the two 0x1DC stride immediates it contains (0x0083AFBA bounds check, 0x0083AFE7
-    // cursor); until then it would validate against a short size and then walk off the array.
+    // other kRead* walkers, stride kParticleStrideClient (two hardcoded immediates: 0x0083AFBA bounds
+    // check, 0x0083AFE7 cursor). Valid on any body whose emitters carry that width, which is every
+    // body the native reader hands on.
     constexpr uintptr_t kReadParticleEmitters = 0x0083AF90;
     // Ribbon emitter draw (emitter, stateBlock): builds the strip and binds one texture per layer.
     constexpr uintptr_t kRibbonDraw = 0x00980B70;
@@ -381,6 +399,9 @@ namespace wxl::offsets::game::m2
     // its own mapping and release what it no longer needs. A failed load falls back to the engine's
     // placeholder model rather than returning null.
     constexpr uintptr_t kCreateSceneModel   = 0x0081F8F0;
+    // Deprecated spelling: the old name read as get-or-create, which this is not. Kept so no
+    // published name disappears.
+    constexpr uintptr_t kGetRenderCtx       = kCreateSceneModel;
     // AttachToScene(renderCtx, subObj, slot): attaches a collection-M2 render context to a scene slot
     // on the parent CharModelObject render context.
     constexpr uintptr_t kAttachToScene      = 0x00831630;
@@ -921,8 +942,10 @@ namespace wxl::offsets::game::m2
     using M2_SamplerBindFn = void(__fastcall*)(void* device, void* edx, uint32_t selector, void* tex);
 
     // --- attachment / resource signatures ---
-    // GetRenderCtx(cmo, edx, keyBuf, 0): ret 8 (2 stack args: keyBuf + trailing zero).
-    using M2_GetRenderCtxFn     = void*(__fastcall*)(void* cmo, void* edx, void* keyBuf, uint32_t zero);
+    // CreateSceneModel(scene, edx, path, 0): ret 8 (2 stack args: path + trailing zero).
+    using M2_CreateSceneModelFn = void*(__fastcall*)(void* scene, void* edx, void* path, uint32_t zero);
+    // Deprecated spelling, kept so no published name disappears.
+    using M2_GetRenderCtxFn     = M2_CreateSceneModelFn;
     // AttachToScene(renderCtx, edx, subObj, slot, 0, 0): ret 16 (4 stack args: subObj, slot, 0, 0).
     using M2_AttachToSceneFn    = void (__fastcall*)(void* renderCtx, void* edx, void* subObj, uint32_t slot, uint32_t zero1, uint32_t zero2);
     // DetachSlot(subObj, edx, slot): detaches the M2 from a scene slot, releasing its render ctx.

@@ -47,7 +47,26 @@ namespace wxl::offsets::engine::shader
 
     // The native BLS load path (kept as a landmark; the own stack does NOT call it). It hard-checks the
     // container version and fills a collection's fixed 90-vertex / 16-pixel positional slot arrays.
+    // It also reaches a container by requesting "<base>\<profile>\<name>.bls" through the ordinary
+    // content path -- which is the seam a container of our own is delivered through, with no detour.
     constexpr uintptr_t kNativeBlsLoad = 0x00684970;
+
+    // --- terrain shader sets (landmarks for the owned-container work) ------------------------------
+    // One set per shadow configuration, each holding the whole permutation family a terrain draw picks
+    // from. A container we repack is loaded into these exactly like the stock one, so they are
+    // diagnostics landmarks -- nothing in the height blend writes them.
+    constexpr uintptr_t kTerrainShaderSetNoShadow   = 0x00CE0408;
+    constexpr uintptr_t kTerrainShaderSetShadowLow  = 0x00CE0388;
+    constexpr uintptr_t kTerrainShaderSetShadowHigh = 0x00CE0208;
+    constexpr uintptr_t kTerrainShaderSetSolid      = 0x00CE0488;
+    constexpr uintptr_t kTerrainShaderSetSolidEnv   = 0x00CE0004;
+    // Turns (layer count, coverage family, layer-mask, reflected-layer, shadow tier) into the
+    // positional index of a permutation within one of the sets above. Landmark: a repack that keeps
+    // block order needs no index arithmetic of its own.
+    constexpr uintptr_t kTerrainShaderPermutationIndex = 0x0079E5C0;
+    // Per-frame terrain shader selection: refreshes the active-shader table the bucket loop binds
+    // from. Landmark for the alternative delivery in which the table entries themselves are replaced.
+    constexpr uintptr_t kTerrainShaderSelect = 0x007D3E10;
 
     // --- per-shader D3D create seam (below the effect-collection stack) ---------------------------
     // CGxDeviceD3d::IShaderCreateVertex: the point where a CGxShader wrapper's bytecode becomes a live

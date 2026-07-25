@@ -33,8 +33,9 @@ namespace wxl::runtime::m2native
         uint32_t modelsFailed;       ///< MD21 models the native fill rejected (corrupt / OOB / fault)
         uint32_t texturesResolved;   ///< TXID FileDataIDs resolved to a client path (handle created)
         uint32_t texturesUnresolved; ///< TXID FileDataIDs the host DB2 authority could not resolve
-        uint32_t skippedCameras;     ///< models whose modern-stride camera records were parked (Phase 2)
-        uint32_t skippedParticles;   ///< models whose modern-stride particle emitters were parked (Phase 2)
+        /// Records rewritten from a source-era width onto the one shape the runtime steps (emitters,
+        /// cameras): the per-model breakdown is in the load log, this is the session total.
+        uint32_t recordsNormalized;
         uint32_t skippedTxac;        ///< models carrying a TXAC chunk (no 3.3.5 home; logged skip)
         uint32_t skippedLdv1;        ///< models carrying LDV1 LOD-skin data (profile 0 only in Phase 1)
         uint32_t skippedAfid;        ///< models carrying AFID (external .anim ids; Phase 2)
@@ -63,11 +64,11 @@ namespace wxl::runtime::m2native
     /**
      * @brief Native direct-fill of the stock CM2Shared runtime from the resident MD21 container.
      *
-     * Runs in place of the stock parser (never calls it): demuxes the container, drives the stock
-     * per-field offset->pointer walk over the modern body at its native strides, resolves TXID
-     * texture FileDataIDs, and finishes the runtime exactly as the stock parser would (texture
-     * handles at +0x174, skin profile via the stock name-based loader, loaded flag). SEH-guarded:
-     * malformed data becomes a logged failure, never a crash.
+     * Runs in place of the stock parser (never calls it): demuxes the container, resolves the body's
+     * offset->pointer walk at the modern strides, resolves TXID texture FileDataIDs, and finishes the
+     * runtime exactly as the stock parser would (texture handles at +0x174, skin profile via the stock
+     * name-based loader, loaded flag). SEH-guarded: malformed data becomes a logged failure, never a
+     * crash.
      * @param model  runtime model whose buffer holds the raw MD21 bytes.
      * @return 1 on success, 0 on failure -- the stock parser's own result contract.
      */

@@ -22,8 +22,10 @@
 //   Demux       One chunk walk (M2Demux::ScanContainer) harvests the body location + auxiliary chunks.
 //               The MD20 body is slid to the buffer base IN PLACE so model+0x150 lands on the header
 //               while the ALLOCATION POINTER stays what the destructor free / m2memory arena expect.
-//   Fill        In-place field deltas (M2Fixups) + the stock offset->pointer walk (M2Walk) at the modern
-//               strides, then TXID name injection, then the stock CM2Shared::Initialize + stock tail.
+//   Fill        In-place field deltas (M2Fixups), then record normalization (M2Normalize) which brings
+//               every source-era-wide record onto the one shape the rest of the pipeline steps, then our
+//               own offset->pointer walk (M2WalkOwned, driven by the record map in M2WalkLayout), then
+//               TXID name injection, then the stock CM2Shared::Initialize + stock tail.
 //   Live half   The model registers in the modern-M2 AssetRegistry (kFlagHotReshaped); the already-
 //               shipping live-engine half (skin-finalize contract rebuild, draw fixups) applies unchanged.
 //   Safety      The whole fill runs under SEH: malformed data becomes a logged failure, never a crash.
@@ -31,7 +33,6 @@
 #include "config.hpp"
 #include "client/CM2Shared/NativeLoad.hpp"
 #include "client/CM2Shared/M2NativeInternal.hpp"
-#include "client/CM2Model/ParticleStride.hpp"
 
 #include "common/Log.hpp"
 #include "engine/events/Event.hpp"
@@ -47,6 +48,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 
 namespace off = wxl::offsets::game::m2;
@@ -62,8 +64,7 @@ namespace
     std::atomic<uint32_t> g_statFailed{ 0 };
     std::atomic<uint32_t> g_statTexResolved{ 0 };
     std::atomic<uint32_t> g_statTexUnresolved{ 0 };
-    std::atomic<uint32_t> g_statSkipCameras{ 0 };
-    std::atomic<uint32_t> g_statSkipParticles{ 0 };
+    std::atomic<uint32_t> g_statNormalized[kRecordNormalizerCount]{};
     std::atomic<uint32_t> g_statSkipTxac{ 0 };
     std::atomic<uint32_t> g_statSkipLdv1{ 0 };
     std::atomic<uint32_t> g_statSkipAfid{ 0 };
@@ -126,51 +127,35 @@ namespace
         wxl::game::m2::ReplaceBuffer(model, buf, s.bodySize);
         h = reinterpret_cast<fmt::M2Header*>(buf);
 
-        // --- in-place field deltas on the raw body (delta list, m2-loading.md section 4.2) ---
-        // Modern bits 0x20/0x40 tell the 3.3.5 destructor "the runtime owns textureCombos /
-        // textureTransformCombos" and make it SMemFree interior pointers of this buffer.
+        // --- in-place field deltas on the raw body ---
+        // Two global-flag bits claim that the runtime owns the texture combo arrays, which would have
+        // the teardown free interior pointers of this one buffer. We hand it nothing to free.
         h->globalFlags &= ~0x60u;
         FixSequencesRaw(buf, s.bodySize, h, out.extSeqPending);
         FixMaterialsRaw(buf, s.bodySize, h);
-
-        // Park cameras (modern 0x74 stride vs client 0x64): the stock camera reader would walk a modern
-        // record at the wrong stride. Zeroed unconditionally so the post-parse header state stays bit-
-        // faithful to a stock parse, and the walk below never visits them.
-        if (h->cameras.count) out.skipMask |= kSkipCameras;
-        h->cameras      = fmt::M2Array{ 0, 0 };
-        h->cameraLookup = fmt::M2Array{ 0, 0 };
-
-        // Particle emitters keep their modern 0x1EC stride and are read in place once the client has been
-        // taught that stride (ParticleStride.cpp redirects the nine hardcoded-stride sites).
-        //
-        // They stay PARKED for now regardless, because stride is not the only thing the stock client
-        // misreads in a modern record: with flag 0x10000000 the textureId at +0x16 is three packed 5-bit
-        // ids, and the client uses it as a flat index into the model's texture-handle table --
-        // InitializeLoaded then AddRefs table[hugeId], an out-of-bounds read that faults. Teaching the
-        // client to unpack at its read sites is the correct fix; until that patch is in and verified,
-        // parking is the honest state: no fire, but no crash and no data touched.
-        const bool particlesReadable = wxl::runtime::m2particles::Installed() &&
-                                       wxl::runtime::m2particles::TextureIdSitesPatched();
-        if (h->particleEmitters.count && !particlesReadable)
-        {
-            out.skipMask |= kSkipParticles;
-            h->particleEmitters = fmt::M2Array{ 0, 0 };
-        }
 
         // The stock skin chooser walks a 4-entry threshold table indexed 4 - numSkinProfiles; more
         // profiles than the client ever shipped (LDV1-era LOD counts) would underflow it.
         if (h->numSkinProfiles > 4)
         {
             out.skipMask |= kSkipLdv1;
-            h->numSkinProfiles = 1; // profile 0 = full detail; LOD chains are Phase 2
+            h->numSkinProfiles = 1; // profile 0 = full detail; LOD chains need skin ownership first
         }
 
-        // --- the stock offset->pointer walk, at the (identical) modern strides ---
-        if (!DriveStockWalk(buf, s.bodySize, h)) { out.fail = "header walk rejected an array"; return; }
+        // --- record normalization: one record shape for every source era, in place ---
+        if (!NormalizeRecords(buf, s.bodySize, h, out.normalized))
+        {
+            out.fail = "record normalization rejected a record";
+            return;
+        }
+
+        // --- the offset->pointer walk ---
+        if (!WalkHeaderArrays(buf, s.bodySize, h)) { out.fail = "header walk rejected an array"; return; }
 
         // --- post-fixup injections on the now-pointer-based header ---
         InjectTxidNames(h, s, out);
         ClampRibbonRefs(h);
+        ClampCameraRefs(h);
 
         // Register for the live-engine half BEFORE the stock skin load can schedule its finalize: the
         // finalize-time contract rebuild (packed shaderId decode, textureUnitLookup synth) and the draw
@@ -256,8 +241,9 @@ namespace wxl::runtime::m2native
         s.modelsFailed       = g_statFailed.load(std::memory_order_relaxed);
         s.texturesResolved   = g_statTexResolved.load(std::memory_order_relaxed);
         s.texturesUnresolved = g_statTexUnresolved.load(std::memory_order_relaxed);
-        s.skippedCameras     = g_statSkipCameras.load(std::memory_order_relaxed);
-        s.skippedParticles   = g_statSkipParticles.load(std::memory_order_relaxed);
+        s.recordsNormalized  = 0;
+        for (uint32_t i = 0; i < detail::kRecordNormalizerCount; ++i)
+            s.recordsNormalized += g_statNormalized[i].load(std::memory_order_relaxed);
         s.skippedTxac        = g_statSkipTxac.load(std::memory_order_relaxed);
         s.skippedLdv1        = g_statSkipLdv1.load(std::memory_order_relaxed);
         s.skippedAfid        = g_statSkipAfid.load(std::memory_order_relaxed);
@@ -299,8 +285,6 @@ namespace wxl::runtime::m2native
         g_statNative.fetch_add(1, std::memory_order_relaxed);
         g_statTexResolved.fetch_add(out.texResolved, std::memory_order_relaxed);
         g_statTexUnresolved.fetch_add(out.texUnresolved, std::memory_order_relaxed);
-        if (out.skipMask & detail::kSkipCameras)   g_statSkipCameras.fetch_add(1, std::memory_order_relaxed);
-        if (out.skipMask & detail::kSkipParticles) g_statSkipParticles.fetch_add(1, std::memory_order_relaxed);
         if (out.skipMask & detail::kSkipTxac)      g_statSkipTxac.fetch_add(1, std::memory_order_relaxed);
         if (out.skipMask & detail::kSkipLdv1)      g_statSkipLdv1.fetch_add(1, std::memory_order_relaxed);
         if (out.skipMask & detail::kSkipAfid)      g_statSkipAfid.fetch_add(1, std::memory_order_relaxed);
@@ -309,11 +293,28 @@ namespace wxl::runtime::m2native
         g_statExtSeqPending.fetch_add(out.extSeqPending, std::memory_order_relaxed);
         g_statShadowGateForced.fetch_add(out.shadowGateForced, std::memory_order_relaxed);
 
-        WLOG_INFO("m2native: '%s' read natively (v=%u tex=%u/%u skips=0x%X extseq=%u gate=%u forced=%u)",
+        // What this model needed reshaping, named by the normalizer table so a new record type shows up
+        // in the log the moment its entry exists.
+        char   norm[96]{};
+        size_t at = 0;
+        for (uint32_t i = 0; i < detail::kRecordNormalizerCount && at + 1 < sizeof norm; ++i)
+        {
+            const uint32_t n = out.normalized.records[i];
+            if (!n) continue;
+            g_statNormalized[i].fetch_add(n, std::memory_order_relaxed);
+            const int wrote = std::snprintf(norm + at, sizeof norm - at, " %s=%u",
+                                            detail::kRecordNormalizers[i].label, n);
+            if (wrote <= 0) break;
+            at += static_cast<size_t>(wrote);
+        }
+
+        WLOG_INFO("m2native: '%s' read natively (v=%u tex=%u/%u skips=0x%X extseq=%u gate=%u forced=%u"
+                  " normalized:%s)",
                   stem, out.version, out.texResolved, out.texResolved + out.texUnresolved,
-                  out.skipMask, out.extSeqPending, out.shadowGateAfter, out.shadowGateForced);
+                  out.skipMask, out.extSeqPending, out.shadowGateAfter, out.shadowGateForced,
+                  norm[0] ? norm : " none");
         if (out.extSeqPending)
-            WLOG_INFO("m2native: '%s' has %u streamed (.anim) sequence(s) -- Phase 2, bind pose until then",
+            WLOG_INFO("m2native: '%s' has %u streamed (.anim) sequence(s) -- bind pose until they arrive",
                       stem, out.extSeqPending);
 
         ev::M2NativeLoadArgs a{ model, out.version, out.texResolved, out.texUnresolved, out.skipMask };

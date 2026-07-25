@@ -1,4 +1,5 @@
-// Native split-ADT reader: split-map detection (the once-per-map _tex0 probe + MPHD alpha fix).
+// Native split-ADT reader: split-map detection (the once-per-map _tex0 probe) and the per-load
+// alpha-layout flag the reader depends on.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -50,22 +51,6 @@ namespace
         key.assign(name, static_cast<size_t>(p - name));
         return true;
     }
-
-    /**
-     * @brief One-time MPHD compatibility fix for split maps: Legion-side `adt_has_height_texturing`
-     *        (0x80) implies 4096-byte alpha maps, which 3.3.5's unpack sites size from bit2 only -- so
-     *        bit2 is OR'd in when 0x80 is set without it. The flags dword is the live WDT MPHD copy the
-     *        alpha unpackers consult at every build.
-     */
-    void ApplyMphdAlphaFix()
-    {
-        uint32_t& flags = *reinterpret_cast<uint32_t*>(adt::kMphdFlags);
-        if ((flags & 0x80u) != 0 && (flags & 0x4u) == 0)
-        {
-            flags |= 0x4u;
-            WLOG_INFO("adt-split: MPHD height-texturing flag present, forcing big-alpha (bit2) for unpack sizing");
-        }
-    }
 }
 
 namespace wxl::runtime::adtsplit::detail
@@ -98,9 +83,31 @@ namespace wxl::runtime::adtsplit::detail
         if (split)
         {
             g_statSplitMaps.fetch_add(1, std::memory_order_relaxed);
-            ApplyMphdAlphaFix();
             WLOG_INFO("adt-split: map '%s' detected as SPLIT (Cata+ root/_tex0/_obj0)", keyOut.c_str());
         }
         return split;
+    }
+
+    /**
+     * @brief Makes the map's alpha-layout flag agree with the coverage a split map actually ships.
+     *
+     * A map that advertises per-layer height texturing authors its layer coverage one byte per texel,
+     * but the terrain build only sizes for that when the map header says so outright -- and the two
+     * statements disagree in every split dataset we read. The bit is therefore OR'd in, which also
+     * selects the shader family the height blend publishes into.
+     *
+     * The header word this touches is rebuilt from the map's own file every time a world loads, so
+     * this is re-armed per load rather than once per session: a cheap idempotent OR, silent once the
+     * bit is already standing. Nothing happens on a map that does not advertise height texturing, so
+     * a classic dataset is never touched.
+     */
+    void EnsureAlphaLayoutFlag()
+    {
+        uint32_t& flags = *reinterpret_cast<uint32_t*>(adt::kMphdFlags);
+        if ((flags & kMapHeightTexturing) != 0 && (flags & kMapWideAlpha) == 0)
+        {
+            flags |= kMapWideAlpha;
+            WLOG_INFO("adt-split: map advertises height texturing; selecting the wide layer-coverage layout");
+        }
     }
 }

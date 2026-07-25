@@ -41,6 +41,12 @@ namespace wxl::runtime::adtsplit::detail
     namespace wld = wxl::offsets::game::world;
     namespace io  = wxl::offsets::engine::io;
 
+    // ---------------------------------------------------------------- map-header bits
+    // Two bits of the live map header the reader cares about: the dataset says it has per-layer
+    // height texturing, and the terrain build sizes layer coverage as one byte per texel.
+    constexpr uint32_t kMapHeightTexturing = 0x80u;
+    constexpr uint32_t kMapWideAlpha       = 0x4u;
+
     // ---------------------------------------------------------------- raw byte helpers
     inline uint32_t Rd32(const void* p)       { uint32_t v; std::memcpy(&v, p, 4); return v; }
     inline uint64_t Rd64(const void* p)       { uint64_t v; std::memcpy(&v, p, 8); return v; }
@@ -235,6 +241,7 @@ namespace wxl::runtime::adtsplit::detail
 
     // ---------------------------------------------------------------- cross-unit responsibilities
     bool IsSplitTileName(const char* name, std::string& keyOut);  // AdtDetect
+    void EnsureAlphaLayoutFlag();                                  // AdtDetect
     bool ParseAndPatchGuarded(SplitTile* t);                       // AdtParse
     bool InstallWdl();                                             // AdtWdl
     bool InstallTextures();                                        // AdtTexture

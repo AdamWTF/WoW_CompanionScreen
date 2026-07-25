@@ -778,6 +778,21 @@ namespace
         return g_origClose(handle);
     }
 
+    // The one loose override the mount guard lets through. Shader containers we generate ship in a
+    // patch slot of their own, and they are only reachable if that slot is actually mounted: the
+    // content lookup then finds them there like any other data file, with nothing of ours on the
+    // path. The tree is a handful of files, so none of the address-space cost the guard exists to
+    // avoid applies to it.
+    constexpr const char* kShaderOverrideSlot    = "\\patch-w.mpq";
+    constexpr const char* kShaderOverrideSlotAlt = "/patch-w.mpq";
+
+    /** @brief True when a mount path's last component is the shader override slot. */
+    bool IsShaderOverrideSlot(const char* name)
+    {
+        if (!name) return false;
+        return EndsWithCI(name, kShaderOverrideSlot) || EndsWithCI(name, kShaderOverrideSlotAlt);
+    }
+
     /**
      * @brief Detours the true archive/directory mount primitive, dropping the loose override
      *        directories the host owns.
@@ -792,7 +807,9 @@ namespace
      * natively -- the hooks/offsets stay in place since they may be useful for something else later.
      * A loose override that is a DIRECTORY (the modern/custom data the host serves) is still
      * skipped, so the client never indexes its huge tree into its 32-bit address space; the file-open
-     * detour serves those files from the host instead, same as before this whole detour existed.
+     * detour serves those files from the host instead, same as before this whole detour existed. The
+     * shader override slot is the single exception, and it is deliberate: what lives there has to be
+     * found by the ordinary content lookup, not by us.
      * Returning 0 reads as an absent optional archive, which every caller already tolerates.
      * @param name      archive path the client is about to mount.
      * @param priority  search priority.
@@ -803,6 +820,12 @@ namespace
     char __cdecl MopaqOpenArchiveDetour(const char* name, int priority, uint32_t flags, void** out)
     {
         const DWORD attrs = name ? GetFileAttributesA(name) : INVALID_FILE_ATTRIBUTES;
+        if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY) &&
+            IsShaderOverrideSlot(name))
+        {
+            WLOG_INFO("archive-mount: keep shader override '%s'", name);
+            return g_origMopaqOpenArchive(name, priority, flags, out);
+        }
         if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY))
         {
             WLOG_INFO("archive-mount: SKIP loose dir '%s' (host-owned)", name);
