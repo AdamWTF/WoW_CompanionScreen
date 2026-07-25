@@ -194,14 +194,15 @@ namespace wxl::game::m2
     // --- attachment / render-context bindings ---
 
     /**
-     * @brief Returns (or allocates) the per-model render context for a CharModelObject.
-     * @param cmo     the CharModelObject this pointer.
-     * @param keyBuf  a pointer to a key buffer that identifies the render context slot.
-     * @return the render context, or null on failure.
+     * @brief Builds a NEW scene model for a model path. Every call creates one -- nothing is looked
+     *        up or reused -- so the caller owns the result and must release what it stops using.
+     * @param cmo     the scene the model is created in.
+     * @param keyBuf  the model path to load.
+     * @return the new scene model, or null on failure.
      */
     inline void* GetRenderCtx(void* cmo, void* keyBuf)
     {
-        return Native<off::M2_GetRenderCtxFn>(off::kGetRenderCtx)(cmo, nullptr, keyBuf, 0);
+        return Native<off::M2_GetRenderCtxFn>(off::kCreateSceneModel)(cmo, nullptr, keyBuf, 0);
     }
 
     /**
@@ -274,7 +275,7 @@ namespace wxl::game::m2
         Register({ "M2::ResolveTexture",  off::kTexResolve,       "void*(handle)" });
         Register({ "M2::BindSampler",     off::kSamplerBind,      "void(device, selector, tex)" });
         Register({ "M2::PushAlphaRef",    off::kPushAlphaRef,     "void(float ref)" });
-        Register({ "M2::GetRenderCtx",    off::kGetRenderCtx,     "void*(cmo, keyBuf)" });
+        Register({ "M2::CreateSceneModel",    off::kCreateSceneModel,     "void*(cmo, keyBuf)" });
         Register({ "M2::AttachToScene",   off::kAttachToScene,    "void(renderCtx, subObj, slot)" });
         Register({ "M2::DetachSlot",      off::kDetachSlot,       "void(subObj, slot)" });
         Register({ "M2::ReleaseRenderCtx",off::kReleaseRenderCtx, "void(renderCtx)" });

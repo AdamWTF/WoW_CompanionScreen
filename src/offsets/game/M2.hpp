@@ -375,9 +375,12 @@ namespace wxl::offsets::game::m2
     constexpr uint32_t kSamplerSelS2 = 0x17;
 
     // --- attachment / render-context functions ---
-    // GetRenderCtx(cmo, keyBuf): returns the per-model render context for the given CharModelObject
-    // and key buffer; allocates one if absent.
-    constexpr uintptr_t kGetRenderCtx       = 0x0081F8F0;
+    // CreateSceneModel(scene, path, flags): loads (or takes a shared reference to) the model named by
+    // path and builds a fresh scene model for it, returning that model. It ALWAYS creates -- there is
+    // no lookup or reuse of an existing one, so a caller that wants get-or-create semantics must keep
+    // its own mapping and release what it no longer needs. A failed load falls back to the engine's
+    // placeholder model rather than returning null.
+    constexpr uintptr_t kCreateSceneModel   = 0x0081F8F0;
     // AttachToScene(renderCtx, subObj, slot): attaches a collection-M2 render context to a scene slot
     // on the parent CharModelObject render context.
     constexpr uintptr_t kAttachToScene      = 0x00831630;
