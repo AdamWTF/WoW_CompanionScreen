@@ -270,6 +270,75 @@ namespace wxl::offsets::game::m2
     constexpr uintptr_t kSetZsource = 0x00978DA0;
     using M2_SetZsourceFn = void(__fastcall*)(void* emitter, void* edx, float zSource);
 
+    // --- CParticleEmitter2 instance layout ---------------------------------------------------
+    // Filled by CM2Model::InitializeLoaded from each emitter record's track key 0 (0x00833C00 rate via
+    // vtable+0x28, 0x00833C91 lifespan, 0x00833C9D lifespanVary) and re-fed every frame from the
+    // instance's sampled cells. CParticleEmitter2::SetTextureDimensions (0x00978C70) REQUIRES
+    // power-of-two dimensions and derives from them the shift + reciprocals a flipbook cell is decoded
+    // with: column = cell & (columns - 1), row = cell >> shift.
+    constexpr size_t kOffEmitterCellShift     = 0x0C;  // log2(columns)
+    constexpr size_t kOffEmitterCellWidth     = 0x10;  // 1 / columns
+    constexpr size_t kOffEmitterCellHeight    = 0x14;  // 1 / rows
+    constexpr size_t kOffEmitterParticlePool  = 0x34;  // CParticle2[], stride kParticleRecordStride
+    constexpr size_t kOffEmitterLiveCount     = 0x50;
+    constexpr size_t kOffEmitterLiveIndices   = 0x54;  // uint32[] into the pool, kOffEmitterLiveCount long
+    constexpr size_t kOffEmitterRate          = 0x9C;
+    constexpr size_t kOffEmitterRateVary      = 0xA0;
+    constexpr size_t kOffEmitterLifespan      = 0xA4;
+    constexpr size_t kOffEmitterLifespanVary  = 0xA8;
+    constexpr size_t kOffEmitterHeadCellBlock = 0xEC;  // -> the record's head-cell count+offset pair
+    constexpr size_t kOffEmitterAtlasRows     = 0x120;
+    constexpr size_t kOffEmitterAtlasCols     = 0x124;
+    constexpr size_t kOffEmitterFlags         = 0x134;
+    constexpr size_t kOffEmitterParentModel   = 0x184; // frame of reference passed to EmitNewParticles
+    constexpr uint32_t kParticleRecordStride  = 0x20;
+    constexpr size_t kOffParticleAge          = 0x00;  // seconds; the particle dies once it reaches lifespan
+    constexpr size_t kOffParticlePosition     = 0x04;
+    constexpr size_t kOffParticleVelocity     = 0x10;
+
+    // CParticleEmitter2::EmitNewParticles -- per-frame, called from StepUpdate BEFORE the ageing pass,
+    // so a replacement particle is born while the one it replaces is still alive. Accumulates
+    // rate * dt and spawns round(accumulator + 0.5) particles, capped by the free list (the pool grows
+    // on demand, so it is not a fixed ceiling).
+    //
+    // Unless kEmitterIgnoreDistance is set it first scales the rate by
+    // 1 - (distance - 50) * 0.02 clamped to [kEmitterRateFloor, 1] -- distance being the camera
+    // distance CParticleEmitter2::Update (0x0097EB10) publishes just before. NOTHING in the model file
+    // maps onto that flag: CM2Model::InitializeLoaded translates the record flags bit by bit
+    // (0x00833D14-0x00833EAF) and never touches it. Its only setters are
+    // CMapObjDef::SetDoodadEmittersIgnoresDistance (0x007B69C0) and
+    // World::ObjectSetDoodadEmittersIgnoresDistance (0x0077FE80) -- it is a PLACEMENT property.
+    //
+    // The falloff assumes a dense emitter, where a quarter rate just thins the crowd. Source content
+    // also authors single-billboard emitters (rate * lifespan near 1), for which the same cut stretches
+    // the emission period past the lifetime and the effect goes dark between particles.
+    constexpr uintptr_t kEmitNewParticles = 0x0097D8C0;
+    using M2_EmitNewParticlesFn = void(__fastcall*)(void* emitter, void* edx, float dt, void* frame);
+    constexpr uint32_t kEmitterIgnoreDistance = 0x400000;
+    constexpr float    kEmitterRateFloor      = 0.25f;
+
+    // CParticleEmitter2::Sync -- vtable SLOT 0 of every emitter kind, called once per frame per enabled
+    // emitter from StepUpdate before the emission pass. It sizes the particle pool as
+    //   ROUND((rateVary + rate) * (lifespanVary + lifespan) * kEmitterPoolHeadroom)
+    // and grows the pool to it through SyncAllocation; each child emitter then gets
+    //   min(itsOwnSize * theParentSize, kEmitterPoolCeiling).
+    // The 15% is headroom over the expected live count, so a particle's replacement can be born while
+    // the particle it replaces is still fading. ROUND is round-to-nearest, so any emitter whose
+    // expected count is under ~1.3 -- a single-billboard effect, one particle at a time -- rounds the
+    // headroom away and lands on a pool of exactly 1. Its replacement then cannot be allocated until
+    // the previous particle is freed, which turns the emission period into the LIFESPAN and leaves at
+    // least one frame with nothing alive.
+    constexpr uintptr_t kEmitterSync = 0x0097EDF0;
+    using M2_EmitterSyncFn = void(__fastcall*)(void* emitter, void* edx);
+    // SyncAllocation(count) grows the pool to count, and only ever grows: it early-outs when the
+    // current size already covers the request, so re-requesting a larger size is safe and idempotent.
+    constexpr uintptr_t kEmitterSyncAllocation = 0x0097E480;
+    using M2_EmitterSyncAllocationFn = void(__fastcall*)(void* emitter, void* edx, uint32_t count);
+    constexpr float    kEmitterPoolHeadroom = 1.15f;
+    constexpr uint32_t kEmitterPoolCeiling  = 0x1000;
+    constexpr size_t   kOffEmitterChildCount = 0x6C;
+    constexpr size_t   kOffEmitterChildArray = 0x70; // INLINE array of CParticleEmitter2*, not a pointer
+
     // --- external animation ---
     // External-anim read-completion callback (node): runs once after the bytes are read and before the
     // per-sequence track offsets are rebased. __cdecl(node); the node's I/O record (kOffNodeRecord)
@@ -484,6 +553,16 @@ namespace wxl::offsets::game::m2
     // Visibility flags written by sub_97f570 into each render object.
     // Bit 2 = 1 → batch visible; bit 2 = 0 → batch hidden (bit 0 also cleared when hiding).
     constexpr size_t kOffRenderObjFlags     = 0x160;
+    constexpr size_t kOffInstShared         = 0x2C;  // -> the CM2Shared this instance draws
+    // Per-emitter blocks, both sized by the header's emitter count and built by
+    // CM2Model::InitializeLoaded: the sampled track cells it feeds the emitters from each frame, then
+    // the CParticleEmitter2* array itself.
+    constexpr size_t kOffInstEmitterCells   = 0x2C0; // stride kEmitterCellStride
+    constexpr size_t kOffInstEmitterArray   = 0x2C4; // -> CParticleEmitter2*[]
+    constexpr size_t kEmitterCellStride     = 0x88;
+    constexpr size_t kOffCellLifespan       = 0x44;
+    constexpr size_t kOffCellRate           = 0x50;
+    constexpr size_t kOffCellEnabled        = 0x80;
 
     // --- runtime model object fields ---
     constexpr size_t kOffModelFlags         = 0x08;  // bit 2 selects the sibling-file open flag
