@@ -219,10 +219,14 @@ namespace
     /**
      * @brief Reports whether a name is routed to the host.
      *
-     * Skips .pub/.url, which are existence probes rather than archive content. Skips the modern terrain
-     * sidecars the client has no loader for: .tex (the per-map texture catalog) and _lod.adt (the
-     * low-detail tile). Serving their bytes stalls or faults the terrain load, so the open is left to miss
-     * natively and the loader proceeds without them. Skips audio (.wav/.mp3/.ogg): world sound loads read
+     * Skips .pub/.url, which are existence probes rather than archive content. Skips .tex, the per-map
+     * texture catalog nothing here reads: serving its bytes stalls the terrain load, so the open is left
+     * to miss and the loader proceeds without it.
+     *
+     * The reduced-tile sidecar used to be skipped for the same reason, and no longer is -- it now has a
+     * reader (the split-ADT reduced mesh), and that reader is its ONLY opener: the stock client has no
+     * concept of the file and never asks for it. So the bytes can reach nothing but code written to
+     * validate them. Skips audio (.wav/.mp3/.ogg): world sound loads read
      * through the client's async path, which a synthetic handle never completes (glue-screen music reads
      * synchronously and survives; world SFX/music never finish loading). No transform targets audio and no
      * host-only source ships it, so the native archives already serve it correctly. The name is already
@@ -233,7 +237,7 @@ namespace
     bool ShouldIntercept(std::string_view name)
     {
         if (EndsWithCI(name, ".pub") || EndsWithCI(name, ".url")) return false;
-        if (EndsWithCI(name, ".tex") || EndsWithCI(name, "_lod.adt")) return false;
+        if (EndsWithCI(name, ".tex")) return false;
         if (EndsWithCI(name, ".wav") || EndsWithCI(name, ".mp3") || EndsWithCI(name, ".ogg")) return false;
         return true;
     }

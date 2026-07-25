@@ -25,7 +25,6 @@
 
 #include "engine/hook/Hook.hpp"
 #include "engine/hook/Registry.hpp"
-#include "common/Config.hpp"
 #include "common/Log.hpp"
 
 #include <cstdint>
@@ -37,10 +36,6 @@ namespace
 {
     /// The reader-queue slot table (kQueueSlotCount contiguous queue pointers).
     void** Slots() { return reinterpret_cast<void**>(asyncio::kQueueTable); }
-
-    // TEMP diagnostic: proves reads are genuinely spread across the workers, not routed to one queue.
-    // Remove after in-game validation. Silence at runtime with WXL_DISKQ_LOG=0.
-    bool DiagLog() { static const bool on = wxl::config::Env("WXL_DISKQ_LOG", true); return on; }
 
     asyncio::InitializeFn  g_origInitialize  = nullptr;
     asyncio::EnqueueReadFn g_origEnqueueRead = nullptr;
@@ -75,10 +70,7 @@ namespace
             spawnWorker(queue, kAddedLabels[i - 1]);
             ++added;
         }
-        // Log the resolved slots: three distinct non-null pointers is proof of three real, separate
-        // queues (rules out an alloc that handed back one shared object).
-        WLOG_INFO("disk-queue: %u reader worker(s) total (%u added); slots [0]=%p [1]=%p [2]=%p",
-                  1u + added, added, slots[0], slots[1], slots[2]);
+        WLOG_INFO("disk-queue: %u reader worker(s) total (%u added)", 1u + added, added);
     }
 
     // Serialises the slot swap below against every other enqueue. The stock enqueue is already a short
@@ -86,10 +78,6 @@ namespace
     // parallelism win is on the worker threads doing the reads, not at the enqueue point.
     std::mutex g_routeMutex;
     uint32_t   g_next = 0; // round-robin cursor
-
-    // TEMP diagnostic counters (guarded by g_routeMutex): per-slot enqueue totals, dumped periodically.
-    uint64_t g_routed[asyncio::kQueueSlotCount] = {};
-    uint64_t g_routeTotal = 0;
 
     /**
      * @brief Routes each read request across all live reader queues round-robin.
@@ -104,35 +92,15 @@ namespace
     void __cdecl EnqueueReadDetour(void* request, uint32_t insertMode)
     {
         void** slots = Slots();
-        uint64_t snap[asyncio::kQueueSlotCount];
-        bool dump = false;
-        {
-            std::lock_guard<std::mutex> lock(g_routeMutex);
+        std::lock_guard<std::mutex> lock(g_routeMutex);
 
-            uint32_t live = 1;
-            while (live < asyncio::kQueueSlotCount && slots[live]) ++live;
+        uint32_t live = 1;
+        while (live < asyncio::kQueueSlotCount && slots[live]) ++live;
 
-            const uint32_t pick = g_next++ % live;
-            void* saved = slots[0];
-            slots[0] = slots[pick];
-            g_origEnqueueRead(request, insertMode);
-            slots[0] = saved;
-
-            if (DiagLog())
-            {
-                ++g_routed[pick];
-                if ((++g_routeTotal & 0xFF) == 0) // every 256 requests
-                {
-                    for (uint32_t i = 0; i < asyncio::kQueueSlotCount; ++i) snap[i] = g_routed[i];
-                    dump = true;
-                }
-            }
-        }
-        if (dump)
-            WLOG_INFO("disk-queue routed so far: q0=%llu q1=%llu q2=%llu",
-                      static_cast<unsigned long long>(snap[0]),
-                      static_cast<unsigned long long>(snap[1]),
-                      static_cast<unsigned long long>(snap[2]));
+        void* saved = slots[0];
+        slots[0] = slots[g_next++ % live];
+        g_origEnqueueRead(request, insertMode);
+        slots[0] = saved;
     }
 
     /**

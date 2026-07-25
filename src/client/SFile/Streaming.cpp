@@ -1,4 +1,4 @@
-// Async streaming detours: extra disk-queue workers, reentrant-drain serialization, ADT chunk build.
+// Async streaming detours: reentrant-drain serialization, and tile-teardown read cancellation.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -18,15 +18,12 @@
 #include "engine/hook/Hook.hpp"
 #include "engine/hook/Registry.hpp"
 
-#include "common/Log.hpp"
 #include "offsets/engine/Gx.hpp"
 #include "offsets/game/ADT.hpp"
 #include "offsets/game/World.hpp"
 
 #include <windows.h>
 
-#include <atomic>
-#include <cstddef>
 #include <cstdint>
 #include <cstring>
 
@@ -36,10 +33,8 @@ namespace
     namespace wld   = wxl::offsets::game::world;
     namespace gxoff = wxl::offsets::engine::gx;
 
-    wld::AsyncServiceQueuesFn      g_origAsyncDrain          = nullptr;
-    wld::AsyncFileReadInitializeFn g_origAsyncFileReadInit   = nullptr;
-    wld::AsyncFileReadObjectFn     g_origAsyncFileReadObject = nullptr; // captured, never called: hkAsyncFileReadObject fully replaces the original
-    adt::TileAreaDestroyFn         g_origTileAreaDestroy     = nullptr;
+    wld::AsyncServiceQueuesFn g_origAsyncDrain      = nullptr;
+    adt::TileAreaDestroyFn    g_origTileAreaDestroy = nullptr;
 
     // Per-thread async-drain recursion depth. A texture build force-waits nested reads, which re-enter the
     // completion drain; a nested pump running unrelated completions frees / rewrites a buffer the outer
@@ -188,111 +183,6 @@ namespace
     }
 
     /**
-     * @brief Detours the disk-queue init to add 2 more worker threads alongside the native one.
-     *
-     * Runs the original body unmodified first (creates queue slot 0, "Disk Queue", exactly as shipped),
-     * then extends slots 1/2 with the same native helpers the original loop itself calls when streaming
-     * mode is on -- so the resulting AsyncQueue/AsyncThread objects are byte-identical in shape and
-     * self-register into the generic tracking lists the native teardown already walks. Does not touch
-     * the streaming-mode flag or anything else the original touches. On its own this creates 2 idle
-     * worker threads; AsyncFileReadObject's enqueue routing (a separate detour) must also change for
-     * either thread to ever receive work.
-     * @param maxPerSecond  native param, forwarded unmodified.
-     * @param pumpBudgetMs  native param, forwarded unmodified.
-     */
-    void __cdecl hkAsyncFileReadInitialize(uint32_t maxPerSecond, uint32_t pumpBudgetMs)
-    {
-        g_origAsyncFileReadInit(maxPerSecond, pumpBudgetMs);
-
-        static const char* const kExtraNames[] = { "WXL Disk Queue 2", "WXL Disk Queue 3" };
-        auto* slots = reinterpret_cast<void**>(wld::kAsyncQueueSlots);
-        auto alloc = reinterpret_cast<wld::AsyncQueueAllocFn>(wld::kAsyncQueueAlloc);
-        auto wrap  = reinterpret_cast<wld::AsyncThreadWrapFn>(wld::kAsyncThreadWrap);
-        for (int i = 1; i <= 2; ++i)
-        {
-            void* queue = alloc();
-            if (!queue) { WLOG_WARN("AsyncFileReadInitialize: extra queue %d alloc failed", i); continue; }
-            slots[i] = queue;
-            wrap(queue, kExtraNames[i - 1]);
-        }
-        WLOG_INFO("AsyncFileReadInitialize: extended to 3 disk-queue workers");
-    }
-
-    // Native async-object layout (0x30 bytes total). Only the fields the enqueue detour touches are
-    // named; the rest stay opaque padding.
-#pragma pack(push, 1)
-    struct AsyncObjectView
-    {
-        uint8_t  _pad00[0x18]; // handle/buffer/len/owner/completion, untouched here
-        uint32_t queue;        // +0x18
-        uint32_t timestamp;    // +0x1c
-        uint8_t  priority;     // +0x20
-        uint8_t  _pad21[3];    // +0x21..0x23: serviced/queue-state/in-progress flags, untouched here
-        uint8_t  netFlag;      // +0x24, untouched here (only ever set on the streaming-only routing path)
-        uint8_t  rearm;        // +0x25
-    };
-    // Native AsyncQueue layout: only the "list B" selector flag is touched here.
-    struct AsyncQueueView
-    {
-        uint8_t  _pad00[0x20];
-        uint32_t secondListFlag; // +0x20
-    };
-#pragma pack(pop)
-    static_assert(sizeof(AsyncObjectView) <= 0x30, "AsyncObjectView must fit the native 0x30-byte object");
-    static_assert(offsetof(AsyncObjectView, queue)     == 0x18, "AsyncObjectView.queue");
-    static_assert(offsetof(AsyncObjectView, timestamp) == 0x1c, "AsyncObjectView.timestamp");
-    static_assert(offsetof(AsyncObjectView, priority)  == 0x20, "AsyncObjectView.priority");
-    static_assert(offsetof(AsyncObjectView, netFlag)   == 0x24, "AsyncObjectView.netFlag");
-    static_assert(offsetof(AsyncObjectView, rearm)     == 0x25, "AsyncObjectView.rearm");
-    static_assert(offsetof(AsyncQueueView, secondListFlag) == 0x20, "AsyncQueueView.secondListFlag");
-
-    /**
-     * @brief Detours the disk-queue enqueue to round-robin across every live worker queue.
-     *
-     * Native code always selects queue slot 0 outside streaming mode regardless of how many worker
-     * threads exist, which left AsyncFileReadInitialize's 2 extra threads permanently idle. Reimplements
-     * only the queue-selection step; the lock, force-wait fast path and insert dispatch call the exact
-     * same native subroutines the original uses, byte-for-byte, so behaviour is unchanged apart from
-     * which queue an object lands in. A trailing streaming-mode-gated no-op call in the original is not
-     * reachable outside streaming mode, so it is omitted.
-     * @param obj               async object being enqueued.
-     * @param highPriorityFlag  native param, forwarded unmodified to the insert call.
-     */
-    void __cdecl hkAsyncFileReadObject(void* obj, uint32_t highPriorityFlag)
-    {
-        auto* o = static_cast<AsyncObjectView*>(obj);
-        auto* slots = reinterpret_cast<void* const*>(wld::kAsyncQueueSlots);
-
-        static std::atomic<uint32_t> s_rr{ 0 };
-        const uint32_t live = slots[1] ? (slots[2] ? 3u : 2u) : 1u;
-        void* queue = slots[s_rr.fetch_add(1, std::memory_order_relaxed) % live];
-        auto* q = static_cast<AsyncQueueView*>(queue);
-
-        adrain::Lock();
-        const bool forceWait = (reinterpret_cast<uint32_t>(obj) == adrain::Rd(adrain::kAwaitedObj));
-        o->queue = reinterpret_cast<uint32_t>(queue);
-
-        if (forceWait)
-        {
-            o->priority = (o->priority > 0x7f) ? 0x80 : 0;
-            o->timestamp = *reinterpret_cast<uint32_t*>(
-                *reinterpret_cast<uint8_t**>(gxoff::kGxDevicePtr) + 0xf68);
-            reinterpret_cast<wld::TSListLinkToHeadFn>(wld::kTSListLinkToHead)(
-                reinterpret_cast<uint8_t*>(queue) + 0x8, obj);
-            o->rearm = 0;
-        }
-        else if (q->secondListFlag == 0)
-        {
-            reinterpret_cast<wld::AsyncFileReadLinkObjectFn>(wld::kAsyncFileReadLinkObject)(obj, highPriorityFlag);
-        }
-        else
-        {
-            reinterpret_cast<wld::AsyncFileReadLinkObjectFn>(wld::kAsyncFileReadLinkObjectAlt)(obj, highPriorityFlag);
-        }
-        adrain::Unlock();
-    }
-
-    /**
      * @brief Detours TILE-AREA teardown (CMapArea::destructor -- historically misnamed "ChunkDestroy")
      *        to cancel the tile's in-flight async read before its file buffer is freed.
      *
@@ -316,25 +206,6 @@ namespace
     }
 
     /**
-     * @brief Boot-phase install: the disk-queue worker-count extension and its enqueue routing.
-     *
-     * The client creates its disk-queue worker thread very early in boot, well before the render device
-     * exists -- so these two detours must be live before the client's own startup reaches them, which is
-     * why they install (and get enabled) on the loader thread rather than at the Normal phase every other
-     * streaming detour uses. Only extends an already-initialized subsystem after the real call runs
-     * (call-original-then-extend); does not touch file-content serving, so it carries none of the
-     * heap-corruption risk that keeps the content-serving hooks deferred.
-     */
-    bool InstallStreamingEarly()
-    {
-        wxl::hook::Install("AsyncFileReadInitialize", wld::kAsyncFileReadInitialize,
-                           &hkAsyncFileReadInitialize, &g_origAsyncFileReadInit);
-        wxl::hook::Install("AsyncFileReadObject", wld::kAsyncFileReadObject,
-                           &hkAsyncFileReadObject, &g_origAsyncFileReadObject);
-        return true;
-    }
-
-    /**
      * @brief Normal-phase install: reentrant-drain serialization and ADT chunk-build event.
      */
     bool InstallStreaming()
@@ -351,6 +222,4 @@ namespace
     }
 }
 
-WXL_REGISTER_FEATURE_PHASED("streaming-early", true, InstallStreamingEarly,
-                            ::wxl::hook::Phase::Boot)
 WXL_REGISTER_FEATURE("streaming", true, InstallStreaming)

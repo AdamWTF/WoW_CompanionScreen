@@ -17,8 +17,12 @@
 // The source emitter keeps every field of the target emitter at its own offset and appends the
 // multi-texture scroll parameters past the end, so the record body copies straight down. What does NOT
 // carry over is a handful of ENCODINGS the target emitter reads differently, and each is decoded here
-// once at load rather than at every read: a packed multi-layer texture slot, a blend mode past the
-// target's table, and a gravity track whose keys are packed direction+magnitude instead of a scalar.
+// once at load rather than at every read: a packed multi-layer texture slot, and a gravity track whose
+// keys are packed direction+magnitude instead of a scalar.
+//
+// The blend mode is deliberately NOT touched. A mode the runtime's own map has no arm for is resolved
+// against the real blend state it names, once the emitter exists to carry it -- rewriting the record
+// to the nearest mode the map already knows would throw the distinction away here, permanently.
 //
 // Flipbook cell keys are deliberately NOT touched. A cell ramp runs from 0 to rows*columns across the
 // particle's life -- the end key is one past the last cell on purpose, so the sweep covers every cell
@@ -41,7 +45,6 @@ namespace wxl::runtime::m2native::detail
         // Fields of one emitter record.
         constexpr uint32_t kOffFlags        = 0x004;
         constexpr uint32_t kOffTextureId    = 0x016;
-        constexpr uint32_t kOffBlendingType = 0x028;
         constexpr uint32_t kOffGravityTrack = 0x084;
 
         // An animation track heads its two count+offset pairs with the interpolation fields; the value
@@ -54,12 +57,6 @@ namespace wxl::runtime::m2native::detail
         // Only the first of the three packed layer ids has a target home; the id also has to land
         // inside the model's texture table or it selects nothing.
         constexpr uint16_t kPackedTextureIdMask = 0x1F;
-
-        // Blend modes: the source's additive-blend mode is an exact match for one the target already
-        // has, anything else past the target's table degrades to plain additive.
-        constexpr uint8_t kBlendSourceAdditive = 7;
-        constexpr uint8_t kBlendTargetAdditive = 3;
-        constexpr uint8_t kBlendFallback       = 4;
 
         // Gravity keys packed as {int8 x, int8 y, int16 magnitude} instead of a downward scalar.
         constexpr uint32_t kFlagCompressedGravity = 0x800000;
@@ -152,10 +149,6 @@ namespace wxl::runtime::m2native::detail
         if (flags & off::kParticleFlagMultiTex) texId &= kPackedTextureIdMask;
         if (ctx.header->textures.count && texId >= ctx.header->textures.count) texId = 0;
         Wr16(dst + kOffTextureId, texId);
-
-        uint8_t& blend = dst[kOffBlendingType];
-        if (blend == kBlendSourceAdditive)     blend = kBlendTargetAdditive;
-        else if (blend > kBlendSourceAdditive) blend = kBlendFallback;
 
         if ((flags & kFlagCompressedGravity) && !ExpandGravityKeys(ctx, dst, flags)) return false;
         return true;

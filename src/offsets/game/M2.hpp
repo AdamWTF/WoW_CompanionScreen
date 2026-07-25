@@ -286,6 +286,13 @@ namespace wxl::offsets::game::m2
     constexpr size_t kOffEmitterRateVary      = 0xA0;
     constexpr size_t kOffEmitterLifespan      = 0xA4;
     constexpr size_t kOffEmitterLifespanVary  = 0xA8;
+    // Material chosen by CM2Model::InitializeLoaded from the record's blend mode and handed over by
+    // CParticleEmitter2::SetMaterial (0x00978BF0): a blend-state index and the draw flags that go with
+    // it. Bit kEmitterMaterialAlphaTest stays set for the two alpha-TESTED modes (opaque, alpha key)
+    // and is cleared for every blended one.
+    constexpr size_t   kOffEmitterBlendState     = 0xD0;
+    constexpr size_t   kOffEmitterMaterialFlags  = 0xD4;
+    constexpr uint32_t kEmitterMaterialAlphaTest = 0x4;
     constexpr size_t kOffEmitterHeadCellBlock = 0xEC;  // -> the record's head-cell count+offset pair
     constexpr size_t kOffEmitterAtlasRows     = 0x120;
     constexpr size_t kOffEmitterAtlasCols     = 0x124;
@@ -334,6 +341,19 @@ namespace wxl::offsets::game::m2
     // current size already covers the request, so re-requesting a larger size is safe and idempotent.
     constexpr uintptr_t kEmitterSyncAllocation = 0x0097E480;
     using M2_EmitterSyncAllocationFn = void(__fastcall*)(void* emitter, void* edx, uint32_t count);
+    // CM2Model::InitializeLoaded -- builds every emitter of a loaded model, then wires each one's
+    // record pointers into it. Native this-in-ECX, no stack arguments. It maps the record's blend mode
+    // through a SEVEN-case jump table (0x008344DC, source modes 0..6) into a device blend state;
+    // anything past it takes the default arm and comes out as blend state 0 with the alpha-test flag
+    // still set -- i.e. OPAQUE, which for a particle is a solid quad. Source mode 7 (added in 4.3.4)
+    // lands there. The record's own field offsets are needed to tell that case apart afterwards,
+    // because the default arm and a genuine mode 0 leave identical results behind.
+    constexpr uintptr_t kInitializeLoaded = 0x00832EA0;
+    using M2_InitializeLoadedFn = uint32_t(__fastcall*)(void* model, void* edx);
+    constexpr size_t kParticleRecBlendMode = 0x028;
+    constexpr size_t kParticleRecHeadCells = 0x13C; // what kOffEmitterHeadCellBlock points at
+    constexpr uint8_t kParticleBlendModeMax = 6;    // highest source mode the jump table covers
+
     constexpr float    kEmitterPoolHeadroom = 1.15f;
     constexpr uint32_t kEmitterPoolCeiling  = 0x1000;
     constexpr size_t   kOffEmitterChildCount = 0x6C;
