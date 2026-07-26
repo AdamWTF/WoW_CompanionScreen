@@ -31,6 +31,37 @@ namespace wxl::offsets::engine::gx
     constexpr size_t    kBackBufferField   = 0x3B3C; // cached back-buffer surface
     constexpr size_t    kDepthSurfaceField = 0x3B40; // cached world depth surface
 
+    // --- blend-state factor tables ---
+    // Two parallel arrays of API blend factors, one entry per blend state, read by the single site that
+    // pushes blend state to the hardware -- one instruction per table, each with the table's address as
+    // an absolute displacement. That makes the pair RELOCATABLE: copy them somewhere larger, patch the
+    // two displacements, and the engine reads the wider tables without knowing it. Which is how a blend
+    // state the stock table has no room for gets one.
+    constexpr uintptr_t kBlendSrcFactors  = 0x00A2F964;
+    constexpr uintptr_t kBlendDstFactors  = 0x00A2F994;
+    constexpr uint32_t  kBlendStateCount  = 12;       // entries in the stock tables
+    constexpr uintptr_t kBlendSrcReadDisp = 0x006A4D94; // displacement operand naming the src table
+    constexpr uintptr_t kBlendDstReadDisp = 0x006A4DBD; // ... and the dst table
+
+    // API blend factors as the tables spell them.
+    enum : uint32_t
+    {
+        kD3dBlendZero        = 1,
+        kD3dBlendOne         = 2,
+        kD3dBlendSrcColor    = 3,
+        kD3dBlendInvSrcColor = 4,
+        kD3dBlendSrcAlpha    = 5,
+        kD3dBlendInvSrcAlpha = 6,
+        kD3dBlendDestColor   = 9,
+        kD3dBlendInvDestColor = 10,
+    };
+
+    // States added past the stock count. The numbering continues the stock enum because the modern
+    // asset data numbers them that way -- these are the values a modern particle record already names,
+    // not identifiers of our invention.
+    constexpr uint32_t kBlendStateScreenAdd   = 12;   // inverse-dest-colour / one
+    constexpr uint32_t kBlendStatePremulAlpha = 13;   // one / inverse-src-alpha
+
     // Render-resolution rects on the graphics-device object. Each is a rect of 4 floats
     // {minX,minY,maxX,maxY}; min stays 0, so maxX/maxY hold the pixel width/height. curWindow is the live
     // render resolution every normalized [0..1] viewport is multiplied by at draw time; defWindow is its
