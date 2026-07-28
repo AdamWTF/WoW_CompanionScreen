@@ -38,6 +38,13 @@ namespace wxl::offsets::game::adt
     // taking the default (no water-surface bump) path like the guarded consumers.
     constexpr uintptr_t kLiquidRowFlagTest = 0x007C846C;
 
+    // LiquidType.dbc id-index globals (filled at boot by the DBC load; live for the process).
+    // row = rows[id - minId], and a gap id yields a NULL row -- presence must be tested before handing
+    // an id to any stock liquid consumer. minId/maxId are the inclusive id bounds of the loaded table.
+    constexpr uintptr_t kLiquidTypeDbRows  = 0x00AD4084; // LiquidTypeRec** (indexed by id - minId)
+    constexpr uintptr_t kLiquidTypeDbMinId = 0x00AD4074; // u32 inclusive lower bound
+    constexpr uintptr_t kLiquidTypeDbMaxId = 0x00AD4070; // u32 inclusive upper bound
+
     // TILE-AREA teardown (CMapArea::destructor, __thiscall via ECX=area) -- NOT a chunk destructor.
     // The historical name "ChunkDestroy" was a misnomer: this is the per-TILE object (CMapArea) whose
     // raw ADT file buffer at area+0x80 is freed here while a queued async-read completion may still

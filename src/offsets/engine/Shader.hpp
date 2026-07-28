@@ -107,6 +107,10 @@ namespace wxl::offsets::engine::shader
     // slot, which is null for a rejected-version modern effect -> null pixel shader -> black). The own
     // stack must therefore write its OWN wrapper into the same cache via the state setter below.
     constexpr uintptr_t kGxStateSet      = 0x00685F50; // __thiscall(this=gx device, stateIdx, value)
+    // Marks one GxState slot dirty so the next flush re-applies its CACHED value: the coherent way to
+    // hand a stage back to the engine after a raw device bind bypassed the cache for one draw.
+    constexpr uintptr_t kGxStateDirty    = 0x00685970; // __thiscall(this=gx device, stateIdx)
+    using GxStateDirtyFn = void(__thiscall*)(void* gxDevice, unsigned stateIdx);
     constexpr unsigned  kStateVertexShader = 0x4D;     // GxState slot the flush applies as vertex shader
     constexpr unsigned  kStatePixelShader  = 0x4E;     // GxState slot the flush applies as pixel shader
     // Texture-stage slots: 16 consecutive states, one texture object per sampler. The setter itself
