@@ -26,7 +26,8 @@ namespace wxl::runtime::adtsplit::detail
         g_statChunksFilled{ 0 }, g_statMcrfBytes{ 0 }, g_statMtxpTiles{ 0 },
         g_statMclvChunks{ 0 }, g_statHoleChunks{ 0 }, g_statFailures{ 0 },
         g_statWdlRead{ 0 }, g_statHeightTex{ 0 }, g_statDoodadModels{ 0 },
-        g_statMapObjects{ 0 }, g_statMapObjectsDropped{ 0 };
+        g_statMapObjects{ 0 }, g_statMapObjectsDropped{ 0 },
+        g_statLiquidLayers{ 0 }, g_statLiquidDegraded{ 0 };
 
     SplitTile* FindTileLocked(void* area)
     {

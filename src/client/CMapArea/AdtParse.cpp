@@ -22,6 +22,7 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -31,6 +32,9 @@
 namespace
 {
     using namespace wxl::runtime::adtsplit::detail;
+
+    // Modern liquid placement redirect + per-type vertex formats (generated tables).
+    #include "client/CMapArea/LiquidRemapData.inc"
 
     // Coverage sizing. The tile normalizes the map-header amplitude byte below, so a chunk's alpha
     // grid is always 64x64 texels; what one layer then occupies follows from the map's alpha layout
@@ -253,6 +257,110 @@ namespace
         if (f.mclv) ++t.mclvChunks;
     }
 
+    // ---------------------------------------------------------------- modern liquid (MH2O)
+    // A modern layer header is {u32 offInstances, u32 layerCount, u32 offAttributes} per chunk, and an
+    // instance is 0x18 bytes -- byte-identical to what the stock builder reads, EXCEPT that the second
+    // word may name a placement object instead of a vertex format, and type ids extend past the stock
+    // table. The fixup rewrites both words in place; everything else flows through untouched.
+    constexpr uint32_t kMh2oHeaderBytes   = 256 * 12;
+    constexpr uint32_t kMh2oInstanceSize  = 0x18;
+    constexpr size_t   kMh2oOffVertexData = 0x14;  // instance field: 0 = flat layer, no height stream
+    constexpr uint16_t kFirstPlacementId  = 42;    // below this the word IS the vertex format
+    constexpr uint32_t kMaxLiquidLayers   = 16;    // per-chunk sanity cap
+    constexpr uint16_t kBaseWaterType     = 1;     // stock fallback family for non-UV formats
+    constexpr uint16_t kBaseMagmaType     = 3;     // stock family for the UV-carrying format
+
+    const LiquidObjectRedirect* FindLiquidRedirect(uint16_t objectId)
+    {
+        const auto* end = kLiquidObjectRedirect + std::size(kLiquidObjectRedirect);
+        const auto* it  = std::lower_bound(kLiquidObjectRedirect, end, uint32_t(objectId),
+            [](const LiquidObjectRedirect& e, uint32_t id) { return e.objectId < id; });
+        return (it != end && it->objectId == objectId) ? it : nullptr;
+    }
+
+    /// Vertex format of a modern liquid type, or 0xFFFF when the type is not in the table.
+    uint16_t LiquidLvfForType(uint16_t liquidType)
+    {
+        const auto* end = kLiquidTypeLvf + std::size(kLiquidTypeLvf);
+        const auto* it  = std::lower_bound(kLiquidTypeLvf, end, liquidType,
+            [](const LiquidTypeLvf& e, uint16_t id) { return e.liquidType < id; });
+        return (it != end && it->liquidType == liquidType) ? it->lvf : 0xFFFF;
+    }
+
+    /// True when the live LiquidType table can serve the id (rows may have gaps: NULL row = unknown).
+    bool LiquidTypeInDbc(uint32_t id)
+    {
+        const uint32_t minId = Rd32(reinterpret_cast<void*>(adt::kLiquidTypeDbMinId));
+        const uint32_t maxId = Rd32(reinterpret_cast<void*>(adt::kLiquidTypeDbMaxId));
+        if (id < minId || id > maxId) return false;
+        const uint8_t* rows = reinterpret_cast<uint8_t*>(Rd32(reinterpret_cast<void*>(adt::kLiquidTypeDbRows)));
+        return rows && Rd32(rows + (id - minId) * 4u) != 0;
+    }
+
+    /**
+     * @brief Normalizes a modern MH2O block in place so the stock liquid builder reads it natively:
+     *        placement-object ids become (liquid type, vertex format) via the embedded redirect table,
+     *        and any type id the live LiquidType table cannot serve degrades to the base family of the
+     *        same vertex format -- every downstream consumer then finds a row. Nulls mh2o (tile loses
+     *        water, never faults) only when the block is too small to carry its header array.
+     */
+    void FixupMh2o(SplitTile& t, uint8_t*& mh2o)
+    {
+        if (!mh2o) return;
+        const uint32_t sz = Rd32(mh2o + 4);
+        if (sz < kMh2oHeaderBytes) { mh2o = nullptr; return; }
+        uint8_t* data = mh2o + 8;
+        uint32_t layers = 0, degraded = 0;
+        for (uint32_t c = 0; c < 256; ++c)
+        {
+            const uint32_t offInst = Rd32(data + c * 12);
+            uint32_t count = Rd32(data + c * 12 + 4);
+            if (!offInst || !count) continue;
+            if (count > kMaxLiquidLayers) count = kMaxLiquidLayers;
+            if (offInst > sz || count * kMh2oInstanceSize > sz - offInst) continue;
+            for (uint32_t i = 0; i < count; ++i)
+            {
+                uint8_t* inst = data + offInst + i * kMh2oInstanceSize;
+                uint16_t type = Rd16(inst);
+                uint16_t lvf  = Rd16(inst + 2);
+                ++layers;
+                if (lvf >= kFirstPlacementId)
+                {
+                    if (const auto* r = FindLiquidRedirect(lvf)) { type = r->liquidType; lvf = r->lvf; }
+                    else
+                    {
+                        // Unknown placement object: keep the instance's own type; without a format
+                        // source, a data-less layer is the flat depth-only format, a data-carrying
+                        // one the height+depth default.
+                        const uint16_t byType = LiquidLvfForType(type);
+                        lvf = byType != 0xFFFF ? byType
+                                               : (Rd32(inst + kMh2oOffVertexData) ? 0 : 2);
+                    }
+                }
+                // A layer with no vertex stream is the flat, fully-deep format: only the depth-only
+                // format's no-data path answers max depth -- every other format would read past the
+                // header (the classic flat-ocean convention).
+                if (Rd32(inst + kMh2oOffVertexData) == 0)
+                    lvf = 2;
+                if (!LiquidTypeInDbc(type))
+                {
+                    type = (lvf == 1) ? kBaseMagmaType : kBaseWaterType;
+                    ++degraded;
+                }
+                Wr16(inst, type);
+                Wr16(inst + 2, lvf);
+            }
+        }
+        g_statLiquidLayers.fetch_add(layers, std::memory_order_relaxed);
+        if (degraded)
+        {
+            g_statLiquidDegraded.fetch_add(degraded, std::memory_order_relaxed);
+            WLOG_WARN("adt-split: tile %d_%d degraded %u of %u liquid layer(s) to a base type "
+                      "(id missing from the loaded LiquidType table -- extend the DBC)",
+                      t.tileFirst, t.tileSecond, degraded, layers);
+        }
+    }
+
     /**
      * @brief The whole per-tile parse: indexes the three resident buffers, builds the MCRF concat pool,
      *        fixes the 256 root headers in place, synthesizes MCIN (+ empty top-level chunks for absent
@@ -460,11 +568,11 @@ namespace
                           t.tileFirst, t.tileSecond, dropped, nWmo);
         }
 
-        // Interim: a Legion+ MH2O uses liquid-type ids beyond 3.3.5's LiquidType.dbc, which the stock
-        // liquid-sound query dereferences as a null record (#132 near water). Drop the tile's water by
-        // zeroing its MHDR offset -- CMapArea::Create then builds no liquid, so the query finds none.
+        // Modern MH2O flows through after in-place normalization (placement-object resolution + type
+        // degradation for ids the loaded LiquidType table lacks); the remaining unguarded stock reader
+        // is already neutralized by the liquid-row flag-test patch installed with the world feature.
         if constexpr (wxl::features::modernADTSupport)
-            mh2o = nullptr;
+            FixupMh2o(t, mh2o);
 
         // --- strike unresolved map objects from the per-chunk MCRW ref lists. Runs before the MCRF pool
         // so the concat below already sees the final sizes. The payload is rebuilt into a tile-owned

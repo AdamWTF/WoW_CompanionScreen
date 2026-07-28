@@ -43,6 +43,8 @@ namespace wxl::runtime::adtsplit
         /// rather than spawned: unlike a doodad (which degrades to the ErrorCube), a map object with an
         /// unresolvable name faults in SStrHash the moment CMapObj::Create hashes it.
         uint32_t mapObjectsDropped;
+        uint32_t liquidLayers;   ///< MH2O layers normalized for the stock liquid builder
+        uint32_t liquidDegraded; ///< layers whose type id the live LiquidType table could not serve
     };
 
     /** @brief Returns a snapshot of the session counters. */

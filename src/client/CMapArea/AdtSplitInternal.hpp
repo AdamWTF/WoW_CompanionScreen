@@ -48,6 +48,7 @@ namespace wxl::runtime::adtsplit::detail
     constexpr uint32_t kMapWideAlpha       = 0x4u;
 
     // ---------------------------------------------------------------- raw byte helpers
+    inline uint16_t Rd16(const void* p)       { uint16_t v; std::memcpy(&v, p, 2); return v; }
     inline uint32_t Rd32(const void* p)       { uint32_t v; std::memcpy(&v, p, 4); return v; }
     inline uint64_t Rd64(const void* p)       { uint64_t v; std::memcpy(&v, p, 8); return v; }
     inline void     Wr32(void* p, uint32_t v) { std::memcpy(p, &v, 4); }
@@ -234,7 +235,7 @@ namespace wxl::runtime::adtsplit::detail
     extern std::atomic<uint32_t> g_statSplitMaps, g_statTilesLoaded, g_statTilesResident,
         g_statChunksFilled, g_statMcrfBytes, g_statMtxpTiles, g_statMclvChunks, g_statHoleChunks,
         g_statFailures, g_statWdlRead, g_statHeightTex, g_statDoodadModels, g_statMapObjects,
-        g_statMapObjectsDropped;
+        g_statMapObjectsDropped, g_statLiquidLayers, g_statLiquidDegraded;
 
     SplitTile* FindTileLocked(void* area);   // caller holds g_mutex
     SplitTile* FindTileBrief(void* area);     // takes g_mutex only for the map access, then releases

@@ -413,6 +413,8 @@ namespace wxl::runtime::adtsplit
         s.doodadModels      = detail::g_statDoodadModels.load(std::memory_order_relaxed);
         s.mapObjects        = detail::g_statMapObjects.load(std::memory_order_relaxed);
         s.mapObjectsDropped = detail::g_statMapObjectsDropped.load(std::memory_order_relaxed);
+        s.liquidLayers      = detail::g_statLiquidLayers.load(std::memory_order_relaxed);
+        s.liquidDegraded    = detail::g_statLiquidDegraded.load(std::memory_order_relaxed);
         return s;
     }
 
