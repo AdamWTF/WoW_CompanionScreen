@@ -47,12 +47,24 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
     # FlatBuffers runtime (flexbuffers string utils) for the host IPC client (engine/storage).
     set(WXL_FLATBUFFERS "${CMAKE_CURRENT_SOURCE_DIR}/deps/flatbuffers/src/util.cpp")
 
-    add_library(WarcraftXL SHARED ${WXL_CORE_SRC} ${WXL_FLATBUFFERS})
+    # Dear ImGui: the in-game tuning panels (engine/ui). Listed explicitly rather than globbed -- only
+    # the core plus the DX9 and Win32 backends are vendored, and the demo window is deliberately not.
+    set(WXL_IMGUI
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/imgui/imgui.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/imgui/imgui_draw.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/imgui/imgui_tables.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/imgui/imgui_widgets.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/imgui/backends/imgui_impl_dx9.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/imgui/backends/imgui_impl_win32.cpp")
+
+    add_library(WarcraftXL SHARED ${WXL_CORE_SRC} ${WXL_FLATBUFFERS} ${WXL_IMGUI})
     set_target_properties(WarcraftXL PROPERTIES OUTPUT_NAME "WarcraftXL" PREFIX "")
     target_include_directories(WarcraftXL PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/deps/minhook/include"
-        "${CMAKE_CURRENT_SOURCE_DIR}/deps/flatbuffers/include")
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/flatbuffers/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/imgui"
+        "${CMAKE_CURRENT_SOURCE_DIR}/deps/imgui/backends")
 
     add_subdirectory(deps/minhook)
     target_link_libraries(WarcraftXL PRIVATE minhook d3d9 shell32)
