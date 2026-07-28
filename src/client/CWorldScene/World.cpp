@@ -57,17 +57,22 @@ namespace
     }
 
     /**
-     * @brief Detours the master per-frame pump, emitting OnUpdate once per frame with the frame delta.
+     * @brief Detours the frame-time tick, emitting OnUpdate once per frame with the frame delta.
+     *
+     * The delta and the timestamp arrive as ARGUMENTS and are forwarded from there rather than read
+     * back out of the globals the original stores them in. Same values either way, but this way the
+     * emit does not depend on the store having happened, and the two cannot drift if the client ever
+     * takes a path that computes one without publishing the other.
      */
-    void __cdecl hkFramePump()
+    void __cdecl hkFramePump(float deltaSeconds, uint32_t frameTimeMs)
     {
-        g_origFramePump();
-        ev::UpdateArgs a{ *reinterpret_cast<float*>(frame::kDeltaSeconds),
-                          *reinterpret_cast<uint32_t*>(frame::kFrameTimeMs) };
+        g_origFramePump(deltaSeconds, frameTimeMs);
+        ev::UpdateArgs a{ deltaSeconds, frameTimeMs };
         ev::Emit(ev::Event::OnUpdate, &a);
         aprof::RecordFrame(a.dt);
-        // Frame boundary for the draw-call counters: the master pump is the one place that runs exactly
-        // once per rendered frame regardless of which present path the device took.
+        // Frame boundary for the draw-call counters. The frame-time tick is the one place that runs
+        // exactly once per frame regardless of which present path the device took -- it has to be,
+        // since it is the sole writer of the delta every other consumer in the client reads back.
         wxl::runtime::drawstats::EndFrame();
     }
 
