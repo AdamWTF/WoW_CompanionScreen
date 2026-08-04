@@ -46,6 +46,7 @@ namespace
     PresentFn  g_origPresent  = nullptr;
     ResetFn    g_origReset    = nullptr;
     off::WorldRenderFinalizeFn g_origWorldFinalize = nullptr;
+    off::WorldOnRenderFn       g_origWorldScene    = nullptr;
     off::LiquidRenderPassFn    g_origLiquidRender  = nullptr;
     void*      g_hookedDevice  = nullptr;   // device whose vtable currently carries the render hooks
 
@@ -97,6 +98,38 @@ namespace
         ev::Emit(ev::Event::OnLiquidRender, &a);
 
         g_origLiquidRender(bank, edx, transform, passType);
+    }
+
+    /**
+     * @brief Detours the world scene pass, emitting OnWorldSceneEnd once it has drawn.
+     *
+     * Its caller runs this, then the world text batch, then puts back the projection and view it saved
+     * before the pass. Emitting on the way out of the pass therefore lands in the one window where the
+     * world is complete and the matrices that drew it are still the ones on the device -- which is what
+     * a subscriber placing geometry by world coordinate needs, and what the later world -> UI boundary
+     * no longer offers.
+     * @param worldFrame  world frame being rendered.
+     * @param edx         unused; the register the native convention passes nothing meaningful in.
+     */
+    void __fastcall hkWorldScene(void* worldFrame, void* edx)
+    {
+        // Taken before the pass, not after: the post-process passes run inside it and can leave a
+        // surface of their own bound. A subscriber that depth-tests against whatever it finds bound
+        // afterwards is testing against a surface the world never wrote to, which rejects all of its
+        // geometry and reports nothing.
+        IDirect3DSurface9* sceneDepth = nullptr;
+        if (IDirect3DDevice9* d = static_cast<IDirect3DDevice9*>(gx::RawDevice()))
+            d->GetDepthStencilSurface(&sceneDepth);
+
+        g_origWorldScene(worldFrame, edx);
+
+        if (ev::Any(ev::Event::OnWorldSceneEnd))
+        {
+            ev::WorldSceneEndArgs a{ gx::RawDevice(), sceneDepth };
+            ev::Emit(ev::Event::OnWorldSceneEnd, &a);
+        }
+
+        if (sceneDepth) sceneDepth->Release();
     }
 
     /**
@@ -216,10 +249,12 @@ namespace
         rd::InstallM2DrawHooks();
         wxl::hook::Install("WorldRenderFinalize", off::kWorldRenderFinalize,
                            &hkWorldFinalize, &g_origWorldFinalize);
+        wxl::hook::Install("WorldScenePass", off::kWorldOnRender,
+                           &hkWorldScene, &g_origWorldScene);
         wxl::hook::Install("LiquidRenderPass", off::kLiquidRenderPass,
                            &hkLiquidRender, &g_origLiquidRender);
 
-        WLOG_INFO("render: hooks installed (DIP, EndScene, Present, Reset, DrawBatch, WorldFinalize, RibbonDraw, LiquidRenderPass)");
+        WLOG_INFO("render: hooks installed (DIP, EndScene, Present, Reset, DrawBatch, WorldFinalize, WorldScenePass, RibbonDraw, LiquidRenderPass)");
         return true;
     }
 }
