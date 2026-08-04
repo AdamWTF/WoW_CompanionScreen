@@ -55,4 +55,79 @@ namespace wxl::game::camera
         const float* p = reinterpret_cast<const float*>(off::kCameraPos);
         out[0] = p[0]; out[1] = p[1]; out[2] = p[2];
     }
+
+    // The setters below drive the world renderer from a camera the engine does not own. In-world the
+    // engine rewrites all four every frame from its own camera, so writing them there is overwritten
+    // immediately; they are the way to aim the scene on the glue screens, where the engine leaves them
+    // at identity and never touches them again.
+    //
+    // Layout is what the engine builds: row-major float[16], D3D row-vector, left-handed. Projection
+    // index 0 = X scale, 5 = Y scale, 10 = Z scale, 11 = 1, 14 = Z bias.
+
+    /**
+     * @brief Writes the world-to-view matrix.
+     * @param m  Row-major float[16].
+     */
+    inline void SetView(const float m[16])
+    { for (int i = 0; i < 16; ++i) reinterpret_cast<float*>(off::kView)[i] = m[i]; }
+
+    /**
+     * @brief Writes the projection matrix.
+     * @param m  Row-major float[16].
+     */
+    inline void SetProjection(const float m[16])
+    { for (int i = 0; i < 16; ++i) reinterpret_cast<float*>(off::kProjection)[i] = m[i]; }
+
+    /**
+     * @brief Writes the combined view-projection matrix.
+     * @param m  Row-major float[16]; must equal View * Projection or culling disagrees with the draw.
+     */
+    inline void SetViewProj(const float m[16])
+    { for (int i = 0; i < 16; ++i) reinterpret_cast<float*>(off::kViewProj)[i] = m[i]; }
+
+    /**
+     * @brief Writes the camera world position.
+     * @param pos  Position x, y, z.
+     */
+    inline void SetPosition(const float pos[3])
+    {
+        float* p = reinterpret_cast<float*>(off::kCameraPos);
+        p[0] = pos[0]; p[1] = pos[1]; p[2] = pos[2];
+    }
+
+    // --- supplying a camera the world renderer accepts ---
+    // The world scene render takes its camera from the world frame and dereferences it without
+    // checking. In world there always is one; anywhere else there is not, and it has to be lent one.
+
+    /**
+     * @brief A camera the world renderer accepts.
+     *
+     * It is read through four methods -- field of view and the three basis vectors -- and Init points
+     * it at the engine's own implementations of them, so what answers the renderer is the engine's
+     * code reading these fields rather than a stand-in imitating it.
+     */
+    using Camera = off::SimpleCamera;
+
+    /**
+     * @brief Prepares a camera and aims it.
+     * @param cam      Camera to fill; every field is overwritten.
+     * @param pos      World position x, y, z.
+     * @param forward  Unit forward vector.
+     * @param right    Unit right vector.
+     * @param up       Unit up vector.
+     * @param fovRad   Full vertical field of view, radians.
+     */
+    inline void Aim(Camera& cam, const float pos[3], const float forward[3],
+                    const float right[3], const float up[3], float fovRad)
+    {
+        cam.vtable = reinterpret_cast<const void*>(off::kSimpleCameraVTable);
+        for (int i = 0; i < 3; ++i)
+        {
+            cam.position[i] = pos[i];
+            cam.forward[i]  = forward[i];
+            cam.right[i]    = right[i];
+            cam.up[i]       = up[i];
+        }
+        cam.fov = fovRad;
+    }
 }

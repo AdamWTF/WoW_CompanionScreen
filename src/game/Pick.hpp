@@ -69,6 +69,68 @@ namespace wxl::game::world
     }
 
     /**
+     * @brief Casts a ray between two world points and reports what it meets.
+     * @param from   World position the ray starts at.
+     * @param to     World position it ends at.
+     * @param out    Receives the hit; cleared on a miss.
+     * @param flags  What the ray collides with; the default is what the client's own cursor pick uses.
+     * @return the hit type (0 miss, 2 M2/doodad, 3 terrain/WMO).
+     *
+     * The screen-facing picks above answer "what is under the cursor". This answers the question a
+     * screen has nothing to do with -- what is between two places -- which is what a line of sight, a
+     * placement test, or the height of the ground beneath a point all reduce to. It goes to the
+     * intersect itself rather than through the cursor hit test, which would drag in a screen
+     * projection and the frame that projection reads its camera from.
+     *
+     * Terrain and map objects only. Model geometry is a separate search in the client and is not
+     * covered here, so a ray passes through a tree or a chair.
+     */
+    inline int TraceLine(const float from[3], const float to[3], WorldHit& out,
+                         uint32_t mask = woff::kPickMaskAnything)
+    {
+        out = WorldHit{};
+
+        // Sized well past the three floats a hit point needs: what the intersect writes here beyond
+        // that is not documented, and the client's callers take their position from the fraction
+        // instead, which is what this does below.
+        float scratch[16] = { 0.0f };
+        float fraction = 1.0f;   // the whole segment
+
+        if (!Native<woff::WorldIntersectFn>(woff::kWorldIntersect)(from, to, scratch, &fraction, mask, 0))
+            return 0;
+
+        out.type = 3;   // terrain or map object; this entry tests nothing else
+        out.pos  = Vec3{ from[0] + (to[0] - from[0]) * fraction,
+                         from[1] + (to[1] - from[1]) * fraction,
+                         from[2] + (to[2] - from[2]) * fraction };
+        out.t    = fraction;
+        return out.type;
+    }
+
+    /**
+     * @brief Finds the surface directly below or above a point.
+     * @param x,y    Where on the map to look.
+     * @param nearZ  Height to search around; the search spans kGroundSearch either side of it.
+     * @param outZ   Receives the surface height.
+     * @return True when a surface was found, leaving outZ untouched otherwise.
+     *
+     * Searches from above rather than from the point itself, so a point already under the ground still
+     * reports the ground rather than missing everything below it.
+     */
+    inline bool GroundZ(float x, float y, float nearZ, float& outZ)
+    {
+        constexpr float kGroundSearch = 60.0f;
+
+        const float from[3] = { x, y, nearZ + kGroundSearch };
+        const float to[3]   = { x, y, nearZ - kGroundSearch };
+
+        WorldHit hit;
+        if (!TraceLine(from, to, hit)) return false;
+        outZ = hit.pos.z;
+        return true;
+    }
+
+    /**
      * @brief Reads the engine's live cursor position in device (DDC) pixels.
      * @param ddcX  receives the cursor X.
      * @param ddcY  receives the cursor Y.

@@ -89,7 +89,7 @@ namespace wxl::game::gx
      * @param d3dFormat  the D3D surface format.
      * @return true on success, false on failure.
      */
-    bool EnsureBackbufferTarget(Device9 dev, RenderTarget& rt, uint32_t d3dFormat)
+    bool EnsureBackbufferTarget(Device9 dev, RenderTarget& rt, uint32_t d3dFormat, unsigned divisor)
     {
         if (!dev) return false;
         if (rt.surface) return true;
@@ -101,16 +101,20 @@ namespace wxl::game::gx
         bb->GetDesc(&desc);
         bb->Release();
 
+        const UINT div    = divisor ? divisor : 1;
+        const UINT width  = desc.Width  / div > 0 ? desc.Width  / div : 1;
+        const UINT height = desc.Height / div > 0 ? desc.Height / div : 1;
+
         IDirect3DTexture9* tex = nullptr;
-        if (FAILED(d->CreateTexture(desc.Width, desc.Height, 1, D3DUSAGE_RENDERTARGET, static_cast<D3DFORMAT>(d3dFormat), D3DPOOL_DEFAULT, &tex, nullptr)) || !tex)
+        if (FAILED(d->CreateTexture(width, height, 1, D3DUSAGE_RENDERTARGET, static_cast<D3DFORMAT>(d3dFormat), D3DPOOL_DEFAULT, &tex, nullptr)) || !tex)
             return false;
 
         IDirect3DSurface9* surf = nullptr;
         tex->GetSurfaceLevel(0, &surf);
         rt.texture = tex;
         rt.surface = surf;
-        rt.width   = static_cast<int>(desc.Width);
-        rt.height  = static_cast<int>(desc.Height);
+        rt.width   = static_cast<int>(width);
+        rt.height  = static_cast<int>(height);
         TrackResetTarget(rt);   // free it before the next device reset
         return true;
     }
