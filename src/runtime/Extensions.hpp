@@ -16,6 +16,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace wxl::runtime::extensions
 {
     /**
@@ -32,4 +34,17 @@ namespace wxl::runtime::extensions
      * @return true if the detour was registered.
      */
     bool InstallLoader();
+
+    /**
+     * @brief Publishes a service into the same interface table WXL_Api::PublishInterface writes.
+     *
+     * For a core-owned resource an extension must reach without a direct link -- today just the
+     * large-M2 arena (wxl.m2arena), whose boot-phase VA reservation has to run before any extension
+     * exists to receive it. Safe to call from a Boot-phase feature: the table itself needs no
+     * extension to be loaded yet, only GetInterface does.
+     * @param name     agreed service name.
+     * @param version  agreed service version.
+     * @param iface    pointer to the service, valid for the process lifetime.
+     */
+    void PublishInterface(const char* name, uint32_t version, void* iface);
 }

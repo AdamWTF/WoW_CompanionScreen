@@ -70,6 +70,16 @@ namespace wxl::runtime::extensions
             events::Subscribe(events::Event(event), handler, user);
         }
 
+        void __cdecl ApiEmit(uint32_t event, const void* args)
+        {
+            if (event >= uint32_t(events::Event::Count))
+            {
+                WLOG_ERROR("extensions: emit of unknown event %u ignored", event);
+                return;
+            }
+            events::Emit(events::Event(event), args);
+        }
+
         int __cdecl ApiHookAttach(const char* name, uintptr_t target, void* detour, void** original,
                                   int priority)
         {
@@ -99,6 +109,20 @@ namespace wxl::runtime::extensions
             WLOG_DEBUG("extensions: interface '%s' v%u published", name, version);
         }
 
+    }
+
+    // Same effect as an extension's own PublishInterface call, but reachable from the CORE side (e.g.
+    // the M2 arena's Boot-phase reservation, which has to publish before any extension exists to call
+    // GetInterface). Not exported through WXL_Api: an extension always reaches this through
+    // ApiPublishInterface instead.
+    void PublishInterface(const char* name, uint32_t version, void* iface)
+    {
+        ApiPublishInterface(name, version, iface);
+    }
+
+    namespace
+    {
+
         void* __cdecl ApiGetInterface(const char* name, uint32_t version)
         {
             if (!name) return nullptr;
@@ -112,6 +136,7 @@ namespace wxl::runtime::extensions
             WXL_API_VERSION,
             &ApiLog,
             &ApiSubscribe,
+            &ApiEmit,
             &ApiHookAttach,
             &ApiPublishInterface,
             &ApiGetInterface,
