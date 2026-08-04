@@ -19,15 +19,17 @@
 namespace wxl::runtime::extensions
 {
     /**
-     * @brief Loads every extension under Extensions/, in name order.
+     * @brief Arms the detour that loads the extensions.
      *
-     * One folder per extension holding a DLL of the same name, mirroring the layout the client uses
-     * for its own script addons. Each is queried before any of its code runs and turned away on a
-     * version it did not compile against; a refusal or a failure never stops the others.
+     * Called from DllMain, where LoadLibrary is not an option: the loading itself happens later,
+     * from the engine-initialisation seam, on the main thread and outside the loader lock. That
+     * point still precedes the reader-queue setup and the texture scratch sizing, so an extension
+     * can reach either.
      *
-     * Called on the main thread once the graphics device exists and before the detour batch is
-     * armed, so an extension's detours are enabled together with the core's own.
-     * @return the number of extensions that loaded.
+     * Extensions load one folder per extension out of Extensions/, in name order, each holding a DLL
+     * of the same name -- the layout the client already uses for its own addons. Each is queried
+     * before any of its code runs; a refusal or a failure never stops the others.
+     * @return true if the detour was registered.
      */
-    int LoadAll();
+    bool InstallLoader();
 }

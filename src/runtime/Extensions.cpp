@@ -21,6 +21,8 @@
 #include "common/Log.hpp"
 #include "engine/events/Event.hpp"
 #include "engine/hook/Hook.hpp"
+#include "engine/ui/ImGuiHost.hpp"
+#include "game/Boot.hpp"
 
 #include <windows.h>
 
@@ -34,19 +36,19 @@ namespace wxl::runtime::extensions
 {
     namespace
     {
-        // --- the service table an extension is handed ------------------------------------------
-        // Every entry validates its own arguments: these are called across a binary boundary by code
-        // this build never saw, so a null or an out-of-range id is an ordinary input, not a bug to
-        // assert on.
+        // --- the service table --------------------------------------------------------------
+        // Arguments arrive from a binary this build never saw, so a null or an out-of-range value is
+        // ordinary input rather than a precondition an assert could enforce.
 
         void __cdecl ApiLog(int level, const char* tag, const char* fmt, ...)
         {
-            const int clamped = level < WXL_LOG_TRACE ? WXL_LOG_TRACE : level > WXL_LOG_ERROR ? WXL_LOG_ERROR : level;
-            const auto severity = static_cast<log::Level>(clamped);
+            const int clamped = level < WXL_LOG_TRACE ? WXL_LOG_TRACE
+                              : level > WXL_LOG_ERROR ? WXL_LOG_ERROR
+                                                      : level;
+            const log::Level severity = log::Level(clamped);
             if (!fmt || !log::Enabled(severity)) return;
 
-            // Formatted here rather than passed through, so the tag cannot be lost and a format
-            // string coming from another binary never reaches the sink unbounded.
+            // Formatted here, so a foreign format string never reaches the sink unbounded.
             char line[1024];
             va_list args;
             va_start(args, fmt);
@@ -58,23 +60,25 @@ namespace wxl::runtime::extensions
 
         void __cdecl ApiSubscribe(uint32_t event, WXL_EventFn handler, void* user)
         {
-            if (!handler || event >= static_cast<uint32_t>(events::Event::Count))
+            if (!handler || event >= uint32_t(events::Event::Count))
             {
                 WLOG_ERROR("extensions: subscribe to unknown event %u ignored", event);
                 return;
             }
-            events::Subscribe(static_cast<events::Event>(event), reinterpret_cast<events::Handler>(handler), user);
+            // No cast on handler: WXL_EventFn is events::Handler with the convention spelled out, so
+            // a core built with a different default would fail here rather than silently mismatch.
+            events::Subscribe(events::Event(event), handler, user);
         }
 
-        int __cdecl ApiHookAttach(const char* name, uintptr_t target, void* detour, void** original, int priority)
+        int __cdecl ApiHookAttach(const char* name, uintptr_t target, void* detour, void** original,
+                                  int priority)
         {
             if (!target || !detour || !original) return 0;
             return hook::Install(name ? name : "extension", target, detour, original, priority) ? 1 : 0;
         }
 
-        /// A service one extension offers another. The core keeps the name, the version and the
-        /// pointer, and never looks at what they mean -- which is what lets two extensions agree on a
-        /// capability this table knows nothing about.
+        /// A service one extension offers another. Name, version and pointer are stored without
+        /// being interpreted, so two extensions can agree on a capability this table does not model.
         struct Service
         {
             std::string name;
@@ -111,16 +115,33 @@ namespace wxl::runtime::extensions
             &ApiHookAttach,
             &ApiPublishInterface,
             &ApiGetInterface,
+            // Straight through to the overlay host: it already owns the panel registry and the one
+            // point in the frame where drawing a control is legal, so nothing is re-decided here.
+            &wxl::ui::c::AddPanel,
+            &wxl::ui::c::IsOpen,
+            &wxl::ui::c::Text,
+            &wxl::ui::c::Separator,
+            &wxl::ui::c::Button,
+            &wxl::ui::c::Checkbox,
+            &wxl::ui::c::SliderFloat,
+            &wxl::ui::c::SliderInt,
+            &wxl::ui::c::ColorEdit,
         };
 
-        // --- loading ---------------------------------------------------------------------------
+        // --- loading --------------------------------------------------------------------------
+
+        /// Resolves one export as its declared function type.
+        template <class Fn>
+        Fn Export(HMODULE module, const char* name)
+        {
+            return reinterpret_cast<Fn>(GetProcAddress(module, name));
+        }
 
         /**
          * @brief Loads and initialises one extension.
          *
-         * Everything that can disqualify it is checked before WXL_Load runs, which is the whole point
-         * of the two-entry-point split: an extension built against another API version or another
-         * client build is turned away having executed nothing.
+         * Everything that can disqualify it is checked before WXL_Load runs: an extension built
+         * against another API version or client build is refused having executed nothing.
          * @param folder  the extension's folder name, used for logging before its own name is known.
          * @param path    full path to its DLL.
          * @return true if the extension loaded and initialised.
@@ -134,8 +155,8 @@ namespace wxl::runtime::extensions
                 return false;
             }
 
-            auto query = reinterpret_cast<WXL_QueryFn>(GetProcAddress(module, "WXL_Query"));
-            auto load  = reinterpret_cast<WXL_LoadFn>(GetProcAddress(module, "WXL_Load"));
+            const auto query = Export<WXL_QueryFn>(module, "WXL_Query");
+            const auto load  = Export<WXL_LoadFn>(module, "WXL_Load");
             if (!query || !load)
             {
                 WLOG_ERROR("extensions: '%s' exports no WXL_Query/WXL_Load", folder);
@@ -154,22 +175,23 @@ namespace wxl::runtime::extensions
             const char* name = info->name ? info->name : folder;
             if (info->apiVersion != WXL_API_VERSION)
             {
-                WLOG_ERROR("extensions: '%s' was built against API v%u, this core serves v%u", name, info->apiVersion, WXL_API_VERSION);
+                WLOG_ERROR("extensions: '%s' was built against API v%u, this core serves v%u",
+                           name, info->apiVersion, WXL_API_VERSION);
                 FreeLibrary(module);
                 return false;
             }
             if (info->clientBuild != WXL_CLIENT_BUILD)
             {
-                WLOG_ERROR("extensions: '%s' targets client build %u, this one is %u", name, info->clientBuild, WXL_CLIENT_BUILD);
+                WLOG_ERROR("extensions: '%s' targets client build %u, this one is %u",
+                           name, info->clientBuild, WXL_CLIENT_BUILD);
                 FreeLibrary(module);
                 return false;
             }
 
             if (!load(&g_api))
             {
-                // Deliberately still loaded: WXL_Load may already have attached a detour or taken a
-                // subscription before deciding to give up, and unloading now would leave the core
-                // pointing into freed code. A declining extension costs a module, never a crash.
+                // Left loaded: WXL_Load may already have attached a detour or taken a subscription
+                // before giving up, and unloading would leave the core pointing into freed code.
                 WLOG_ERROR("extensions: '%s' declined to initialise", name);
                 return false;
             }
@@ -177,44 +199,72 @@ namespace wxl::runtime::extensions
             WLOG_INFO("extensions: loaded '%s' v%u", name, info->pluginVersion);
             return true;
         }
+
+        /// @return the number of extensions that loaded.
+        int LoadAll()
+        {
+            std::vector<std::string> folders;
+
+            WIN32_FIND_DATAA entry{};
+            HANDLE search = FindFirstFileA("Extensions\\*", &entry);
+            if (search == INVALID_HANDLE_VALUE)
+            {
+                WLOG_DEBUG("extensions: no Extensions folder");
+                return 0;
+            }
+            do
+            {
+                if (!(entry.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+                if (entry.cFileName[0] == '.') continue;
+                folders.emplace_back(entry.cFileName);
+            } while (FindNextFileA(search, &entry));
+            FindClose(search);
+
+            // Enumeration order is a filesystem detail; load order has to be reproducible.
+            std::sort(folders.begin(), folders.end());
+
+            int loaded = 0;
+            for (const std::string& folder : folders)
+            {
+                const std::string path = "Extensions\\" + folder + "\\" + folder + ".dll";
+                if (GetFileAttributesA(path.c_str()) == INVALID_FILE_ATTRIBUTES)
+                {
+                    WLOG_WARN("extensions: '%s' holds no %s.dll", folder.c_str(), folder.c_str());
+                    continue;
+                }
+                if (LoadOne(folder.c_str(), path)) ++loaded;
+            }
+
+            if (!folders.empty()) WLOG_INFO("extensions: %d loaded", loaded);
+            return loaded;
+        }
+
+        game::boot::EngineInitFn g_origEngineInit = nullptr;
+
+        /**
+         * @brief Loads the extensions, then lets engine initialisation proceed.
+         *
+         * Loading here rather than from the deferred main thread is what makes the ordering a fact
+         * instead of a race: the client reaches this point on its own, before the reader queues and
+         * the texture scratch exist. The batch is enabled immediately because the core's own was
+         * armed back in DllMain, so nothing else will arm what the extensions just attached.
+         */
+        uint32_t __cdecl EngineInitDetour()
+        {
+            static bool loaded = false;
+            if (!loaded)
+            {
+                loaded = true;
+                LoadAll();
+                hook::EnableAll();
+            }
+            return g_origEngineInit();
+        }
     }
 
-    int LoadAll()
+    bool InstallLoader()
     {
-        std::vector<std::string> folders;
-
-        WIN32_FIND_DATAA entry{};
-        HANDLE search = FindFirstFileA("Extensions\\*", &entry);
-        if (search == INVALID_HANDLE_VALUE)
-        {
-            WLOG_DEBUG("extensions: no Extensions folder");
-            return 0;
-        }
-        do
-        {
-            if (!(entry.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
-            if (entry.cFileName[0] == '.') continue;
-            folders.emplace_back(entry.cFileName);
-        } while (FindNextFileA(search, &entry));
-        FindClose(search);
-
-        // Directory enumeration order is a filesystem detail; load order is something an extension
-        // author can reason about, so it is sorted before anything is loaded.
-        std::sort(folders.begin(), folders.end());
-
-        int loaded = 0;
-        for (const std::string& folder : folders)
-        {
-            const std::string path = "Extensions\\" + folder + "\\" + folder + ".dll";
-            if (GetFileAttributesA(path.c_str()) == INVALID_FILE_ATTRIBUTES)
-            {
-                WLOG_WARN("extensions: '%s' holds no %s.dll", folder.c_str(), folder.c_str());
-                continue;
-            }
-            if (LoadOne(folder.c_str(), path)) ++loaded;
-        }
-
-        if (loaded || !folders.empty()) WLOG_INFO("extensions: %d loaded", loaded);
-        return loaded;
+        return hook::Install("extensions-loader", game::boot::kEngineInit,
+                             &EngineInitDetour, &g_origEngineInit);
     }
 }

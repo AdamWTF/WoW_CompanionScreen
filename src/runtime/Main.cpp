@@ -38,8 +38,8 @@ namespace
      *
      * The engine subsystems that features depend on (hooking, storage) are already up from DllMain.
      * This thread runs the Normal-phase installers once the device exists (so a feature can safely
-     * reference render state), loads the extensions, enables the whole detour batch, then runs the
-     * PostEnable-phase steps that need the detours already live.
+     * reference render state), enables the whole detour batch, then runs the PostEnable-phase steps
+     * that need the detours already live.
      * @return thread exit code (0).
      */
     DWORD WINAPI MainThread(LPVOID)
@@ -54,11 +54,6 @@ namespace
 
         wxl::hook::InstallRegisteredFeatures(wxl::hook::Phase::Normal);
         wxl::runtime::modules::RunAll(); // module-registered installers (wxl-modern-adt, ...)
-
-        // Extensions register alongside the core's own features and ahead of the batch below, so an
-        // extension's detour is armed by the same EnableAll and never patches a live address.
-        wxl::runtime::extensions::LoadAll();
-
         wxl::hook::EnableAll();
         wxl::hook::InstallRegisteredFeatures(wxl::hook::Phase::PostEnable);
 
@@ -89,6 +84,11 @@ BOOL WINAPI DllMain(HINSTANCE module, DWORD reason, LPVOID)
         // set: the deferred main thread below is raced past by the client's startup. Drops the host-owned
         // loose directories so the client stays lean.
         wxl::runtime::storage::InstallArchiveGuard();
+
+        // Only the detour is armed here: LoadLibrary under the loader lock is a deadlock, so the
+        // extensions themselves load from the engine-init seam, which the client reaches on its own
+        // thread ahead of the reader queues and the texture scratch.
+        wxl::runtime::extensions::InstallLoader();
 
         // Boot-phase features run here, on the loader thread, before the client's own startup proceeds:
         // the M2 arena reservation must precede world-load VA fragmentation, and the disk-queue worker
