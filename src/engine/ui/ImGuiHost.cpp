@@ -205,6 +205,51 @@ namespace wxl::ui
     }
 
     bool IsOpen() { return g_open; }
+
+    // A panel body runs between NewFrame and Render and inside an open window, so these need no
+    // guard of their own beyond the null checks: the host only ever calls a body from there.
+    namespace c
+    {
+        void __cdecl AddPanel(const char* title, void(__cdecl* fn)(void*), void* user)
+        { wxl::ui::AddPanel(title, fn, user); }
+
+        int __cdecl IsOpen() { return g_open ? 1 : 0; }
+
+        void __cdecl Text(const char* text)
+        { if (text) ImGui::TextUnformatted(text); }
+
+        void __cdecl Separator() { ImGui::Separator(); }
+
+        int __cdecl Button(const char* label)
+        { return (label && ImGui::Button(label)) ? 1 : 0; }
+
+        int __cdecl Checkbox(const char* label, int* value)
+        {
+            if (!label || !value) return 0;
+            bool on = (*value != 0);
+            const bool changed = ImGui::Checkbox(label, &on);
+            if (changed) *value = on ? 1 : 0;
+            return changed ? 1 : 0;
+        }
+
+        int __cdecl SliderFloat(const char* label, float* value, float min, float max)
+        {
+            if (!label || !value) return 0;
+            return ImGui::SliderFloat(label, value, min, max) ? 1 : 0;
+        }
+
+        int __cdecl SliderInt(const char* label, int* value, int min, int max)
+        {
+            if (!label || !value) return 0;
+            return ImGui::SliderInt(label, value, min, max) ? 1 : 0;
+        }
+
+        int __cdecl ColorEdit(const char* label, float rgba[4])
+        {
+            if (!label || !rgba) return 0;
+            return ImGui::ColorEdit4(label, rgba) ? 1 : 0;
+        }
+    }
 }
 
 WXL_REGISTER_FEATURE("imgui-host", wxl::features::imguiOverlay, InstallImGuiHost)

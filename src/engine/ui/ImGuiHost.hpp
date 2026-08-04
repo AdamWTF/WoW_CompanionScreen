@@ -19,8 +19,9 @@
 namespace wxl::ui
 {
     /// A panel body. Called between NewFrame and Render, only while the overlay is open, so it may
-    /// call ImGui freely and must not assume it runs every frame.
-    using PanelFn = void (*)(void* user);
+    /// call ImGui freely and must not assume it runs every frame. The calling convention is spelled
+    /// out because an extension's panel arrives through the plugin table, where it is fixed.
+    using PanelFn = void (__cdecl *)(void* user);
 
     /**
      * @brief Registers a panel to be drawn whenever the overlay is open.
@@ -38,4 +39,22 @@ namespace wxl::ui
 
     /// True while the overlay is open and taking input.
     bool IsOpen();
+
+    // --- the controls an extension reaches through the plugin table ---
+    // An extension cannot call the interface library: it would need the same build of it and a
+    // compatible C++ ABI, which the plugin header exists to avoid requiring. These are the library
+    // reduced to plain C calls the core makes on its behalf, and they are what WXL_Api::Ui* point at.
+    // Each is meaningful only inside a panel body.
+    namespace c
+    {
+        void __cdecl AddPanel(const char* title, void(__cdecl* fn)(void*), void* user);
+        int  __cdecl IsOpen();
+        void __cdecl Text(const char* text);
+        void __cdecl Separator();
+        int  __cdecl Button(const char* label);
+        int  __cdecl Checkbox(const char* label, int* value);
+        int  __cdecl SliderFloat(const char* label, float* value, float min, float max);
+        int  __cdecl SliderInt(const char* label, int* value, int min, int max);
+        int  __cdecl ColorEdit(const char* label, float rgba[4]);
+    }
 }
