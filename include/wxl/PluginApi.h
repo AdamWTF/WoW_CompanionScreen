@@ -19,27 +19,25 @@
 
 #include <stdint.h>
 
-// The only file shared verbatim between the core and an extension, and deliberately the smallest
-// one that can be: the SDK (wxl::game) is header-only and compiles into the extension, which reads
-// the client directly because the image is fixed-base. Nothing that an extension can do on its own
-// belongs here. What crosses is only what needs the core to arbitrate -- who detours what, who hears
-// which event, where the log goes.
+// The only file shared verbatim between the core and an extension. The SDK (wxl::game) is
+// header-only and compiles into the extension, which reads the fixed-base client image directly, so
+// what crosses here is limited to what the core has to arbitrate: hooks, events, log.
 //
-// Plain C with explicit __cdecl on every pointer: the default calling convention is a compiler flag,
-// so an extension built with a different one would corrupt the stack on the first call if the
-// convention were left implicit. Nothing with a C++ ABI (no std types, no exceptions, no vtables)
-// crosses, so an extension is free to use a different toolchain or C++ standard library entirely.
+// Plain C with __cdecl spelled out on every pointer: the default calling convention is a compiler
+// flag, and an extension built with another one would corrupt the stack on the first call. Nothing
+// with a C++ ABI crosses (no std types, exceptions or vtables), so an extension may be built with a
+// different toolchain or standard library.
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/// Bumped when the layout of anything below changes. An extension records the value it compiled
-/// against, and the core refuses one it cannot serve.
-#define WXL_API_VERSION 1
+/// Bumped whenever the layout below changes. An extension records what it compiled against, and the
+/// core refuses a version it cannot serve.
+#define WXL_API_VERSION 2
 
-/// The client build an extension is written against. Refusing a mismatch here is what stops an
-/// extension full of hardcoded addresses from running against an image where they mean nothing.
+/// The client build an extension is written against. Refusing a mismatch stops an extension full of
+/// hardcoded addresses from running against an image where they mean something else.
 #define WXL_CLIENT_BUILD 12340
 
 /// Severity values accepted by WXL_Api::Log, mirroring the core's own levels.
@@ -49,15 +47,15 @@ extern "C" {
 #define WXL_LOG_WARN  3
 #define WXL_LOG_ERROR 4
 
-/// Chain position for HookAttach. Lower runs first, i.e. closest to the caller; equal values keep
-/// attach order. Leave it at the default unless the extension must wrap, or be wrapped by, another.
+/// Chain position for HookAttach: lower runs first, closest to the caller. Equal values keep attach
+/// order.
 #define WXL_HOOK_DEFAULT_PRIORITY 0
 
 /**
- * @brief What an extension says about itself before any of its code runs.
+ * @brief What an extension reports about itself before any of its code runs.
  *
- * Returned by WXL_Query, which the core calls first and which must have no side effects: it is the
- * one moment where an incompatible extension can be turned away without having executed anything.
+ * Returned by WXL_Query, which must have no side effects: it is the only point at which an
+ * incompatible extension can be refused having executed nothing.
  */
 typedef struct WXL_PluginInfo
 {
@@ -71,15 +69,25 @@ typedef struct WXL_PluginInfo
 /**
  * @brief Event handler signature.
  * @param user  the opaque pointer given to Subscribe.
- * @param args  the event's typed args struct, to be cast to the type documented for that event.
+ * @param args  the event's args struct, cast to the type documented for that event.
  */
 typedef void(__cdecl* WXL_EventFn)(void* user, const void* args);
 
 /**
+ * @brief A panel body, called while the core's overlay is open.
+ *
+ * Runs inside an already-open window, so it draws by calling the Ui* functions below and nothing
+ * else. It is not called on frames where the overlay is shut, so it must not be where a module does
+ * work it needs done.
+ * @param user  the opaque pointer given to UiAddPanel.
+ */
+typedef void(__cdecl* WXL_PanelFn)(void* user);
+
+/**
  * @brief The core's services, handed to an extension at load.
  *
- * Read structSize before touching a field an older version may not have. The table lives for the
- * process lifetime, so an extension may keep the pointer.
+ * Check structSize before reading a field an older version may not carry. The table lives for the
+ * process lifetime, so the pointer can be kept.
  */
 typedef struct WXL_Api
 {
@@ -89,16 +97,16 @@ typedef struct WXL_Api
     /**
      * @brief Writes one line to the core's log.
      * @param level  one of the WXL_LOG_* values.
-     * @param tag    short prefix identifying the caller, since one table serves every extension.
+     * @param tag    prefix identifying the caller, since one table serves every extension.
      * @param fmt    printf-style format, formatted by the core.
      */
     void(__cdecl* Log)(int level, const char* tag, const char* fmt, ...);
 
     /**
-     * @brief Subscribes to a named core event for the process lifetime.
+     * @brief Subscribes to a core event for the process lifetime.
      *
-     * There is deliberately no counterpart: removal would have to be handled inside the per-frame
-     * publish path, and no extension is ever unloaded, so nothing would use it.
+     * No counterpart: removal would have to be handled inside the per-frame publish path, and
+     * extensions are never unloaded.
      * @param event    event id, from wxl::events::Event.
      * @param handler  invoked on every publication of that event.
      * @param user     opaque pointer passed back to the handler.
@@ -106,11 +114,10 @@ typedef struct WXL_Api
     void(__cdecl* Subscribe)(uint32_t event, WXL_EventFn handler, void* user);
 
     /**
-     * @brief Adds a detour to an address, alongside any other party already detouring it.
+     * @brief Adds a detour to an address, alongside any party already detouring it.
      *
-     * original receives the next link in the chain, which ends at the engine function: calling
-     * through it means "let the rest of the world handle this", and not calling it suppresses both
-     * the parties behind and the engine function itself.
+     * original receives the next link in the chain, which ends at the engine function. Not calling
+     * it suppresses both the parties behind and the engine function.
      * @param name      label used for logging.
      * @param target    address to detour.
      * @param detour    replacement function.
@@ -122,10 +129,10 @@ typedef struct WXL_Api
                              int priority);
 
     /**
-     * @brief Offers a service to other extensions under a name the core never interprets.
+     * @brief Offers a service to other extensions.
      *
-     * How two extensions agree on what iface points at is their business; the core only keeps the
-     * name, version and pointer, so a capability can be added without touching this table.
+     * The core stores the name, version and pointer without interpreting them, so two extensions can
+     * agree on a capability this table does not model.
      * @param name     agreed service name.
      * @param version  agreed service version.
      * @param iface    pointer to the service, valid for the process lifetime.
@@ -139,14 +146,63 @@ typedef struct WXL_Api
      * @return the published pointer, or NULL when no extension published it.
      */
     void*(__cdecl* GetInterface)(const char* name, uint32_t version);
+
+    // --- controls on the core's overlay ---------------------------------------------------------
+    // The core owns the interface library and never lends it out. Handing an extension the library's
+    // own context would tie both sides to one build of it and one C++ ABI, which is the guarantee
+    // this header exists to keep. So what crosses is this: named controls, primitive types, and a
+    // callback the core invokes at the point where drawing them is legal. It stays immediate mode --
+    // a panel may loop, branch, and draw a different thing every frame.
+    //
+    // Every function below is valid only inside a WXL_PanelFn, and does nothing anywhere else.
+
+    /**
+     * @brief Registers a panel drawn whenever the overlay is open.
+     *
+     * Registration is for the process lifetime, like Subscribe. Call it at load: a panel costs
+     * nothing on the frames its window is shut.
+     * @param title  window title, and its identity to the interface library -- unique and stable.
+     * @param fn     body, invoked inside an already-open window.
+     * @param user   opaque pointer handed back to @p fn.
+     */
+    void(__cdecl* UiAddPanel)(const char* title, WXL_PanelFn fn, void* user);
+
+    /// Non-zero while the overlay is open. For a module that wants to know without owning a panel.
+    int(__cdecl* UiIsOpen)(void);
+
+    /// Draws a line of text. Formatting is the caller's, so no varargs cross the boundary.
+    void(__cdecl* UiText)(const char* text);
+
+    /// Draws a horizontal rule.
+    void(__cdecl* UiSeparator)(void);
+
+    /// Draws a button; returns non-zero on the frame it is pressed.
+    int(__cdecl* UiButton)(const char* label);
+
+    /**
+     * @brief Draws a checkbox bound to the caller's flag.
+     * @param value  read for the current state and written when it changes; int, not bool, because
+     *               bool has no guaranteed representation across a compiler boundary.
+     * @return non-zero on the frame it changes.
+     */
+    int(__cdecl* UiCheckbox)(const char* label, int* value);
+
+    /// Draws a slider bound to the caller's value, clamped to [min, max]. Non-zero when it changes.
+    int(__cdecl* UiSliderFloat)(const char* label, float* value, float min, float max);
+
+    /// Draws an integer slider bound to the caller's value. Non-zero when it changes.
+    int(__cdecl* UiSliderInt)(const char* label, int* value, int min, int max);
+
+    /// Draws a colour picker over four floats in 0..1, red first. Non-zero when it changes.
+    int(__cdecl* UiColorEdit)(const char* label, float rgba[4]);
 } WXL_Api;
 
 /// The two entry points as the core resolves them, by name, out of a loaded extension.
 typedef const WXL_PluginInfo*(__cdecl* WXL_QueryFn)(void);
 typedef int(__cdecl* WXL_LoadFn)(const WXL_Api* api);
 
-// The prototypes themselves appear only for the extension being compiled -- the core includes this
-// header for the table above and must not end up exporting the entry points it goes looking for.
+// Visible only to the extension being compiled: the core includes this header for the table above
+// and must not export the entry points it goes looking for.
 #ifdef WXL_EXTENSION
 
 /**
@@ -158,8 +214,12 @@ __declspec(dllexport) const WXL_PluginInfo* __cdecl WXL_Query(void);
 /**
  * @brief Second entry point: the extension sets itself up.
  *
- * Called on the main thread, after the graphics device exists and before the core's detour batch is
- * armed, so a detour attached here is enabled together with the core's own.
+ * Called on the main thread during engine initialisation, early enough to precede the background
+ * file reader and the texture subsystem. A detour attached here is armed before the engine reaches
+ * either, which is what lets an extension replace startup behaviour rather than only react to it.
+ *
+ * Nothing that engine initialisation itself brings up exists yet -- there is no graphics device and
+ * no world. Subscribe to an event for anything that needs one.
  * @param api  the core's service table, valid for the process lifetime.
  * @return non-zero on success; zero to abort this extension's load.
  */
