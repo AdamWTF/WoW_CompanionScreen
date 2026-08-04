@@ -78,6 +78,9 @@ namespace wxl::offsets::engine::gx
     constexpr size_t    kFormatHeight    = 0x1D4; // active format height (backbuffer px, unscaled)
     constexpr size_t    kViewportDirty   = 0xF6C; // set to 1 to force a viewport recompute from curWindow
     constexpr size_t    kRtOverrideField = 0x2918; // non-zero while an offscreen RT override is active (not the backbuffer pass)
+    // Master switches, one bit per rendering category, read by CGxDevice::MasterEnable. Bit 8 off is
+    // what makes the world scene clear to opaque black instead of the horizon colour.
+    constexpr size_t    kMasterEnableField = 0x2758;
     constexpr uintptr_t kDeviceSetDefWindow = 0x00684360; // resolution choke (create + every resize)
 
     // Engine render-target bind chokepoint: the world (and UI) bind their target through this method, which
@@ -92,7 +95,25 @@ namespace wxl::offsets::engine::gx
     // camera is not written to the world camera globals (they stay identity on the glue screens), so a
     // depth-using effect (ambient occlusion) on the glue screens has no matrix without capturing it here.
     constexpr unsigned  kGxSetProjectionSlot   = 0xA0 / 4;   // = 40, device projection-upload slot
+    constexpr unsigned  kGxSetViewSlot         = 0xA4 / 4;   // = 41, device view-upload slot
     using GxSetProjectionFn = void(__fastcall*)(void* self, void* edx, const void* proj16);
+
+    // Where the device keeps the matrices those two slots upload, so they can be read back and put
+    // returned. CGWorldFrame::RenderWorld saves both before the world render and uploads them again
+    // after, then refreshes the shader system -- the world render overwrites them and does not restore
+    // them, so anything calling it outside that wrapper has to bracket it the same way.
+    //
+    // The view is the top of a stack: the live index sits at kDeviceViewIndex and selects a slot of
+    // kDeviceViewStride bytes from kDeviceViewBase.
+    constexpr size_t    kDeviceProjection = 0x3E2 * 4;
+    constexpr size_t    kDeviceViewIndex  = 0x6BE * 4;
+    constexpr size_t    kDeviceViewBase   = 0x6C0 * 4;
+    constexpr size_t    kDeviceViewStride = 0x10 * 4;
+
+    // Re-derives the shader system's projection from the device. Called after the matrices are put
+    // back, since the shaders hold their own copy.
+    constexpr uintptr_t kShaderUpdateProjMatrix = 0x00872C10;
+    using ShaderUpdateProjMatrixFn = void(__cdecl*)();
 
     // CSimpleModelFFX::Render: the GLUE 3D-scene render callback -- the login / character-select model preview.
     // It is the glue-side analogue of CGWorldFrame::RenderWorld (kWorldRenderFinalize): the engine defers every
@@ -102,6 +123,27 @@ namespace wxl::offsets::engine::gx
     // portraits, but the world hook already claimed the boundary by then, so the shared latch makes it a no-op.
     constexpr uintptr_t kSimpleModelFFXRender = 0x004E6190;
     using GlueModelRenderFn = void(__cdecl*)(void* frame);
+
+    // CSimpleModel's script-method registration, the callback the metatable builder invokes. Detour it,
+    // let the stock methods register, then append: the frame types built on it -- including the glue
+    // screens' ModelFFX -- inherit whatever was added.
+    constexpr uintptr_t kSimpleModelRegisterMethods = 0x009603D0;
+    using RegisterScriptMethodsFn = void(__cdecl*)(void* target);
+
+    // CSimpleModel's script type-id slot, zero until its first script method claims one from the global
+    // counter (engine::lua::kObjectTypeCounter). Resolving the invoked object goes through this id.
+    constexpr uintptr_t kSimpleModelTypeId = 0x00DCE428;
+
+    // Scene clear (flags, colour), forwarded to CGxDeviceD3d::SceneClear: flags bit 0 clears the colour
+    // target, bit 1 the depth buffer, so 3 clears both and 2 leaves the colour standing.
+    //
+    // Every glue 3D object's render opens with an unconditional colour+depth clear -- unconditional in
+    // the literal sense that only the model draw between them is guarded, not the clears. Anything
+    // painted into the frame beforehand is erased whatever that object turns out to render.
+    constexpr uintptr_t kGxSceneClear = 0x006813B0;
+    constexpr uint32_t  kSceneClearColor = 1;
+    constexpr uint32_t  kSceneClearDepth = 2;
+    using GxSceneClearFn = void(__cdecl*)(uint32_t flags, uint32_t colour);
 
     // M2 triangle-batch draw (this-in-ECX). The hook reads the current model so the per-draw event
     // can name which model is rendering.
@@ -144,6 +186,13 @@ namespace wxl::offsets::engine::gx
     // World-frame finalize render callback, once per frame. Hook its entry and fire the event after the
     // original returns: world done, UI not yet started. The world -> UI boundary / post-fx slot. The
     // epilogue-anchor address is mid-epilogue, not a hookable entry; kept only as a landmark.
+    // The world render pass alone: viewport, scene draw, and the passes around it. Its caller
+    // (kWorldRenderFinalize) pairs it with CGWorldFrame::OnWorldUpdate, which is a different kind of
+    // work -- free lists, effect managers, pending portraits, all belonging to a world frame the engine
+    // built. A scene drawn for a frame the engine did not build wants this half and not that one.
+    constexpr uintptr_t kWorldOnRender = 0x004F8EA0;
+    using WorldOnRenderFn = void(__fastcall*)(void* worldFrame, void* edx);
+
     constexpr uintptr_t kWorldRenderFinalize = 0x004FAF90;
     constexpr uintptr_t kWorldRenderEpilogueAnchor = 0x004FB074; // landmark only, do NOT hook
     using WorldRenderFinalizeFn = void(__cdecl*)(void* worldFrame);
@@ -231,12 +280,16 @@ namespace wxl::offsets::engine::gx
         constexpr unsigned kBeginScene             = 41;
         constexpr unsigned kEndScene               = 42;
         constexpr unsigned kClear                  = 43;
+        constexpr unsigned kSetTransform           = 44;
+        constexpr unsigned kGetTransform           = 45;
         constexpr unsigned kSetViewport            = 47;
         constexpr unsigned kGetViewport            = 48;
         constexpr unsigned kSetRenderState         = 57;
         constexpr unsigned kGetRenderState         = 58;
+        constexpr unsigned kGetTexture             = 64;
         constexpr unsigned kSetTexture             = 65;
-        constexpr unsigned kGetTexture             = 66;
+        constexpr unsigned kGetTextureStageState   = 66;
+        constexpr unsigned kSetTextureStageState   = 67;
         constexpr unsigned kSetSamplerState        = 69;
         constexpr unsigned kDrawPrimitiveUP        = 83;
         constexpr unsigned kSetFVF                 = 89;
@@ -251,6 +304,7 @@ namespace wxl::offsets::engine::gx
         constexpr unsigned kSetPixelShader         = 107;
         constexpr unsigned kGetPixelShader         = 108;
         constexpr unsigned kSetPixelShaderConstantF = 109;
+        constexpr unsigned kGetPixelShaderConstantF = 110;
         constexpr unsigned kDrawIndexedPrimitive   = 0x148 / 4;
     }
 

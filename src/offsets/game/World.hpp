@@ -87,6 +87,56 @@ namespace wxl::offsets::game::world
     constexpr float kTileSizeYards = 533.33333f;
     constexpr float kGridOriginYards = 32.0f * kTileSizeYards;
 
+    // --- view distance ---
+    // Sets how far the world is drawn, clamping the value to what the loaded map allows -- so it reads
+    // the current map id and belongs after a map load, not before. It also fixes the near plane at 0.2
+    // and dirties the render pools.
+    //
+    // The scene culls against this and the horizon fades to fog over it: left unset, nothing survives
+    // the cull and the frame is the fog colour alone. World__LoadMap sets it as part of loading a map;
+    // kMapEnter does not, so a map entered that way needs it set explicitly.
+    constexpr uintptr_t kSetFarClip = 0x00780800;
+    using World_SetFarClipFn = void(__cdecl*)(float farClip);
+
+    // The live view distance and the one the previous frame used. The scene update compares them, and
+    // treats a rise of more than 10 yards as a teleport: it raises the loading screen and puts the map
+    // into preload, which drains the async queues every frame. Setting the distance leaves the two
+    // differing by exactly the change, so a first-ever setting reads as a jump of its whole value --
+    // and off the world nothing ever dismisses the loading screen it raises.
+    constexpr uintptr_t kFarClip     = 0x00CD7748;
+    constexpr uintptr_t kPrevFarClip = 0x00CD7744;
+
+    // --- what the terrain pass consults before drawing ---
+    // Per-category render switches. The solid terrain pass walks its list of visible chunks either way,
+    // but only issues the draw when bit 1 is set -- so an unset bit renders nothing while looking, from
+    // the outside, exactly like an empty list.
+    constexpr uintptr_t kEnables         = 0x00CD774C;
+    constexpr uint32_t  kEnableSolidTerrain = 0x02;
+    // Head of the visible-chunk list the solid pass walks. Null, or an odd value standing for the list
+    // sentinel, means nothing survived culling.
+    constexpr uintptr_t kVisibleChunkHead = 0x00CDAF68;
+
+    // --- per-frame scene update ---
+    // Sets the area of interest, rebuilds the camera basis and the culling frustum, resolves whether
+    // the viewer is indoors, and advances day/night. Takes an eye and a point it looks at -- a target,
+    // not an orientation -- plus the point terrain streams around.
+    //
+    // The render culls against what this leaves behind and reads its viewer position from the globals
+    // it writes, so a render without it culls against whatever was there before: for a world that was
+    // never entered, a frustum that rejects everything and a viewer at the origin.
+    constexpr uintptr_t kPrepareUpdate = 0x007831A0;
+    using World_PrepareUpdateFn = void(__cdecl*)(const float* eye, const float* target,
+                                                 const float* streamFocus);
+
+    // --- scene draw ---
+    // World scene render (viewerPos, flags): the terrain / WMO / doodad draw itself, a thin wrapper over
+    // CWorldScene::Render. viewerPos is a float[3]: the world frame passes the position field inside its
+    // active camera, not a scene handle, and CWorldScene reaches its own state through globals. So the
+    // draw needs neither a world frame nor a world session -- only a position and the camera matrices.
+    // flags is the world frame's own render-flag dword; 0 is the neutral value.
+    constexpr uintptr_t kRender = 0x0077EFF0;
+    using World_RenderFn = void(__cdecl*)(const float* viewerPos, uint32_t flags);
+
     // --- current map ---
     // Numeric map id of the loaded world (int32; -1 while none). The map loader writes it before
     // CWorld::Enter returns, so it is valid at the enter hook and still valid at the leave hook.
@@ -101,6 +151,13 @@ namespace wxl::offsets::game::world
     // --- cursor world pick ---
     // CWorldFrame singleton holder: *(void**)kWorldFrame is the world frame (pass as the this/ECX).
     constexpr uintptr_t kWorldFrame = 0x00B7436C;
+    // Active camera within a world frame. CGWorldFrame::GetActiveCamera (0x004F5960) returns it, but
+    // other paths inline the same access straight off the global instead of calling it --
+    // CGWorldFrame::GetCameraPosition (0x004F6650) is one, with six callers of its own. Substituting
+    // the global therefore covers what detouring the accessor cannot.
+    constexpr size_t kWorldFrameCamera = 0x7E20;
+    // Fields the world render path touches reach 0xB18; a stand-in frame reserves well past that.
+    constexpr size_t kWorldFrameStandInBytes = 0x10000;
     // Native world->screen projection used by world text, chat bubbles and target indicators.
     // Fastcall: ECX = world frame, EDX is unused; worldPos/outScreen are float[3].
     // Returns nonzero when on-screen.
@@ -128,13 +185,29 @@ namespace wxl::offsets::game::world
     // Lower-level pieces the full pick uses internally; documented landmarks.
     // Screen (DDC pixels) -> world ray: fills near/far points, returns nonzero when inside the viewport.
     constexpr uintptr_t kScreenToRay = 0x004F6450;
-    // Cursor pick: casts the ray, returns the hit type (0 miss, 2 M2/doodad, 3 terrain/WMO), fills result[6].
+    // Cursor hit test: casts the ray, returns the hit type (0 miss, 2 M2/doodad, 3 terrain/WMO), fills
+    // result[6]. It is the cursor's entry, not a collision primitive -- it ends by projecting its
+    // result to screen coordinates and setting the cursor depth, which reads a camera off the world
+    // frame and faults wherever that is not up. For a plain ray against the world use kWorldIntersect
+    // below; this one is for reproducing what the cursor does, including the model search.
     constexpr uintptr_t kIntersectWrapper = 0x004F9930;
     // Pick "flags" parameter for the wrapper: the value the engine's own cursor pick uses on a click. It
     // runs the terrain + WMO + M2-geometry intersect (the wrapper applies kPickMaskAnything internally).
     constexpr uint32_t kPickFlagsCursor = 1;
-    // The CWorld::Intersect mask the wrapper applies internally (terrain + WMO + M2/doodad geometry).
+    // The mask the wrapper hands to the ray/world intersect: terrain and map objects. Model geometry
+    // is not in it -- the wrapper tests models separately, through its own closest-model search.
     constexpr uint32_t kPickMaskAnything = 0x01000124;
+
+    // Ray against the world, the primitive underneath the cursor hit test. The hit test is the wrong
+    // entry for a plain collision query: it ends by projecting its result to screen coordinates and
+    // updating the cursor depth, which faults wherever the frame it reads that from is not up. This
+    // one only intersects.
+    //
+    // dist is in-out: 1.0 asks for the whole segment, and comes back as the fraction of it reached.
+    // The hit point is that fraction along start->end, which is how the client's own callers derive it.
+    constexpr uintptr_t kWorldIntersect = 0x0077F310;
+    using WorldIntersectFn = char(__cdecl*)(const float* start, const float* end, void* outUnused,
+                                            float* inOutDist, uint32_t mask, uint32_t flags);
     // Scratch hit-test coordinates populated by CGWorldFrame::SetupDefaultAction.
     // Do not use these as a live cursor source; they can retain an older action point.
     constexpr size_t kWorldFrameCursorDdcX = 0x310;

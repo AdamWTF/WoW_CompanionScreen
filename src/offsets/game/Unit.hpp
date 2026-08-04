@@ -29,6 +29,10 @@ namespace wxl::offsets::game::unit
     // --- entries ---
     // Resolve a GUID to an object (guid, typemask, tag, flag). tag is a debug string, flag is 0.
     constexpr uintptr_t kGetObjectByGuid = 0x004D4DB0;
+    // Walk every resident object, one callback per object, carrying the GUID as two dwords. Returning 0
+    // from the callback stops the walk. Main thread only: the list head is read from thread-local storage,
+    // so off it the enumerator walks another thread's manager or none.
+    constexpr uintptr_t kEnumObjects = 0x004D4B30;
     // Active player GUID ().
     constexpr uintptr_t kActivePlayerGuid = 0x004D3790;
     // Reaction of self toward other (this-in-ECX): 0..1 hostile, 2..3 neutral, 4+ friendly.
@@ -56,16 +60,38 @@ namespace wxl::offsets::game::unit
     constexpr size_t kUnitModelField    = 0xB4;  // unit object -> body model
     constexpr size_t kModelParentField  = 0x48;  // model -> parent model (0 = root)
     constexpr size_t kUnitPositionField = 0x798; // unit object -> world position (3 floats x, y, z)
+    constexpr size_t kObjectHeaderField = 0x08;  // any object -> header carrying its GUID and type mask
+    constexpr size_t kHeaderGuidField   = 0x00;  // header -> GUID
+    constexpr size_t kHeaderTypeField   = 0x08;  // header -> type mask; what kGetObjectByGuid filters on
+
+    // --- virtual slots shared by every object type ---
+    // CGObject_C's descendants agree on this part of their vftable. Only these four are common: past
+    // them the layouts diverge, and two of the slots below them are stubs on some types.
+    constexpr size_t kVtNamePosition = 8;  // anchor above the model, where the client hangs the name
+    constexpr size_t kVtPosition     = 11; // world position; the base implementation reports the origin
+    constexpr size_t kVtRawPosition  = 12;
+    constexpr size_t kVtFacing       = 13;
 
     // --- type masks ---
-    constexpr uint32_t kTypeMaskUnit   = 0x08;
-    constexpr uint32_t kTypeMaskPlayer = 0x10;
+    // Bit per object category. A lookup passes the set it accepts and yields null for anything else, so
+    // these select a category rather than merely describing one.
+    constexpr uint32_t kTypeMaskObject        = 0x01;
+    constexpr uint32_t kTypeMaskItem          = 0x02;
+    constexpr uint32_t kTypeMaskContainer     = 0x04;
+    constexpr uint32_t kTypeMaskUnit          = 0x08;
+    constexpr uint32_t kTypeMaskPlayer        = 0x10;
+    constexpr uint32_t kTypeMaskGameObject    = 0x20;
+    constexpr uint32_t kTypeMaskDynamicObject = 0x40;
+    constexpr uint32_t kTypeMaskCorpse        = 0x80;
 
     // --- signatures ---
     using GetObjectFn        = void*(__cdecl*)(unsigned long long guid, unsigned typemask,
                                                const char* tag, int flag);
     using ActivePlayerGuidFn = unsigned long long(__cdecl*)();
     using ReactionFn         = int(__fastcall*)(void* self, void* edx, void* other);
+    using EnumStepFn         = int(__cdecl*)(uint32_t guidLow, uint32_t guidHigh, void* user);
+    using EnumObjectsFn      = int(__cdecl*)(EnumStepFn step, void* user);
+    using PositionFn         = void(__thiscall*)(void* self, float out[3]);
 
     // --- typed views over the objects above ---
     // The constants are the curated landmarks; these structs give named, typed access to the same fields,
@@ -82,6 +108,23 @@ namespace wxl::offsets::game::unit
     };
     static_assert(offsetof(UnitObject, model) == kUnitModelField, "UnitObject.model");
     static_assert(offsetof(UnitObject, position) == kUnitPositionField, "UnitObject.position");
+
+    /** @brief Object header: the GUID and the type mask the object lookup filters on. */
+    struct ObjectHeader
+    {
+        unsigned long long guid;     // kHeaderGuidField
+        uint32_t           typeMask; // kHeaderTypeField
+    };
+    static_assert(offsetof(ObjectHeader, guid) == kHeaderGuidField, "ObjectHeader.guid");
+    static_assert(offsetof(ObjectHeader, typeMask) == kHeaderTypeField, "ObjectHeader.typeMask");
+
+    /** @brief What every object carries regardless of its concrete type: the header slot. */
+    struct ObjectBase
+    {
+        uint8_t       _pad00[kObjectHeaderField];
+        ObjectHeader* header;      // kObjectHeaderField -> GUID + type mask
+    };
+    static_assert(offsetof(ObjectBase, header) == kObjectHeaderField, "ObjectBase.header");
 
     /** @brief Model object: the parent slot in the attachment chain. */
     struct ModelObject

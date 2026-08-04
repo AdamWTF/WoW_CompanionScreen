@@ -52,4 +52,23 @@ namespace wxl::offsets::engine::lua
     // Verifies that an indirect callback lies in Wow.exe's .text section before Lua invokes it.
     constexpr uintptr_t kValidateFunctionPointer = 0x0086B5A0;
     using ValidateFunctionPointerFn = void(__cdecl*)(uintptr_t function);
+
+    // --- script methods on frame objects ---
+    // A method as the tables hold it: the name Lua calls, then the function.
+    struct ScriptMethod { const char* name; LuaCFunction function; };
+
+    // Adds an array of methods to a metatable under construction. Every frame class registers through a
+    // callback that ends in a call to this, which is what makes such a callback the place to add more:
+    // the stock methods land first, ours after, on that class alone.
+    constexpr uintptr_t kFillScriptMethodTable = 0x008167E0;
+    using FillScriptMethodTableFn = void(__cdecl*)(void* target, const ScriptMethod* methods, int count);
+
+    // The object a script method was invoked on, for a class's type id.
+    constexpr uintptr_t kGetObjectThis = 0x004A81B0;
+    using GetObjectThisFn = void*(__cdecl*)(int typeId);
+
+    // Type ids are handed out lazily from this counter: a class's slot stays zero until one of its
+    // script methods runs and claims the next id. A method added to a class has to claim it the same
+    // way and into the same slot -- claiming its own would resolve a different object, or none.
+    constexpr uintptr_t kObjectTypeCounter = 0x00D3F778;
 }
