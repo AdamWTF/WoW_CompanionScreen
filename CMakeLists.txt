@@ -16,9 +16,6 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 # DLL needs no x64 toolchain and pays no build/deploy cost. build.ps1 -Host flips it on in an x64 configure.
 option(WXL_BUILD_HOST "Build WarcraftXLHost.exe (64-bit asset host)" OFF)
 
-# The modern-assets pipelines (ex wxl-modern-assets, now src/engine/assets/) are always compiled; their
-# per-format enablement is a compile switch in src/config.hpp (wxl::features::modern{M2,WMO,ADT}Support),
-# honored by each module's registrar via `if constexpr`. No CMake exclusion — see config.hpp.
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -63,7 +60,8 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
     # CONFIGURE_DEPENDS re-globs at build time, so dropping a file (or a whole script) needs no edit here.
     # The DLL excludes the patcher/host trees and the proxy (engine/gpu builds its own target below).
     file(GLOB_RECURSE WXL_CORE_SRC CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
-    list(FILTER WXL_CORE_SRC EXCLUDE REGEX "/src/(patcher|host)/|/src/engine/gpu/")
+
+    list(FILTER WXL_CORE_SRC EXCLUDE REGEX "/src/(patcher|host)/|/src/engine/gpu/|/src/engine/assets/shared/models/m2/")
 
     # =========================================================================
     # Target 1: WarcraftXL.dll  (32-bit, injected) = engine + features + assets pipelines
@@ -161,6 +159,12 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
         file(GLOB_RECURSE WXL_EXT_SRC CONFIGURE_DEPENDS "${wxl_ext_dir}/*.cpp")
         if(NOT WXL_EXT_SRC)
             continue()
+        endif()
+
+        if(wxl_ext_name STREQUAL "wxl-m2")
+            file(GLOB WXL_M2_SHARED_SRC CONFIGURE_DEPENDS
+                 "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/assets/shared/models/m2/*.cpp")
+            list(APPEND WXL_EXT_SRC ${WXL_M2_SHARED_SRC})
         endif()
 
         add_library(${wxl_ext_name} SHARED ${WXL_EXT_SRC} ${WXL_SDK_SRC})

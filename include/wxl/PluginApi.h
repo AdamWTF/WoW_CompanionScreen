@@ -34,7 +34,7 @@ extern "C" {
 
 /// Bumped whenever the layout below changes. An extension records what it compiled against, and the
 /// core refuses a version it cannot serve.
-#define WXL_API_VERSION 2
+#define WXL_API_VERSION 1
 
 /// The client build an extension is written against. Refusing a mismatch stops an extension full of
 /// hardcoded addresses from running against an image where they mean something else.
@@ -112,6 +112,18 @@ typedef struct WXL_Api
      * @param user     opaque pointer passed back to the handler.
      */
     void(__cdecl* Subscribe)(uint32_t event, WXL_EventFn handler, void* user);
+
+    /**
+     * @brief Publishes a core event to every subscriber, core or extension.
+     *
+     * The same bus Subscribe listens on: an extension that used to be compiled into the core and
+     * relied on another in-core module's Subscribe still reaches it once both are extensions,
+     * without either knowing where the other lives.
+     * @param event  event id, from wxl::events::Event.
+     * @param args   pointer to that event's args struct, per the catalog's documented type; the
+     *               core does not interpret it, only forwards it to each handler.
+     */
+    void(__cdecl* Emit)(uint32_t event, const void* args);
 
     /**
      * @brief Adds a detour to an address, alongside any party already detouring it.
