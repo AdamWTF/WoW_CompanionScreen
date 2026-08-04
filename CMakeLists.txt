@@ -144,10 +144,14 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
 
     # =========================================================================
     # Target 4+: one DLL per folder under extensions/, deployed to Extensions/<Name>/<Name>.dll and
-    #   discovered by the core at runtime. They link nothing of the core -- the SDK is header-only and
-    #   compiles in, and everything needing arbitration arrives through the API table -- so an
-    #   extension built here has exactly the same relationship to the core as a third party's.
+    #   discovered by the core at runtime. They link nothing of the core: the SDK is header-only and
+    #   compiles in, and the rest arrives through the API table.
     # =========================================================================
+    # The SDK's out-of-line half. Everything else under src/game is inline, but the gx facade creates
+    # D3D resources and tracks them for the device reset, so each binary compiles and owns its own --
+    # an extension releases its targets from OnDeviceLost rather than through the core's sweep.
+    file(GLOB WXL_SDK_SRC CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/game/*.cpp")
+
     file(GLOB WXL_EXTENSION_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/extensions/*")
     foreach(wxl_ext_dir IN LISTS WXL_EXTENSION_DIRS)
         if(NOT IS_DIRECTORY "${wxl_ext_dir}")
@@ -159,12 +163,15 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
             continue()
         endif()
 
-        add_library(${wxl_ext_name} SHARED ${WXL_EXT_SRC})
+        add_library(${wxl_ext_name} SHARED ${WXL_EXT_SRC} ${WXL_SDK_SRC})
         set_target_properties(${wxl_ext_name} PROPERTIES OUTPUT_NAME "${wxl_ext_name}" PREFIX "")
         target_include_directories(${wxl_ext_name} PRIVATE
             "${CMAKE_CURRENT_SOURCE_DIR}/include"
             "${CMAKE_CURRENT_SOURCE_DIR}/src")
-        target_compile_definitions(${wxl_ext_name} PRIVATE ${WXL_DEFS})
+        # WXL_EXTENSION is what makes PluginApi.h declare the two entry points as exports. It belongs on
+        # the target rather than in a source file: an extension that forgets it still builds, and fails
+        # only at load with "exports no WXL_Query/WXL_Load".
+        target_compile_definitions(${wxl_ext_name} PRIVATE ${WXL_DEFS} WXL_EXTENSION)
 
         if(CLIENT_PATH)
             add_custom_command(TARGET ${wxl_ext_name} POST_BUILD
