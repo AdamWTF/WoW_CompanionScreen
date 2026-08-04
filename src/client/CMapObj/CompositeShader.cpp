@@ -42,7 +42,7 @@
 #include "client/CMapObj/WmoNative.hpp"
 
 #include "common/Log.hpp"
-#include "client/CGxDevice/Gx.hpp"
+#include "game/Gx.hpp"
 #include "offsets/engine/Gx.hpp"
 #include "offsets/engine/Shader.hpp"
 #include "offsets/game/WMO.hpp"

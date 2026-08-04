@@ -86,14 +86,4 @@ namespace wxl::game::io
     {
         return Native<off::Storage_FileCloseFn>(off::kFileClose)(handle);
     }
-
-    /** @brief Adds the IO bindings to the enumerable catalog. */
-    inline void RegisterCatalog()
-    {
-        Register({ "IO::FileOpen",  off::kFileOpen,  "int(name, flags, &handle)" });
-        Register({ "IO::FileRead",  off::kFileRead,  "int(handle, dst, len, &read)" });
-        Register({ "IO::FileSize",  off::kFileSize,  "uint32(handle, &sizeHigh)" });
-        Register({ "IO::FileSeek",  off::kFileSeek,  "uint32(handle, distLow, &distHigh, method)" });
-        Register({ "IO::FileClose", off::kFileClose, "int(handle)" });
-    }
 }

@@ -22,7 +22,7 @@
 #include "engine/hook/Hook.hpp"
 #include "engine/hook/Registry.hpp"
 #include "engine/events/Event.hpp"
-#include "client/CGxDevice/Gx.hpp"
+#include "game/Gx.hpp"
 #include "offsets/engine/Gx.hpp"
 
 #include <windows.h>

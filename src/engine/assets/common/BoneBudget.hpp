@@ -21,7 +21,7 @@
 #include <string_view>
 #include <vector>
 
-#include "client/CM2Shared/M2.hpp"
+#include "game/M2.hpp"
 #include "engine/assets/shared/models/m2/M2Format.hpp"
 
 /**

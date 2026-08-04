@@ -23,7 +23,7 @@
 #include "client/CM2Shared/NativeLoad.hpp"
 
 #include "common/Log.hpp"
-#include "client/CM2Shared/M2.hpp"
+#include "game/M2.hpp"
 #include "offsets/game/M2.hpp"
 
 #include <windows.h>

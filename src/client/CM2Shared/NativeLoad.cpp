@@ -41,7 +41,7 @@
 #include "engine/assets/models/m2/ModernM2.hpp"
 #include "engine/assets/shared/models/m2/Contract.hpp"
 #include "game/Binding.hpp"
-#include "client/CM2Shared/M2.hpp"
+#include "game/M2.hpp"
 #include "offsets/game/M2.hpp"
 
 #include <windows.h>

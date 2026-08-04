@@ -163,11 +163,4 @@ namespace wxl::game::wmo
             return nullptr;
         return static_cast<char*>(root) + off::kOffNameInline;
     }
-
-    /** @brief Adds the WMO bindings to the enumerable catalog. */
-    inline void RegisterCatalog()
-    {
-        Register({ "WMO::ResolveMaterialTexture", off::kResolveMaterialTexture,  "void(model, int materialIndex)" });
-        Register({ "WMO::GroupResident",          off::kGroupResidentAccessor,   "uint(model, groupIndex, force)" });
-    }
 }

@@ -16,7 +16,7 @@
 
 #pragma once
 
-#include "client/CM2Shared/M2.hpp"
+#include "game/M2.hpp"
 #include "engine/assets/shared/models/m2/M2Format.hpp"
 
 #include "../../common/BoneBudget.hpp"

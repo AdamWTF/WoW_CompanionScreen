@@ -54,11 +54,4 @@ namespace wxl::game::mem
     {
         Native<off::Mem_FreeFn>(off::kFree)(ptr, file, line, flags);
     }
-
-    /** @brief Adds the MEM bindings to the enumerable catalog. */
-    inline void RegisterCatalog()
-    {
-        Register({ "Mem::Alloc", off::kAlloc, "void*(size, file, line, flags)" });
-        Register({ "Mem::Free",  off::kFree,  "void(ptr, file, line, flags)" });
-    }
 }

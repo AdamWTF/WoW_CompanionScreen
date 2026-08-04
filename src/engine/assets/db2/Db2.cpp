@@ -3,7 +3,7 @@
 
 #include "Db2.hpp"
 
-#include "client/SFile/Io.hpp"
+#include "game/Io.hpp"
 #include "offsets/engine/Io.hpp"
 
 #include <algorithm>

@@ -55,12 +55,4 @@ namespace wxl::game::camera
         const float* p = reinterpret_cast<const float*>(off::kCameraPos);
         out[0] = p[0]; out[1] = p[1]; out[2] = p[2];
     }
-
-    /** @brief Adds the camera bindings to the enumerable catalog. */
-    inline void RegisterCatalog()
-    {
-        Register({ "Camera::View",       off::kView,       "const float[16] (world->view)" });
-        Register({ "Camera::Projection", off::kProjection, "const float[16]" });
-        Register({ "Camera::ViewProj",   off::kViewProj,   "const float[16]" });
-    }
 }

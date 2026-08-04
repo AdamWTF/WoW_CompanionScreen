@@ -25,8 +25,8 @@
 #include "common/Log.hpp"
 #include "offsets/game/GroundEffect.hpp"
 #include "offsets/engine/Shader.hpp"
-#include "client/CGCamera/Camera.hpp"
-#include "client/CWorldScene/World.hpp"
+#include "game/Camera.hpp"
+#include "game/World.hpp"
 
 #include <windows.h>
 #include <d3dcompiler.h>

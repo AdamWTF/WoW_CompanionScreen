@@ -1,4 +1,4 @@
-// One-call population of the binding catalog from every curated binding set.
+// Discovery and loading of out-of-core extensions.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -16,13 +16,18 @@
 
 #pragma once
 
-namespace wxl::game
+namespace wxl::runtime::extensions
 {
     /**
-     * @brief Registers every binding set's catalog entries.
+     * @brief Loads every extension under Extensions/, in name order.
      *
-     * Optional: typed Native<Fn>() calls work without it; this only fills the enumerable
-     * catalog for tooling.
+     * One folder per extension holding a DLL of the same name, mirroring the layout the client uses
+     * for its own script addons. Each is queried before any of its code runs and turned away on a
+     * version it did not compile against; a refusal or a failure never stops the others.
+     *
+     * Called on the main thread once the graphics device exists and before the detour batch is
+     * armed, so an extension's detours are enabled together with the core's own.
+     * @return the number of extensions that loaded.
      */
-    void RegisterAllBindings();
+    int LoadAll();
 }

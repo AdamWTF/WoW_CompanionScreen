@@ -51,7 +51,7 @@
 
 #include "common/Log.hpp"
 #include "game/Binding.hpp"
-#include "client/CGxDevice/Gx.hpp"
+#include "game/Gx.hpp"
 #include "offsets/engine/Gx.hpp"
 #include "offsets/engine/Shader.hpp"
 #include "offsets/game/ADT.hpp"

@@ -67,11 +67,4 @@ namespace wxl::game::adt
             return nullptr;
         return *reinterpret_cast<void**>(off::kTileSlots + (tileSecond * off::kTileGridDim + tileFirst) * off::kTileSlotStride);
     }
-
-    /** @brief Adds the ADT bindings to the enumerable catalog. */
-    inline void RegisterCatalog()
-    {
-        Register({ "ADT::GetChunk",        off::kGetChunk,        "void*(float* pos)" });
-        Register({ "ADT::NearObjectCount", off::kNearObjectCount, "int(chunk, int* progress, int total)" });
-    }
 }

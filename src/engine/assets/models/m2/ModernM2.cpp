@@ -18,7 +18,7 @@
 
 #include "config.hpp"
 #include "common/Log.hpp"
-#include "client/CM2Shared/M2.hpp"
+#include "game/M2.hpp"
 #include "engine/assets/shared/models/m2/M2Format.hpp"
 
 #include "engine/assets/shared/models/m2/Contract.hpp"

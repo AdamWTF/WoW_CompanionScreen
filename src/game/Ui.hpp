@@ -51,10 +51,4 @@ namespace wxl::game::ui
      * @param on  True to show, false to hide.
      */
     inline void Show(bool on)  { int* f = Flag(); if (f) *f = on ? 1 : 0; }
-
-    /** @brief Adds the UI bindings to the enumerable catalog. */
-    inline void RegisterCatalog()
-    {
-        Register({ "UI::Show", off::kUiRootPtr, "void(bool) via interface-root flag" });
-    }
 }

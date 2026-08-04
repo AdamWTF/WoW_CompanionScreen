@@ -20,8 +20,8 @@
 #include "engine/hook/Registry.hpp"
 #include "engine/storage/StorageHook.hpp"
 #include "common/Log.hpp"
-#include "game/Catalog.hpp"
-#include "client/CGxDevice/Gx.hpp"
+#include "game/Gx.hpp"
+#include "runtime/Extensions.hpp"
 #include "runtime/ModuleInstall.hpp"
 
 /**
@@ -36,10 +36,10 @@ namespace
     /**
      * @brief Waits for the graphics device, then installs and enables every registered feature.
      *
-     * The engine subsystems that features depend on (hooking, bindings, storage) are already up from
-     * DllMain. This thread runs the Normal-phase installers once the device exists (so a feature can
-     * safely reference render state), enables the whole detour batch, then runs the PostEnable-phase
-     * steps that need the detours already live.
+     * The engine subsystems that features depend on (hooking, storage) are already up from DllMain.
+     * This thread runs the Normal-phase installers once the device exists (so a feature can safely
+     * reference render state), loads the extensions, enables the whole detour batch, then runs the
+     * PostEnable-phase steps that need the detours already live.
      * @return thread exit code (0).
      */
     DWORD WINAPI MainThread(LPVOID)
@@ -54,6 +54,11 @@ namespace
 
         wxl::hook::InstallRegisteredFeatures(wxl::hook::Phase::Normal);
         wxl::runtime::modules::RunAll(); // module-registered installers (wxl-modern-adt, ...)
+
+        // Extensions register alongside the core's own features and ahead of the batch below, so an
+        // extension's detour is armed by the same EnableAll and never patches a live address.
+        wxl::runtime::extensions::LoadAll();
+
         wxl::hook::EnableAll();
         wxl::hook::InstallRegisteredFeatures(wxl::hook::Phase::PostEnable);
 
@@ -79,7 +84,6 @@ BOOL WINAPI DllMain(HINSTANCE module, DWORD reason, LPVOID)
         WLOG_INFO("wxl-core starting (build %s %s)", __DATE__, __TIME__);
 
         wxl::hook::Init();
-        wxl::game::RegisterAllBindings();
 
         // Arm the archive-mount guard now, on the loader thread, before the client builds its archive
         // set: the deferred main thread below is raced past by the client's startup. Drops the host-owned

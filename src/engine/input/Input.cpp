@@ -19,7 +19,7 @@
 #include "engine/events/Event.hpp"
 
 #include "common/Log.hpp"
-#include "client/CWorldScene/Pick.hpp"
+#include "game/Pick.hpp"
 
 #include <windows.h>
 

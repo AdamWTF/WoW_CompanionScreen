@@ -29,6 +29,32 @@ set(WXL_DEFS WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
 # Client directory to deploy the built artifacts into. Passed by build.ps1 (-DCLIENT_PATH=...) and cached.
 set(CLIENT_PATH "" CACHE PATH "Client folder the built artifacts are copied into after each build")
 
+# --- SDK boundary --------------------------------------------------------------------------------
+option(WXL_STRICT_SDK_BOUNDARY "Fail the configure when a file outside src/game includes offsets/" OFF)
+
+file(GLOB_RECURSE WXL_BOUNDARY_SCAN CONFIGURE_DEPENDS
+     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/src/*.hpp")
+list(FILTER WXL_BOUNDARY_SCAN EXCLUDE REGEX "/src/(game|offsets)/")
+
+set(WXL_BOUNDARY_VIOLATIONS "")
+foreach(wxl_file IN LISTS WXL_BOUNDARY_SCAN)
+    file(STRINGS "${wxl_file}" wxl_hit REGEX "^[ \t]*#include[ \t]+\"offsets/")
+    if(wxl_hit)
+        file(RELATIVE_PATH wxl_rel "${CMAKE_CURRENT_SOURCE_DIR}" "${wxl_file}")
+        list(APPEND WXL_BOUNDARY_VIOLATIONS "${wxl_rel}")
+    endif()
+endforeach()
+
+list(LENGTH WXL_BOUNDARY_VIOLATIONS WXL_BOUNDARY_COUNT)
+if(WXL_BOUNDARY_COUNT GREATER 0)
+    string(REPLACE ";" "\n  " WXL_BOUNDARY_PRETTY "${WXL_BOUNDARY_VIOLATIONS}")
+    if(WXL_STRICT_SDK_BOUNDARY)
+        message(FATAL_ERROR
+            "SDK boundary: ${WXL_BOUNDARY_COUNT} file(s) outside src/game/ include offsets/:\n  ${WXL_BOUNDARY_PRETTY}")
+    endif()
+    message(STATUS "SDK boundary: ${WXL_BOUNDARY_COUNT} file(s) outside src/game/ still include offsets/")
+endif()
+
 # =============================================================================
 # 32-bit family (injected into the client): WarcraftXL.dll + wxl-patcher.exe + d3d9.dll
 # =============================================================================
@@ -61,6 +87,7 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
     set_target_properties(WarcraftXL PROPERTIES OUTPUT_NAME "WarcraftXL" PREFIX "")
     target_include_directories(WarcraftXL PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"   # the extension ABI, shared verbatim with extensions
         "${CMAKE_CURRENT_SOURCE_DIR}/deps/minhook/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/deps/flatbuffers/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/deps/imgui"
@@ -114,6 +141,39 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
             COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:d3d9>" "${CLIENT_PATH}/d3d9.dll"
             COMMENT "Deploy d3d9.dll -> ${CLIENT_PATH}")
     endif()
+
+    # =========================================================================
+    # Target 4+: one DLL per folder under extensions/, deployed to Extensions/<Name>/<Name>.dll and
+    #   discovered by the core at runtime. They link nothing of the core -- the SDK is header-only and
+    #   compiles in, and everything needing arbitration arrives through the API table -- so an
+    #   extension built here has exactly the same relationship to the core as a third party's.
+    # =========================================================================
+    file(GLOB WXL_EXTENSION_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/extensions/*")
+    foreach(wxl_ext_dir IN LISTS WXL_EXTENSION_DIRS)
+        if(NOT IS_DIRECTORY "${wxl_ext_dir}")
+            continue()
+        endif()
+        get_filename_component(wxl_ext_name "${wxl_ext_dir}" NAME)
+        file(GLOB_RECURSE WXL_EXT_SRC CONFIGURE_DEPENDS "${wxl_ext_dir}/*.cpp")
+        if(NOT WXL_EXT_SRC)
+            continue()
+        endif()
+
+        add_library(${wxl_ext_name} SHARED ${WXL_EXT_SRC})
+        set_target_properties(${wxl_ext_name} PROPERTIES OUTPUT_NAME "${wxl_ext_name}" PREFIX "")
+        target_include_directories(${wxl_ext_name} PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/include"
+            "${CMAKE_CURRENT_SOURCE_DIR}/src")
+        target_compile_definitions(${wxl_ext_name} PRIVATE ${WXL_DEFS})
+
+        if(CLIENT_PATH)
+            add_custom_command(TARGET ${wxl_ext_name} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory "${CLIENT_PATH}/Extensions/${wxl_ext_name}"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:${wxl_ext_name}>"
+                        "${CLIENT_PATH}/Extensions/${wxl_ext_name}/${wxl_ext_name}.dll"
+                COMMENT "Deploy ${wxl_ext_name}.dll -> ${CLIENT_PATH}/Extensions/${wxl_ext_name}")
+        endif()
+    endforeach()
 endif()
 
 # =============================================================================

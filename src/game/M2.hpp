@@ -27,8 +27,7 @@
  * @brief Curated M2 bindings: inline typed wrappers over the client's model functions.
  *
  * A module writes wxl::game::m2::ResolveTexture(h) instead of casting an address. The wrappers
- * are zero-overhead inline typed calls; RegisterCatalog() adds the names to the enumerable
- * catalog for tooling and the scripting bridge.
+ * are zero-overhead inline typed calls.
  */
 namespace wxl::game::m2
 {
@@ -267,20 +266,5 @@ namespace wxl::game::m2
     inline void ReleaseResource(void* resource)
     {
         Native<off::M2_ReleaseResourceFn>(off::kReleaseResource)(resource);
-    }
-
-    /** @brief Adds the M2 bindings to the enumerable catalog. */
-    inline void RegisterCatalog()
-    {
-        Register({ "M2::ResolveTexture",  off::kTexResolve,       "void*(handle)" });
-        Register({ "M2::BindSampler",     off::kSamplerBind,      "void(device, selector, tex)" });
-        Register({ "M2::PushAlphaRef",    off::kPushAlphaRef,     "void(float ref)" });
-        Register({ "M2::CreateSceneModel",    off::kCreateSceneModel,     "void*(cmo, keyBuf)" });
-        Register({ "M2::AttachToScene",   off::kAttachToScene,    "void(renderCtx, subObj, slot)" });
-        Register({ "M2::DetachSlot",      off::kDetachSlot,       "void(subObj, slot)" });
-        Register({ "M2::ReleaseRenderCtx",off::kReleaseRenderCtx, "void(renderCtx)" });
-        Register({ "M2::BindTexSlot",     off::kBindTexSlot,      "void(renderCtx, modelPtr)" });
-        Register({ "M2::LoadResource",    off::kLoadResource,     "void*(path, flags)" });
-        Register({ "M2::ReleaseResource", off::kReleaseResource,  "void(resource)" });
     }
 }

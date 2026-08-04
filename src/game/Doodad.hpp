@@ -444,10 +444,4 @@ namespace wxl::game::doodad
             dd->worldMatrix[12] = p[0]; dd->worldMatrix[13] = p[1]; dd->worldMatrix[14] = p[2];
         }
     }
-
-    /** @brief Adds the doodad bindings to the enumerable catalog. */
-    inline void RegisterCatalog()
-    {
-        Register({ "Doodad::ChunkAt", aoff::kGetChunk, "void*(float pos[3]) - chunk holding doodads" });
-    }
 }

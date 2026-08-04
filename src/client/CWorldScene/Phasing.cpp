@@ -19,7 +19,7 @@
 #include "engine/hook/Registry.hpp"
 
 #include "common/Log.hpp"
-#include "client/CWorldScene/Loading.hpp"
+#include "game/Loading.hpp"
 #include "offsets/engine/Io.hpp"
 #include "offsets/game/World.hpp"
 

@@ -162,13 +162,4 @@ namespace wxl::game::world
         out[1] = *reinterpret_cast<float*>(woff::kFocusPosY);
         out[2] = *reinterpret_cast<float*>(woff::kFocusPosZ);
     }
-
-    /** @brief Adds the world-loading bindings to the enumerable catalog. */
-    inline void RegisterCatalog()
-    {
-        Register({ "World::Tick",               woff::kTick,               "void(int param)" });
-        Register({ "World::AsyncWaitAll",        woff::kAsyncWaitAll,        "void()" });
-        Register({ "World::AsyncPending",        woff::kAsyncPending,        "bool()" });
-        Register({ "World::AsyncServiceQueues",  woff::kAsyncServiceQueues,  "void()" });
-    }
 }

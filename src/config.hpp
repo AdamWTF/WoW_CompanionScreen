@@ -28,4 +28,8 @@ namespace wxl::features
     inline constexpr bool modernM2Support  = true; // native M2 (MD21/M3) read-in-place, compat/shadow fixes, M2 memory arena, external .anim
     inline constexpr bool modernWMOSupport = true; // native WMO tag-walkers, MOMT-by-FDID, material/shader fixes, layered material, outdoor gate, MODF collision scale
     inline constexpr bool modernADTSupport = true; // Cata+ split tiles (root/_tex0/_obj0), height blend, MH2O liquid handling
+
+    /// In-game ImGui overlay, toggled with F9, hosting the tuning panels. It consumes input ONLY
+    /// while it is open, so leaving it compiled in costs a hidden overlay and nothing else.
+    inline constexpr bool imguiOverlay = true;
 }

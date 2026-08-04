@@ -17,7 +17,7 @@
 #pragma once
 
 #include "common/Log.hpp"
-#include "client/CGxDevice/Gx.hpp"
+#include "game/Gx.hpp"
 #include "offsets/engine/Shader.hpp"
 
 #include <windows.h>

@@ -19,7 +19,7 @@
 #include "config.hpp"
 #include "common/Log.hpp"
 #include "engine/assets/shared/models/m2/M2Format.hpp"
-#include "client/CM2Shared/M2.hpp"
+#include "game/M2.hpp"
 #include "offsets/game/M2.hpp"
 
 #include <windows.h>

@@ -17,7 +17,7 @@
 #include "Particles.hpp"
 
 #ifndef WXL_HOST
-#include "client/CM2Shared/M2.hpp" // PushAlphaRef: live-engine, DLL-only draw path
+#include "game/M2.hpp" // PushAlphaRef: live-engine, DLL-only draw path
 
 namespace wxl::modern::assets::m2::particles
 {
