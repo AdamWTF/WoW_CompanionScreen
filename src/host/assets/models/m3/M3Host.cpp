@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-#include "config.hpp"
 #include "Host.hpp"
 #include "common/Log.hpp"
 
@@ -372,8 +371,10 @@ namespace
     {
         Registrar()
         {
-            // Install the host M3 provider/exists hooks only when the modern-M3 format is compiled in; disabled, the registrar is inert.
-            if constexpr (wxl::features::modernM2Support)
+            // Install the host M3 provider/exists hooks unconditionally: the M3 format has no compile
+            // switch of its own (it used to piggyback on the DLL-side native-M2 one, which moved to
+            // extensions/wxl-m2 and no longer covers this host-only path).
+            if constexpr (true)
             {
                 wxl::host::RegisterProvider("modern-m3", &Provide);
                 wxl::host::RegisterExists("modern-m3", &Exists);

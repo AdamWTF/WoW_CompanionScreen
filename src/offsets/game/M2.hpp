@@ -421,7 +421,53 @@ namespace wxl::offsets::game::m2
     // Instances with init-flag bit 0x1000 route here; the build is one matrix copy, so the cadence
     // skip never applies to it and the recomposition walk calls it directly for such children.
     constexpr uintptr_t kBuildBonePaletteSimple = 0x0082E140;
+    // Call-only shape shared by kBuildBonePalette/kBuildBonePaletteSimple: thiscall (ecx = instance),
+    // sceneCtx is the scene's own per-frame camera-relative context matrix (kOffSceneAnimateCtx),
+    // scale3/translate3 are always {1,1,1}/{0,0,0} at every native call site, the two trailing floats
+    // always 1.0f -- verified across all six native call sites (both functions, all three drivers:
+    // CM2Scene::Animate's threaded and non-threaded loops, CM2Scene::AnimateThread).
+    using M2_AnimateMTFn = void(__thiscall*)(void* instance, void* sceneCtx, float* scale3,
+                                             float* translate3, float unk1, float unk2);
     constexpr uintptr_t kRenderBatchShadowMap = 0x00829BA0;
+
+    // CM2Scene's per-frame animate walk: a flat singly-linked list of ROOT instances only
+    // (kOffInstParent == 0 -- a non-root is animated via its parent's own attachment recursion, never
+    // reached from this list directly). Distinct from kOffInstScene (instance -> its scene) and from
+    // kOffInstAttachedNext (a SEPARATE sibling chain for attachment recursion) despite similar-sounding
+    // names -- three different links on three different structs.
+    constexpr size_t kOffSceneAnimateHead = 0x28; // on CM2Scene: -> first root M2Instance in the walk
+    constexpr size_t kOffInstAnimateNext  = 0x44; // on M2Instance: -> next root instance in the walk
+    // The per-frame camera-relative context matrix (C44Matrix, 64 bytes) CM2Scene::Animate's preamble
+    // builds ONCE before either its threaded or non-threaded per-model loop runs, and every model's
+    // build that frame reads (read-only, never written by AnimateMT/AnimateMTSimple) -- safe for any
+    // number of concurrent readers with no extra synchronization.
+    constexpr size_t kOffSceneAnimateCtx  = 0x84;
+
+    // CM2Cache's dedicated single-worker wake/join pair: the whole of TLK's native "second thread" for
+    // animation. BeginThread stashes a job (fn, arg) and signals ONE persistent worker; WaitThread
+    // blocks until that worker signals back. Not a parameterized pool -- there is no worker-count
+    // knob here, which is exactly why R2's wider pool is built separately (AnimatePool.cpp) rather
+    // than reusing this pair for more than the stock 2-way split.
+    constexpr uintptr_t kCacheBeginThread = 0x0081BFA0;
+    // __fastcall + dummy edx: this codebase's standard idiom for a HOOKED thiscall function (see
+    // kIsDrawable) -- BeginThread is detoured by AnimatePool.cpp, so its original-trampoline pointer
+    // needs the same shape as the detour, unlike a call-only thiscall typedef.
+    using M2_CacheBeginThreadFn = void(__fastcall*)(void* cache, void* edx, void* fn, void* arg);
+    constexpr uintptr_t kCacheWaitThread  = 0x0081BFD0;
+    using M2_CacheWaitThreadFn = void(__thiscall*)(void* cache);
+
+    // Compiler-generated function-local-static lazy-init a UV pivot constant (0.5, 0.5, 0.0) inside
+    // CM2Model::AnimateTextureTransformsMT (0x0082D6F0): the guard flag (bit 0 of the dword at
+    // kTexPivotFlag) is written BEFORE the three payload floats, so two threads racing the very first
+    // texture-animated model after boot can observe the flag set with stale/zero floats still behind
+    // it -- a real (if narrow, cosmetic, one-frame) data race under >2-way concurrency that the stock
+    // 2-way split already carries today, just rarely enough to hit. AnimatePool.cpp pre-seeds all four
+    // words once at install, before any worker thread exists, so the native lazy branch never has
+    // anything left to race on.
+    constexpr uintptr_t kTexPivotX    = 0x00D411D0;
+    constexpr uintptr_t kTexPivotY    = 0x00D411D4;
+    constexpr uintptr_t kTexPivotZ    = 0x00D411D8;
+    constexpr uintptr_t kTexPivotFlag = 0x00D411DC;
 
     // Return addresses of the scene walk's per-model palette-build calls. Cadence skipping engages
     // only when the build was invoked from one of these three sites; every other caller (on-demand
@@ -430,6 +476,52 @@ namespace wxl::offsets::game::m2
     constexpr uintptr_t kPaletteCallRetSceneA = 0x00821B53; // frame driver walk (also threaded main half)
     constexpr uintptr_t kPaletteCallRetSceneB = 0x00821BDD; // frame driver walk, second branch
     constexpr uintptr_t kPaletteCallRetWorker = 0x0081CEFF; // worker thread's half of the interleaved walk
+
+    // CM2Model::IsDrawable(this, param2, param3): native thiscall, 2 stack args, ret 8. A streaming-
+    // readiness gate (model loaded, textures resident, attachments resident via bits at instance+0x10)
+    // -- NOT a distance/size cull. Shared by 21 unrelated callers (character creation, portraits,
+    // nameplates), so it must never be detoured unconditionally; see kDoodadDrainRetA/B below for the
+    // two call sites worth gating on. Declared __fastcall with a dummy edx (this codebase's standard
+    // idiom for a hooked thiscall function) since it IS hooked -- a call-only thiscall wouldn't need it.
+    constexpr uintptr_t kIsDrawable = 0x00824FC0;
+    using M2_IsDrawableFn = int(__fastcall*)(void* instance, void* edx, int param2, int param3);
+
+    // Return addresses of CM2Scene::Animate's (0x00821A20) two calls to IsDrawable(0,0), inside the
+    // per-frame element-build drain over the doodad/element queue (scene+0x2C). The world scene shares
+    // this queue between static doodads AND live units (players, NPCs, mounts, spell visuals) -- RE-
+    // confirmed, all funnel through CM2Scene::CreateModel on the same CWorldScene::s_m2Scene global --
+    // so a screen-size cull hooked here must ALSO gate on kOffInstOwnerFlags bit 0x20 (doodad-only,
+    // never set by any live-instance creation path) before ever downgrading a TRUE readiness result to
+    // FALSE. Confirmed by disasm: both sites are `call kIsDrawable`, 5 bytes, return address = call
+    // site + 5.
+    constexpr uintptr_t kDoodadDrainRetA = 0x00821C77;
+    constexpr uintptr_t kDoodadDrainRetB = 0x00822AB5;
+
+    // CM2Model::IsBatchDoodadCompatible(this, submeshFlags): native thiscall, 1 stack arg (byte
+    // pointer), ret 4, returns bool in eax. Decides whether an instance can ride the hardware-instanced
+    // CM2SceneRender::DrawBatchDoodad path (shared alpha per whole batch) instead of a single non-
+    // instanced draw (its own CM2SceneRender::SetupMaterial call, hence its own alpha) -- the lever a
+    // screen-size fade needs to force a fading doodad onto the single-draw path so it can be given its
+    // own alpha independent of the rest of its batch. Two callers confirmed by disasm (CM2Scene::Animate
+    // ~0x0082204A, CM2Model::CountBatchDoodadCompatibleBatches ~0x00827F3B); both call sites verified to
+    // enter at x87 depth 0, so this has no FPU hazard to worry about in a detour.
+    constexpr uintptr_t kIsBatchDoodadCompatible = 0x00824550;
+    using M2_IsBatchDoodadCompatibleFn = int(__fastcall*)(void* instance, void* edx, uint8_t* submeshFlags);
+
+    // CM2SceneRender::SetupMaterial(this): native thiscall, ZERO stack args, ret (bare, no pop). `this`
+    // is a CM2SceneRender-shaped draw-context object, forwarded unchanged from the caller's own `this`
+    // (DrawBatch/DrawBatchDoodad/DrawRibbon/etc.) -- NOT an M2Instance/M2Model. Reads the current draw
+    // element pointer at this+0x50 and the current M2 instance pointer at this+0x60 (both confirmed by
+    // disasm, read-only within this function), then hands {r,g,b,alpha} to CShaderEffect::SetDiffuse.
+    // The alpha it reads is at *(this+0x50) + 0xC (element+0xC): the model's own native alpha (instance
+    // global alpha x color-track x weight-track -- death/spawn/spell fades), computed independently of
+    // any visibility/distance test. Verified x87-depth-0 on entry and on all three return paths -- safe
+    // to call original from a detour with no FPU save/restore needed.
+    constexpr uintptr_t kSetupMaterial = 0x0081FE90;
+    using M2_SetupMaterialFn = void(__fastcall*)(void* renderCtx, void* edx);
+    constexpr size_t kOffRenderCtxElement  = 0x50; // -> current M2Element (see kOffElementAlpha)
+    constexpr size_t kOffRenderCtxInstance = 0x60; // -> current M2Instance
+    constexpr size_t kOffElementAlpha      = 0x0C; // float, consumed by SetupMaterial/SetDiffuse
 
     // --- track evaluators (sampled per bone / per light each frame from the bone-palette build) ---
     // Vec3 track evaluator (model, runtimeBone, track, out, baseValue): samples a translation/scale
@@ -517,8 +609,16 @@ namespace wxl::offsets::game::m2
     constexpr uintptr_t kCharModelSlotClear    = 0x004EE6D0;
 
     // --- runtime instance object fields ---
-    // Low bit set on a PARENT instance: its children derive their own view distance instead of
-    // inheriting the parent's (read by the palette build's distance step).
+    // Creation-time "kind" flags, forwarded verbatim from CM2Scene::CreateModel's flags argument by
+    // CM2Model::Initialize and never rewritten afterward -- stable for the instance's whole lifetime.
+    // Bit 0x1: set on a PARENT instance, its children derive their own view distance instead of
+    //   inheriting the parent's (read by the palette build's distance step).
+    // Bit 0x20: native semantics are "defer InitializeLoaded to the first live pass" (a lazy-init
+    //   flag), but empirically it is set ONLY by CMap::CreateDoodadDef's family across all 50
+    //   CM2Scene::CreateModel call sites in the client -- never by unit/mount/missile/spell-visual/UI
+    //   creation paths. Used as the doodad-vs-live-instance discriminator for the screen-size cull
+    //   (see wxl-engine-reforged's DoodadCull.cpp) since TLK's world scene drains doodads and live
+    //   units through the same per-frame element-build queue.
     constexpr size_t kOffInstOwnerFlags     = 0x04;
     constexpr size_t kOffInstInitFlags      = 0x10;  // init flags (bit 0 = anim init done; bit 6 = char-select present)
     constexpr size_t kOffInstModel          = 0x2C;  // -> runtime model
@@ -742,7 +842,12 @@ namespace wxl::offsets::game::m2
      *         placement/root matrices and the staged speed/scale/translation block. */
     struct M2Instance
     {
-        uint8_t  _pad00[kOffInstInitFlags];
+        uint8_t  _pad00[kOffInstOwnerFlags];
+        uint32_t ownerFlags;       // kOffInstOwnerFlags (bit 0x20 = created via CMap::CreateDoodadDef's
+                                    // family -- exclusive to ADT/WMO-placed static doodads, RE-confirmed
+                                    // across all 50 CM2Scene::CreateModel call sites in the client;
+                                    // never set by unit/mount/missile/spell-visual/UI creation paths)
+        uint8_t  _pad04[kOffInstInitFlags - (kOffInstOwnerFlags + sizeof(uint32_t))];
         uint32_t initFlags;        // kOffInstInitFlags (kInstFlag* bits)
         uint8_t  _pad14[kOffInstScene - (kOffInstInitFlags + sizeof(uint32_t))];
         void*    scene;            // kOffInstScene -> owning scene
@@ -780,6 +885,7 @@ namespace wxl::offsets::game::m2
         float    scaleStage[3];    // kOffInstScaleStage
         float    transStage[3];    // kOffInstTransStage
     };
+    static_assert(offsetof(M2Instance, ownerFlags)    == kOffInstOwnerFlags,    "M2Instance.ownerFlags");
     static_assert(offsetof(M2Instance, initFlags)     == kOffInstInitFlags,     "M2Instance.initFlags");
     static_assert(offsetof(M2Instance, scene)         == kOffInstScene,         "M2Instance.scene");
     static_assert(offsetof(M2Instance, model)         == kOffInstModel,         "M2Instance.model");

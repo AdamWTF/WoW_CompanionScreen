@@ -19,7 +19,6 @@
 // INTERNAL to the core. Addresses and field offsets into the live client image / engine objects
 // (distinct from the on-disk file contracts in asset/*/). Modules never include this; they use
 // wxl::game / wxl::events.
-#include "offsets/engine/Async.hpp"
 #include "offsets/engine/Draw.hpp"
 #include "offsets/engine/Gx.hpp"
 #include "offsets/engine/Io.hpp"

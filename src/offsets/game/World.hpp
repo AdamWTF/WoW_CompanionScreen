@@ -98,6 +98,14 @@ namespace wxl::offsets::game::world
     constexpr uintptr_t kSetFarClip = 0x00780800;
     using World_SetFarClipFn = void(__cdecl*)(float farClip);
 
+    // The clamp SetFarClip calls internally (disasm-confirmed x87 clamp(farClip, 183.33333, ceiling)):
+    // ceiling is 791.6667 or 1583.3334, picked by map id (old-continent ids stay at the lower tier
+    // unless s_cvFarClipOverride's value is >= 1) and, off the old continents, by physical RAM (< ~1GB
+    // -> lower tier). Both float(__cdecl) params/return -- the x87 return convention applies regardless
+    // of the integer calling convention, so no special handling is needed on the C++ side.
+    constexpr uintptr_t kValidateFarClip = 0x00780770;
+    using World_ValidateFarClipFn = float(__cdecl*)(float farClip, int32_t mapId);
+
     // The live view distance and the one the previous frame used. The scene update compares them, and
     // treats a rise of more than 10 yards as a teleport: it raises the loading screen and puts the map
     // into preload, which drains the async queues every frame. Setting the distance leaves the two
@@ -277,8 +285,11 @@ namespace wxl::offsets::game::world
     constexpr uintptr_t kTSListLinkToHead = 0x007B5020;
     using TSListLinkToHeadFn = void(__thiscall*)(void* listHead, void* node);
     // 3-slot AsyncQueue* array (stride 4): [0] = "Disk Queue" (always live), [1]/[2] = native streaming-
-    // only slots, valid-but-null outside streaming mode. Patch A populates [1]/[2] itself.
-    constexpr uintptr_t kAsyncQueueSlots = 0x00B4A20C;
+    // only slots, valid-but-null outside streaming mode. Patch A populates [1]/[2] itself. The dword
+    // immediately after slot [2] is a real, already-used global (kOffAsyncQueueSleepThrottle-style
+    // clamp target) -- never write index 3 or beyond, the array is proven exactly this size.
+    constexpr uintptr_t kAsyncQueueSlots     = 0x00B4A20C;
+    constexpr uint32_t  kAsyncQueueSlotCount = 3;
 
     // --- signatures ---
     // World tick + drain (param on stack).

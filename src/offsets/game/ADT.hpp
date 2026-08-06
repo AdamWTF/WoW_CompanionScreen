@@ -45,6 +45,16 @@ namespace wxl::offsets::game::adt
     constexpr uintptr_t kLiquidTypeDbMinId = 0x00AD4074; // u32 inclusive lower bound
     constexpr uintptr_t kLiquidTypeDbMaxId = 0x00AD4070; // u32 inclusive upper bound
 
+    // LiquidTypeRec.MaterialID: Liquid::CMaterialBank::GetMaterial (0x008A1FA0) switches on this
+    // column with no default case (1 water, 2 ooze, 3 magma) -- any other value caches a NULL
+    // IMaterial* for the row, and the next liquid instance built from it null-derefs its material
+    // pointer at draw time. The classic on-disk MCLQ path never reaches this with a bad id (it
+    // hardcodes LiquidType id = layer-bit-index + 1, always 1..4, per CMapChunk::CreateLiquids
+    // 0x007C5690); the native MH2O instance path (CMapChunk::CreateLiquids' second branch, fed by
+    // FixupMh2o's normalized bytes) copies its `type` field straight through, so a row this column
+    // doesn't cover is real: existence in the table is not the same as being usable.
+    constexpr size_t kLiquidTypeMaterialId = 0x38; // u32, GetMaterial's usable range is {1, 2, 3}
+
     // TILE-AREA teardown (CMapArea::destructor, __thiscall via ECX=area) -- NOT a chunk destructor.
     // The historical name "ChunkDestroy" was a misnomer: this is the per-TILE object (CMapArea) whose
     // raw ADT file buffer at area+0x80 is freed here while a queued async-read completion may still

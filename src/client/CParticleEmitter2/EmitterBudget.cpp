@@ -35,8 +35,6 @@
 // sizing call refuses to shrink a pool, and the opt-out only ever removes a throttle. What they cost
 // is bounded by what they protect -- an emitter this touches is one holding a handful of particles.
 
-#include "config.hpp"
-
 #include "common/Log.hpp"
 #include "engine/hook/Hook.hpp"
 #include "engine/hook/Registry.hpp"
@@ -131,4 +129,4 @@ namespace
     }
 }
 
-WXL_REGISTER_FEATURE("particle-emitter-budget", wxl::features::modernM2Support, InstallEmitterBudget)
+WXL_REGISTER_FEATURE("particle-emitter-budget", true, InstallEmitterBudget)

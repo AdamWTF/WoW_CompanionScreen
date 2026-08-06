@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-#include "client/CWorldScene/Render.hpp"
-
 #include "config.hpp"
 #include "common/Mem.hpp"
 #include "common/Log.hpp"
@@ -28,15 +26,21 @@
 #include <windows.h>
 #include <d3d9.h>
 
-// Uses device-vtable pointer swaps (DrawIndexedPrimitive, EndScene, Present, Reset) plus function-entry
-// hooks on the M2/liquid/world-boundary paths; no mid-function inline patch, so the native render pass
-// stays intact. Each detour only publishes a render event -- the client owns its native D3D9 rendering.
+// Uses device-vtable pointer swaps (EndScene, Present, Reset) plus function-entry hooks on the
+// liquid/world-boundary paths; no mid-function inline patch, so the native render pass stays intact.
+// Each detour only publishes a render event -- the client owns its native D3D9 rendering.
+//
+// DrawIndexedPrimitive is NOT swapped here: that vtable slot, and the one-shot draw interceptor built
+// on it, belong to wxl-m2 (its per-batch OnM2BatchDraw/OnRibbonDraw need the same slot; a second core
+// swap on top would just fight it for the same vtable entry). wxl-m2 re-applies its own swap on the
+// same per-device-recreate cadence this file uses for its three, and publishes "wxl.m2draw" for any
+// other extension (wxl-wmo's four-layer material) that needs to bracket one native draw -- see
+// include/wxl/M2DrawApi.h.
 namespace
 {
     namespace off = wxl::offsets::engine::gx;
     namespace ev  = wxl::events;
     namespace gx  = wxl::game::gx;
-    namespace rd  = wxl::features::render::detail;
 
     using EndSceneFn = long (__stdcall*)(void*);
     using PresentFn  = long (__stdcall*)(void*, const void*, const void*, void*, const void*);
@@ -225,7 +229,6 @@ namespace
         void** vtbl = *reinterpret_cast<void***>(dev);
         if (vtbl[off::vt::kPresent] != reinterpret_cast<void*>(&hkPresent))
         {
-            SwapVtbl(vtbl, off::vt::kDrawIndexedPrimitive, &rd::hkDIP, &rd::g_origDIP);
             SwapVtbl(vtbl, off::vt::kEndScene,             &hkEndScene, &g_origEndScene);
             SwapVtbl(vtbl, off::vt::kPresent,              &hkPresent, &g_origPresent);
             SwapVtbl(vtbl, off::vt::kReset,                &hkReset, &g_origReset);
@@ -235,7 +238,7 @@ namespace
     }
 
     /**
-     * @brief Installs the render detours: device vtable swaps plus the M2 / world-boundary / liquid
+     * @brief Installs the render detours: device vtable swaps plus the world-boundary / liquid
      *        function-entry hooks. Detours are enabled by the caller's batch EnableAll() afterwards.
      * @return true; a missing device only defers the vtable swaps to the first world finalize.
      */
@@ -246,7 +249,6 @@ namespace
         else
             WLOG_WARN("render: device not up, vtable hooks deferred to first world finalize");
 
-        rd::InstallM2DrawHooks();
         wxl::hook::Install("WorldRenderFinalize", off::kWorldRenderFinalize,
                            &hkWorldFinalize, &g_origWorldFinalize);
         wxl::hook::Install("WorldScenePass", off::kWorldOnRender,
@@ -254,7 +256,7 @@ namespace
         wxl::hook::Install("LiquidRenderPass", off::kLiquidRenderPass,
                            &hkLiquidRender, &g_origLiquidRender);
 
-        WLOG_INFO("render: hooks installed (DIP, EndScene, Present, Reset, DrawBatch, WorldFinalize, WorldScenePass, RibbonDraw, LiquidRenderPass)");
+        WLOG_INFO("render: hooks installed (EndScene, Present, Reset, WorldFinalize, WorldScenePass, LiquidRenderPass)");
         return true;
     }
 }

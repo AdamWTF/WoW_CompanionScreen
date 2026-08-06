@@ -272,6 +272,14 @@ namespace wxl::offsets::game::wmo
     constexpr size_t kOffGroupSize   = 0x188; // group buffer byte size
     constexpr size_t kOffGroupRoot   = 0x18C; // -> parent root object
 
+    // Resolved LiquidType.dbc id (CMapObjGroup::Create, 0x007D82E0, via CMapObjGroup::GetLegacyLiquidId
+    // 0x007D7310): MOGP+0x48 verbatim for a modern-format root (already a real LiquidType id -- Legion
+    // WMOs write one directly, no legacy conversion needed), or MOGP+0x48 remapped through the small
+    // 1..20 legacy family table otherwise. Either way, by the time CMapObjGroup::Create returns this
+    // field holds the id Liquid::CMaterialBank::GetMaterial (0x008A1FA0) will be asked to resolve --
+    // same unchecked-MaterialID hazard as the ADT/MH2O path (see kLiquidTypeMaterialId in ADT.hpp).
+    constexpr size_t kOffGroupLiquidType = 0x144;
+
     // --- visibility-probe entries and globals (cull path) ---
     constexpr uintptr_t kPortalRectAccum   = 0x007A8F20; // (portal, moprRef, portalState, exteriorFlag)
     constexpr uintptr_t kFrustumAabbTest   = 0x009839E0; // (frustum, bbox); 0=culled, 3=inside

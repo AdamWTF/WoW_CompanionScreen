@@ -1,4 +1,4 @@
-// Dedicated M2 buffer arena: a reserved 32-bit VA region for large model buffers, with a standalone fallback.
+// Dedicated M2 buffer arena: a reserved 32-bit VA region for large model buffers, published to wxl-m2.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -14,40 +14,32 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+// Only the arena RESERVATION lives here now (Boot phase, on the loader thread, before world loading
+// fragments the 32-bit VA space -- earlier than any extension can exist). The allocator detours that
+// route large M2 buffers into it (and the standalone-VirtualAlloc fallback) moved to wxl-m2, which
+// reaches this arena through the "wxl.m2arena" interface published below -- see include/wxl/M2ArenaApi.h.
+
 #include "config.hpp"
 #include "engine/hook/Hook.hpp"
 #include "engine/hook/Registry.hpp"
+#include "runtime/Extensions.hpp"
 
 #include "common/Config.hpp"
 #include "common/Log.hpp"
-#include "offsets/game/M2.hpp"
+#include "wxl/M2ArenaApi.h"
 
 #include <windows.h>
 
 #include <algorithm>
 #include <cstdint>
 #include <mutex>
-#include <unordered_map>
 #include <vector>
 
 namespace
 {
-    namespace m2 = wxl::offsets::game::m2;
-
-    m2::M2_BufferAllocFn g_origM2BufferAlloc = nullptr;
-    m2::M2_BufferFreeFn  g_origM2BufferFree  = nullptr;
-
-    constexpr uint32_t kDefaultVirtualM2AllocThreshold = 1u * 1024u * 1024u;
     // Reserve only what the observed city workload actually needs. A 256 MB reservation stranded roughly
     // 190 MB of scarce 32-bit VA while CM2Model later failed to find a separate 15 MB contiguous block.
     constexpr uint32_t kDefaultM2ArenaSizeMb = 128u;
-
-    struct VirtualM2Allocation
-    {
-        void* base = nullptr;      // non-null for standalone VirtualAlloc
-        uint32_t arenaOffset = 0;  // valid when base == nullptr
-        uint32_t arenaSize = 0;
-    };
 
     struct M2ArenaRange
     {
@@ -60,8 +52,7 @@ namespace
         return (value + align - 1u) & ~(align - 1u);
     }
 
-    std::mutex g_virtualM2AllocMutex;
-    std::unordered_map<void*, VirtualM2Allocation> g_virtualM2Allocs;
+    std::mutex g_arenaMutex;
     uint8_t* g_m2ArenaBase = nullptr;
     uint32_t g_m2ArenaSize = 0;
     std::vector<M2ArenaRange> g_m2ArenaFree;
@@ -94,7 +85,7 @@ namespace
 
         uint64_t arenaFree = 0, arenaLargest = 0;
         {
-            std::lock_guard<std::mutex> lock(g_virtualM2AllocMutex);
+            std::lock_guard<std::mutex> lock(g_arenaMutex);
             for (const M2ArenaRange& range : g_m2ArenaFree)
             {
                 arenaFree += range.size;
@@ -110,21 +101,6 @@ namespace
             static_cast<double>(largestFree) / (1024.0 * 1024.0),
             static_cast<double>(arenaFree) / (1024.0 * 1024.0),
             static_cast<double>(arenaLargest) / (1024.0 * 1024.0));
-    }
-
-    bool LargeM2VirtualAllocEnabled()
-    {
-        static const bool enabled =
-            wxl::config::Flag("WXL_M2_VIRTUAL_ALLOC", "WarcraftXL_m2_virtual_alloc.disable");
-        return enabled;
-    }
-
-    uint32_t VirtualM2AllocThreshold()
-    {
-        static const uint32_t bytes = wxl::config::BytesMbKb(
-            "WXL_M2_VIRTUAL_ALLOC_THRESHOLD_MB", "WXL_M2_VIRTUAL_ALLOC_THRESHOLD_KB",
-            kDefaultVirtualM2AllocThreshold, 64, 2048u * 1024u);
-        return bytes;
     }
 
     uint32_t M2ArenaSizeMb()
@@ -175,7 +151,7 @@ namespace
         return VirtualAlloc(g_m2ArenaBase + offset, size, MEM_COMMIT, PAGE_READWRITE) != nullptr;
     }
 
-    // Inserts a range back into the free list and coalesces neighbours. List surgery only — the
+    // Inserts a range back into the free list and coalesces neighbours. List surgery only -- the
     // caller decommits (outside the mutex) when the range's pages were actually committed.
     void InsertArenaFreeRangeLocked(uint32_t offset, uint32_t size)
     {
@@ -243,108 +219,53 @@ namespace
         return false;
     }
 
-    void* TryVirtualM2Alloc(uint32_t size)
+    // ------------------------------------------------------------------ wxl.m2arena
+    void* __cdecl ApiAlloc(uint32_t size, uint32_t* outOffset, uint32_t* outSize)
     {
-        const SIZE_T total = static_cast<SIZE_T>(size) + 0x20u;
-        auto* base = static_cast<uint8_t*>(VirtualAlloc(nullptr, total, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE));
-        if (!base)
+        const uint32_t need = AlignUpU32(size + 0x20u, 0x1000u);
+        uint32_t offset = 0;
+        bool reserved;
+        {
+            std::lock_guard<std::mutex> lock(g_arenaMutex);
+            reserved = ReserveArenaRangeLocked(need, offset);
+        }
+        if (!reserved)
             return nullptr;
 
-        const uintptr_t aligned = (reinterpret_cast<uintptr_t>(base) + 0x1Fu) & ~uintptr_t(0x0Fu);
-        auto* ptr = reinterpret_cast<uint8_t*>(aligned);
-        const uintptr_t shift = reinterpret_cast<uintptr_t>(ptr) - reinterpret_cast<uintptr_t>(base);
-        if (shift == 0 || shift > 0xFF)
+        // Commit outside the mutex; VirtualAlloc either commits the whole range or fails without
+        // committing, so a failure just returns the reserved range to the list.
+        if (!CommitArenaRange(offset, need))
         {
-            VirtualFree(base, 0, MEM_RELEASE);
+            std::lock_guard<std::mutex> lock(g_arenaMutex);
+            InsertArenaFreeRangeLocked(offset, need);
             return nullptr;
         }
-        ptr[-1] = static_cast<uint8_t>(shift);
 
-        std::lock_guard<std::mutex> lock(g_virtualM2AllocMutex);
-        g_virtualM2Allocs.emplace(ptr, VirtualM2Allocation{ base, 0, 0 });
+        auto* ptr = g_m2ArenaBase + offset + 0x10u;
+        ptr[-1] = 0x10u;
+        if (outOffset) *outOffset = offset;
+        if (outSize) *outSize = need;
         return ptr;
     }
 
-    void __cdecl hkM2BufferFree(void* ptr)
+    void __cdecl ApiFree(uint32_t offset, uint32_t size)
     {
-        if (!ptr)
+        if (!g_m2ArenaBase || size == 0)
             return;
-
-        VirtualM2Allocation alloc{};
-        bool ours = false;
-        {
-            std::lock_guard<std::mutex> lock(g_virtualM2AllocMutex);
-            auto it = g_virtualM2Allocs.find(ptr);
-            if (it != g_virtualM2Allocs.end())
-            {
-                alloc = it->second;
-                g_virtualM2Allocs.erase(it);
-                ours = true;
-            }
-
-        }
-
-        if (ours && !alloc.base)
-        {
-            // Decommit outside the mutex (kernel call), then give the range back to the free list.
-            VirtualFree(g_m2ArenaBase + alloc.arenaOffset, alloc.arenaSize, MEM_DECOMMIT);
-            std::lock_guard<std::mutex> lock(g_virtualM2AllocMutex);
-            InsertArenaFreeRangeLocked(alloc.arenaOffset, alloc.arenaSize);
-            return;
-        }
-
-        if (ours && alloc.base)
-        {
-            VirtualFree(alloc.base, 0, MEM_RELEASE);
-            return;
-        }
-
-        g_origM2BufferFree(ptr);
+        // Decommit outside the mutex (kernel call), then give the range back to the free list.
+        VirtualFree(g_m2ArenaBase + offset, size, MEM_DECOMMIT);
+        std::lock_guard<std::mutex> lock(g_arenaMutex);
+        InsertArenaFreeRangeLocked(offset, size);
     }
 
-    void* __cdecl hkM2BufferAlloc(uint32_t size, const char* tag, int line)
+    void __cdecl ApiLogAddressSpace(const char* reason)
     {
-        if (size >= VirtualM2AllocThreshold() && LargeM2VirtualAllocEnabled())
-        {
-            const uint32_t need = AlignUpU32(size + 0x20u, 0x1000u);
-            uint32_t offset = 0;
-            bool reserved = false;
-            {
-                std::lock_guard<std::mutex> lock(g_virtualM2AllocMutex);
-                reserved = ReserveArenaRangeLocked(need, offset);
-            }
-            if (reserved)
-            {
-                // Commit outside the mutex; VirtualAlloc either commits the whole range or fails
-                // without committing, so a failure just returns the reserved range to the list.
-                if (CommitArenaRange(offset, need))
-                {
-                    auto* ptr = g_m2ArenaBase + offset + 0x10u;
-                    ptr[-1] = 0x10u;
-                    {
-                        std::lock_guard<std::mutex> lock(g_virtualM2AllocMutex);
-                        g_virtualM2Allocs.emplace(ptr, VirtualM2Allocation{ nullptr, offset, need });
-                    }
-                    WLOG_DEBUG("m2-memory: arena buffer %u bytes (%s)", size, tag ? tag : "M2");
-                    if (size >= 8u * 1024u * 1024u) LogClientAddressSpace("m2-arena");
-                    return ptr;
-                }
-                std::lock_guard<std::mutex> lock(g_virtualM2AllocMutex);
-                InsertArenaFreeRangeLocked(offset, need);
-            }
-
-            if (void* standalone = TryVirtualM2Alloc(size))
-            {
-                WLOG_DEBUG("m2-memory: virtual buffer %u bytes (%s)", size, tag ? tag : "M2");
-                if (size >= 8u * 1024u * 1024u) LogClientAddressSpace("m2-virtual");
-                return standalone;
-            }
-            if (size >= 8u * 1024u * 1024u) LogClientAddressSpace("m2-virtual-failed");
-            WLOG_WARN("m2-memory: VirtualAlloc failed for %u bytes, falling back to native allocator", size);
-        }
-
-        return g_origM2BufferAlloc(size, tag, line);
+        LogClientAddressSpace(reason);
     }
+
+    WXL_M2ArenaApi g_m2ArenaApi = {
+        sizeof(WXL_M2ArenaApi), WXL_M2ARENA_API_VERSION, &ApiAlloc, &ApiFree, &ApiLogAddressSpace,
+    };
 
     /**
      * @brief Boot-phase reservation of the large-M2 arena before world loading fragments the VA space.
@@ -353,25 +274,21 @@ namespace
      * buffer finds room; deferring it to the first allocation would race the client's own world-load
      * allocations for the same scarce address space. Best-effort: a disabled arena or a failed reserve
      * is not fatal (large buffers then fall back to a standalone VirtualAlloc or the native allocator).
+     * Publishes "wxl.m2arena" regardless of outcome, so wxl-m2's allocator detours always find the
+     * interface -- Alloc simply returns null when the arena never came up.
      */
     bool ReserveM2Arena()
     {
-        std::lock_guard<std::mutex> lock(g_virtualM2AllocMutex);
-        EnsureM2ArenaLocked();
-        return true;
-    }
-
-    /**
-     * @brief Normal-phase install of the M2 buffer allocator detours that route large buffers to the arena.
-     */
-    bool InstallM2Memory()
-    {
-        wxl::hook::Install("M2BufferAlloc", m2::kBufferAlloc, &hkM2BufferAlloc, &g_origM2BufferAlloc);
-        wxl::hook::Install("M2BufferFree", m2::kBufferFree, &hkM2BufferFree, &g_origM2BufferFree);
+        {
+            std::lock_guard<std::mutex> lock(g_arenaMutex);
+            EnsureM2ArenaLocked();
+        }
+        wxl::runtime::extensions::PublishInterface("wxl.m2arena", WXL_M2ARENA_API_VERSION, &g_m2ArenaApi);
         return true;
     }
 }
 
-WXL_REGISTER_FEATURE_PHASED("m2memory-arena", wxl::features::modernM2Support, ReserveM2Arena,
-                            ::wxl::hook::Phase::Boot)
-WXL_REGISTER_FEATURE("m2memory", wxl::features::modernM2Support, InstallM2Memory)
+// Always registered: the arena's own WXL_M2_ARENA config knob decides whether anything is actually
+// reserved (see M2ArenaEnabled() above), and wxl.m2arena must exist so wxl-m2 always finds it,
+// regardless of that extension's own kEnabled -- the interface being null-Alloc-only costs nothing.
+WXL_REGISTER_FEATURE_PHASED("m2memory-arena", true, ReserveM2Arena, ::wxl::hook::Phase::Boot)

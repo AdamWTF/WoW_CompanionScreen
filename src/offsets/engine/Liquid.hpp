@@ -204,6 +204,16 @@ namespace wxl::offsets::engine::liquid
     constexpr size_t kRowAmbDarkenIntensity = 0x20; // float 0..1
     constexpr size_t kRowDirDarkenIntensity = 0x24; // float 0..1
 
+    // Liquid::CMaterialBank::GetMaterial (0x008A1FA0) switches on this column to pick the family
+    // constructor (1 water, 2 ooze/slime, 3 magma) and has no default case: any other value falls
+    // through every branch, caches a NULL IMaterial* for that row, and the next instance built from
+    // it null-derefs its material pointer at draw time (CLiquidBank::DrawPass, 0x008A2240). A row id
+    // GetMaterial can't find at all already self-heals ("Material Bank: Liquid type [%d] not found,
+    // defaulting to water!", retried with id 1) -- classic content only ever shipped 1/2/3 here, so
+    // there was never a reason to extend that same self-heal to a row that resolves but carries an
+    // unusable value. A served liquid catalogue wider than the classic one can produce exactly that.
+    constexpr size_t kRowMaterialId = 0x38; // u32, valid range {1, 2, 3}
+
     // Day/night info block: the per-frame interpolated zone water colors the procedural depth
     // gradient bakes each frame (close = shallow, far = deep; CImVector 0xAARRGGBB), and the four
     // gradient alpha-curve floats that follow them.

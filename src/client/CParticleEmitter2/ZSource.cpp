@@ -23,8 +23,6 @@
 // is rebuilt, so translating the sentinel where the value is consumed covers both the build and the
 // per-frame path, and leaves the model bytes exactly as the file has them.
 
-#include "config.hpp"
-
 #include "common/Log.hpp"
 #include "engine/hook/Hook.hpp"
 #include "engine/hook/Registry.hpp"
@@ -54,4 +52,4 @@ namespace
     }
 }
 
-WXL_REGISTER_FEATURE("m2native-particles", wxl::features::modernM2Support, InstallParticleZSource)
+WXL_REGISTER_FEATURE("m2native-particles", true, InstallParticleZSource)
