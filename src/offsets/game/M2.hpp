@@ -798,11 +798,18 @@ namespace wxl::offsets::game::m2
     // with every member offset checked against a constant at compile time (a wrong padding fails the build).
     // Only RE'd fields are named; the gaps are explicit padding. Pointers are 4 bytes on the 32-bit client.
 #pragma pack(push, 1)
-    /** @brief I/O record read by the per-sequence rebase: the loaded buffer base and its byte size. */
+    /**
+     * @brief I/O record read by the per-sequence rebase: the loaded buffer base and its byte size.
+     *
+     * Pointer-valued fields are stored as uint32_t, not void*, everywhere except the LAST field of a
+     * struct: with more than one such field, sizeof(void*) would drive the padding between them, and
+     * this header is 32/64-bit-neutral (sizeof(uint32_t) is not).
+     */
     struct IoRecord
     {
         uint8_t  _pad00[kOffRecordBuffer];
-        void*    buffer;           // kOffRecordBuffer (loaded bytes base)
+        uint32_t buffer;           // kOffRecordBuffer (loaded bytes base)
+        uint8_t  _pad08[kOffRecordSize - (kOffRecordBuffer + sizeof(uint32_t))];
         uint32_t size;             // kOffRecordSize (byte count)
     };
     static_assert(offsetof(IoRecord, buffer) == kOffRecordBuffer, "IoRecord.buffer");
@@ -835,11 +842,17 @@ namespace wxl::offsets::game::m2
     };
     static_assert(offsetof(Material, blend) == kOffMaterialBlend, "Material.blend");
 
-    /** @brief Runtime instance (= render context wrapper returned by GetRenderCtx).
-     *         Both the character's scene node (cmo+0x38) and collection M2 render contexts
-     *         share this layout. Covers the fields the per-frame palette build and its cadence
-     *         logic touch: flags, links, anchors, the bone-state/palette pointers, the inline
-     *         placement/root matrices and the staged speed/scale/translation block. */
+    /**
+     * @brief Runtime instance (= render context wrapper returned by GetRenderCtx).
+     *        Both the character's scene node (cmo+0x38) and collection M2 render contexts
+     *        share this layout. Covers the fields the per-frame palette build and its cadence
+     *        logic touch: flags, links, anchors, the bone-state/palette pointers, the inline
+     *        placement/root matrices and the staged speed/scale/translation block.
+     *
+     * Pointer-valued fields are stored as uint32_t, not void*, everywhere except the LAST field of a
+     * struct: with more than one such field, sizeof(void*) would drive the padding between them, and
+     * this header is 32/64-bit-neutral (sizeof(uint32_t) is not).
+     */
     struct M2Instance
     {
         uint8_t  _pad00[kOffInstOwnerFlags];
@@ -850,32 +863,37 @@ namespace wxl::offsets::game::m2
         uint8_t  _pad04[kOffInstInitFlags - (kOffInstOwnerFlags + sizeof(uint32_t))];
         uint32_t initFlags;        // kOffInstInitFlags (kInstFlag* bits)
         uint8_t  _pad14[kOffInstScene - (kOffInstInitFlags + sizeof(uint32_t))];
-        void*    scene;            // kOffInstScene -> owning scene
-        void*    model;            // kOffInstModel -> M2Model (shared model object)
-        uint8_t  _pad30[kOffInstCmdRingHead - (kOffInstModel + sizeof(void*))];
+        uint32_t scene;            // kOffInstScene -> owning scene
+        uint8_t  _pad2c[kOffInstModel - (kOffInstScene + sizeof(uint32_t))];
+        uint32_t model;            // kOffInstModel -> M2Model (shared model object)
+        uint8_t  _pad30[kOffInstCmdRingHead - (kOffInstModel + sizeof(uint32_t))];
         uint32_t cmdRingHead;      // kOffInstCmdRingHead (== cmdRingTail when no deferred commands)
         uint32_t cmdRingTail;      // kOffInstCmdRingTail
         uint32_t lastAnimFrame;    // kOffInstLastAnimFrame (0 = never posed)
         uint8_t  _pad40[kOffInstParent - (kOffInstLastAnimFrame + sizeof(uint32_t))];
-        void*    parent;           // kOffInstParent -> native parent M2 instance
-        void*    attachEnable;     // kOffInstAttachEnable -> enable records (stride 0xC, u8 at +0x8)
-        uint8_t  _pad50[kOffInstAttachSlot - (kOffInstAttachEnable + sizeof(void*))];
+        uint32_t parent;           // kOffInstParent -> native parent M2 instance
+        uint8_t  _pad4c[kOffInstAttachEnable - (kOffInstParent + sizeof(uint32_t))];
+        uint32_t attachEnable;     // kOffInstAttachEnable -> enable records (stride 0xC, u8 at +0x8)
+        uint8_t  _pad50[kOffInstAttachSlot - (kOffInstAttachEnable + sizeof(uint32_t))];
         uint32_t attachSlot;       // kOffInstAttachSlot (0xFFFF = not slot-attached)
-        void*    attachedHead;     // kOffInstAttachedHead -> first attached child
-        uint8_t  _pad5c[kOffInstAttachedNext - (kOffInstAttachedHead + sizeof(void*))];
-        void*    attachedNext;     // kOffInstAttachedNext -> next sibling under the same parent
+        uint32_t attachedHead;     // kOffInstAttachedHead -> first attached child
+        uint8_t  _pad5c[kOffInstAttachedNext - (kOffInstAttachedHead + sizeof(uint32_t))];
+        uint32_t attachedNext;     // kOffInstAttachedNext -> next sibling under the same parent
+        uint8_t  _pad64[kOffInstFreezeAnchor - (kOffInstAttachedNext + sizeof(uint32_t))];
         uint32_t freezeAnchor;     // kOffInstFreezeAnchor (nonzero = externally frozen pose)
         uint8_t  _pad68[kOffInstViewDistSq - (kOffInstFreezeAnchor + sizeof(uint32_t))];
         float    viewDistSq;       // kOffInstViewDistSq
         uint8_t  _pad8c[kOffInstConstTrackGate - (kOffInstViewDistSq + sizeof(float))];
         uint32_t constTrackGate;   // kOffInstConstTrackGate
-        void*    boneStates;       // kOffInstBoneStates -> RuntimeBone[boneCount]
-        void*    bonePalettePtr;   // kOffInstBonePalette -> heap bone-matrix buffer (row-major 4x4, kBonePaletteStride each)
-        uint8_t  _pad9c[kOffInstPlacement - (kOffInstBonePalette + sizeof(void*))];
+        uint32_t boneStates;       // kOffInstBoneStates -> RuntimeBone[boneCount]
+        uint8_t  _pad98[kOffInstBonePalette - (kOffInstBoneStates + sizeof(uint32_t))];
+        uint32_t bonePalettePtr;   // kOffInstBonePalette -> heap bone-matrix buffer (row-major 4x4, kBonePaletteStride each)
+        uint8_t  _pad9c[kOffInstPlacement - (kOffInstBonePalette + sizeof(uint32_t))];
         float    placement[16];    // kOffInstPlacement (inline model->world matrix)
         float    viewRoot[16];     // kOffInstViewRoot (inline placement * view matrix)
         uint8_t  _pad134[kOffInstTexBinding - (kOffInstViewRoot + 16 * sizeof(float))];
-        void*    texBinding;       // kOffInstTexBinding (mirrored from the parent each build)
+        uint32_t texBinding;       // kOffInstTexBinding (mirrored from the parent each build)
+        uint8_t  _pad178[kOffInstSpeedBase - (kOffInstTexBinding + sizeof(uint32_t))];
         float    speedBase;        // kOffInstSpeedBase
         float    alphaBase;        // kOffInstAlphaBase
         float    scaleBase[3];     // kOffInstScaleBase
@@ -957,7 +975,8 @@ namespace wxl::offsets::game::m2
         void*    boneArray;         // kOffHdrBoneArray -> M2Bone records (post-fixup data ptr)
         uint8_t  _pad34[kOffHdrAttachCount - (kOffHdrBoneArray + sizeof(void*))];
         uint32_t attachCount;       // kOffHdrAttachCount
-        void*    attachPtr;         // kOffHdrAttachPtr -> M2Attachment records
+        uint32_t attachPtr;         // kOffHdrAttachPtr -> M2Attachment records
+        uint8_t  _padf8[kOffHdrBoneIdxLutCount - (kOffHdrAttachPtr + sizeof(uint32_t))];
         uint32_t boneIdxLutCount;   // kOffHdrBoneIdxLutCount (number of entries in the LUT)
         void*    boneIdxLutPtr;     // kOffHdrBoneIdxLutPtr -> uint16 array indexed by key_bone_id
     };
@@ -971,14 +990,20 @@ namespace wxl::offsets::game::m2
     static_assert(offsetof(M2FileHeader, boneIdxLutCount)== kOffHdrBoneIdxLutCount, "M2FileHeader.boneIdxLutCount");
     static_assert(offsetof(M2FileHeader, boneIdxLutPtr)  == kOffHdrBoneIdxLutPtr,   "M2FileHeader.boneIdxLutPtr");
 
-    /** @brief In-model track head: interpolation, global-sequence link, and the per-sequence outer
-     *         arrays (timestamps + values). outerCount == 0 means the track carries no data at all. */
+    /**
+     * @brief In-model track head: interpolation, global-sequence link, and the per-sequence outer
+     *        arrays (timestamps + values). outerCount == 0 means the track carries no data at all.
+     *
+     * outerPtr is stored as uint32_t, not void*: it is not the last field, and a real pointer there
+     * would let sizeof(void*) drive valuesOuterCount/valuesOuterPtr's offsets, breaking the fixed 0x14
+     * size every M2Bone/M2Attachment track-head member below is checked against.
+     */
     struct M2TrackHead
     {
         uint16_t interp;           // interpolation type
         uint16_t globalSeq;        // global-sequence index (0xFFFF = sequence-driven)
         uint32_t outerCount;       // kOffTrackTimestampsCount relative to the head
-        void*    outerPtr;         // kOffTrackTimestampsPtr
+        uint32_t outerPtr;         // kOffTrackTimestampsPtr
         uint32_t valuesOuterCount; // kOffTrackValuesCount
         void*    valuesOuterPtr;   // kOffTrackValuesPtr
     };
@@ -1034,7 +1059,7 @@ namespace wxl::offsets::game::m2
     {
         uint8_t   _pad00[kOffTrackTimestampsCount];
         uint32_t  timestampsCount; // kOffTrackTimestampsCount
-        void*     timestampsPtr;   // kOffTrackTimestampsPtr
+        uint32_t  timestampsPtr;   // kOffTrackTimestampsPtr
         uint32_t  valuesCount;     // kOffTrackValuesCount
         void*     valuesPtr;       // kOffTrackValuesPtr
     };
@@ -1070,7 +1095,7 @@ namespace wxl::offsets::game::m2
         uint8_t  _pad6a[kOffRtBoneBlendSeq - 0x6A];
         uint16_t blendSeq;         // kOffRtBoneBlendSeq (0xFFFF = no blend running)
         uint8_t  _pad6e[kOffRtBoneProcMatrix - (kOffRtBoneBlendSeq + sizeof(uint16_t))];
-        float*   procMatrix;       // kOffRtBoneProcMatrix (externally driven 4x4; null = none)
+        uint32_t procMatrix;       // kOffRtBoneProcMatrix (-> externally driven 4x4; 0 = none)
         uint32_t flagMask;         // kOffRtBoneFlagMask (OR'd into the static bone flags)
         uint32_t pendingSeq;       // kOffRtBonePendingSeq (0xFFFFFFFF idle)
         uint8_t  _pad94[kOffRtBoneBlendWeight - 0x94];

@@ -264,13 +264,27 @@ namespace wxl::offsets::game::wmo
     constexpr size_t kOffGroupCount    = 0x1F4; // group count (the group-array bound)
     // Per-group bbox table on the root.
     constexpr size_t kOffMogiTable     = 0x130; // group-info table base pointer
+    constexpr size_t kOffMogiCount     = 0x16C; // group-info entry count (kRootSlots[4].countField)
     constexpr size_t kMogiStride       = 0x20;  // group-info entry stride
     constexpr size_t kOffMogiBbox      = 0x04;  // bbox min within an entry (max at +0x10)
+    // Standalone names for the handful of kRootSlots entries a call site reads back by itself, once the
+    // generic root walk has already filled them (see kRootSlots for the full 17-slot table this aliases).
+    constexpr size_t kOffMosb      = 0x12C; // MOSB content pointer (skybox name; empty = no skybox)
+    constexpr size_t kOffMopt      = 0x138; // MOPT content pointer (portal planes)
+    constexpr size_t kOffMoptCount = 0x174; // MOPT entry count
+    constexpr size_t kOffModn      = 0x150; // MODN content pointer (doodad name blob)
+    constexpr size_t kOffRootModd  = 0x154; // MODD content pointer (doodad placements)
 
     // --- group object fields ---
     constexpr size_t kOffGroupBuffer = 0x184; // group buffer pointer
     constexpr size_t kOffGroupSize   = 0x188; // group buffer byte size
     constexpr size_t kOffGroupRoot   = 0x18C; // -> parent root object
+    // Standalone names for the handful of kGroupSlots entries a call site reads back by itself.
+    constexpr size_t kOffGroupMotv        = 0x0F0; // MOTV content pointer (base UV set)
+    constexpr size_t kOffGroupMonr        = 0x0EC; // MONR content pointer (vertex normals)
+    constexpr size_t kOffGroupVertexCount = 0x15C; // MOVT entry count (kGroupSlots[2].countField)
+    // Group bbox (min xyz, max xyz), passed whole to kBspInit; kOffGroupBboxMinZ below is its 3rd float.
+    constexpr size_t kOffGroupBbox = 0x34;
 
     // Resolved LiquidType.dbc id (CMapObjGroup::Create, 0x007D82E0, via CMapObjGroup::GetLegacyLiquidId
     // 0x007D7310): MOGP+0x48 verbatim for a modern-format root (already a real LiquidType id -- Legion
@@ -431,7 +445,13 @@ namespace wxl::offsets::game::wmo
     // with every member offset checked against a constant at compile time (a wrong padding fails the build).
     // Only RE'd fields are named; the gaps are explicit padding. Pointers are 4 bytes on the 32-bit client.
 #pragma pack(push, 1)
-    /** @brief Map-object root: the parsed root object that owns the material table and the group array. */
+    /**
+     * @brief Map-object root: the parsed root object that owns the material table and the group array.
+     *
+     * Pointer-valued fields are stored as uint32_t, not void*, everywhere except the LAST field of a
+     * struct: with more than one such field, sizeof(void*) would drive the padding between them, and
+     * this header is 32/64-bit-neutral (sizeof(uint32_t) is not).
+     */
     struct Root
     {
         uint8_t  _pad00[kOffNameInline];
@@ -442,7 +462,7 @@ namespace wxl::offsets::game::wmo
         uint8_t  _pad164[kOffMaterialCount - (kOffMaterialBase + sizeof(void*))];
         uint32_t materialCount;    // kOffMaterialCount
         uint8_t  _pad1a0[kOffRootBuffer - (kOffMaterialCount + sizeof(uint32_t))];
-        void*    rootBuffer;       // kOffRootBuffer -> root file buffer
+        uint32_t rootBuffer;       // kOffRootBuffer -> root file buffer
         uint32_t rootSize;         // kOffRootSize (root buffer byte size)
         uint8_t  _pad1d4[kOffGroupCount - (kOffRootSize + sizeof(uint32_t))];
         uint32_t groupCount;       // kOffGroupCount (the group-array bound)
@@ -457,17 +477,74 @@ namespace wxl::offsets::game::wmo
     static_assert(offsetof(Root, groupCount)    == kOffGroupCount,    "Root.groupCount");
     static_assert(offsetof(Root, groupArray)    == kOffGroupArray,    "Root.groupArray");
 
-    /** @brief Map-object group: a runtime group object holding its file buffer and a back pointer to the root. */
+    /**
+     * @brief Map-object group: MOGP flags/bbox/batch-counts, resolved liquid type, file buffer, and the
+     *        back pointer to the root.
+     */
     struct Group
     {
-        uint8_t  _pad00[kOffGroupBuffer];
-        void*    groupBuffer;      // kOffGroupBuffer -> group file buffer
-        uint32_t groupSize;        // kOffGroupSize (group buffer byte size)
-        void*    root;             // kOffGroupRoot -> parent root object
+        uint8_t  _pad00[kOffGroupFlags];
+        uint32_t flags;             // kOffGroupFlags (MOGP flags, copied by kGroupParse)
+        uint8_t  _pad34[kOffGroupBboxMinZ - (kOffGroupFlags + sizeof(uint32_t))];
+        float    bboxMinZ;          // kOffGroupBboxMinZ (group bbox min Z, the antiportal floor)
+        uint8_t  _pad40[kOffGroupTransBatchCount - (kOffGroupBboxMinZ + sizeof(float))];
+        uint16_t transBatchCount;   // kOffGroupTransBatchCount (MOGP+0x28)
+        uint16_t intBatchCount;     // kOffGroupIntBatchCount
+        uint16_t extBatchCount;     // kOffGroupExtBatchCount
+        uint8_t  _pad62[kOffGroupLiquidType - (kOffGroupExtBatchCount + sizeof(uint16_t))];
+        uint32_t liquidType;        // kOffGroupLiquidType (resolved LiquidType.dbc id)
+        uint8_t  _pad148[kOffGroupBuffer - (kOffGroupLiquidType + sizeof(uint32_t))];
+        uint32_t groupBuffer;       // kOffGroupBuffer -> group file buffer
+        uint32_t groupSize;         // kOffGroupSize (group buffer byte size)
+        void*    root;              // kOffGroupRoot -> parent root object
     };
-    static_assert(offsetof(Group, groupBuffer) == kOffGroupBuffer, "Group.groupBuffer");
-    static_assert(offsetof(Group, groupSize)   == kOffGroupSize,   "Group.groupSize");
-    static_assert(offsetof(Group, root)        == kOffGroupRoot,   "Group.root");
+    static_assert(offsetof(Group, flags)           == kOffGroupFlags,           "Group.flags");
+    static_assert(offsetof(Group, bboxMinZ)        == kOffGroupBboxMinZ,        "Group.bboxMinZ");
+    static_assert(offsetof(Group, transBatchCount) == kOffGroupTransBatchCount, "Group.transBatchCount");
+    static_assert(offsetof(Group, intBatchCount)   == kOffGroupIntBatchCount,   "Group.intBatchCount");
+    static_assert(offsetof(Group, extBatchCount)   == kOffGroupExtBatchCount,   "Group.extBatchCount");
+    static_assert(offsetof(Group, liquidType)      == kOffGroupLiquidType,      "Group.liquidType");
+    static_assert(offsetof(Group, groupBuffer)     == kOffGroupBuffer,          "Group.groupBuffer");
+    static_assert(offsetof(Group, groupSize)       == kOffGroupSize,            "Group.groupSize");
+    static_assert(offsetof(Group, root)            == kOffGroupRoot,            "Group.root");
+
+    /**
+     * @brief Placed WMO instance (spawned from one MODF record): the render/collision transforms, the
+     *        owning root, and the doodad-set selection.
+     */
+    struct Instance
+    {
+        uint8_t  _pad00[kOffInstanceRenderMatrix];
+        float    renderMatrix[16];     // kOffInstanceRenderMatrix (render rotation basis, row-major 4x4)
+        float    collisionMatrix[16];  // kOffInstanceCollisionMatrix (collision/portal copy, TRANSPOSED)
+        uint8_t  _padF0[kOffInstanceRoot - (kOffInstanceCollisionMatrix + 16 * sizeof(float))];
+        uint32_t root;                 // kOffInstanceRoot -> owning root object
+        uint8_t  _padF8[kOffInstanceDoodadSet - (kOffInstanceRoot + sizeof(uint32_t))];
+        uint32_t doodadSet;             // kOffInstanceDoodadSet (selected doodad set index)
+        uint8_t  _pad104[kOffInstanceExtraSets - (kOffInstanceDoodadSet + sizeof(uint32_t))];
+        uint16_t extraSets[3];          // kOffInstanceExtraSets (extra doodad set indices, 0 = unused)
+    };
+    static_assert(offsetof(Instance, renderMatrix)    == kOffInstanceRenderMatrix,    "Instance.renderMatrix");
+    static_assert(offsetof(Instance, collisionMatrix) == kOffInstanceCollisionMatrix, "Instance.collisionMatrix");
+    static_assert(offsetof(Instance, root)            == kOffInstanceRoot,            "Instance.root");
+    static_assert(offsetof(Instance, doodadSet)       == kOffInstanceDoodadSet,       "Instance.doodadSet");
+    static_assert(offsetof(Instance, extraSets)       == kOffInstanceExtraSets,       "Instance.extraSets");
+
+    /** @brief One MOBA render batch (record = batchArray + i * kMobaStride, batchArray = kGroupSlots[5].ptrField). */
+    struct MobaRecord
+    {
+        uint8_t  _pad00[kOffMobaMaterialModern];
+        uint16_t materialModern;    // kOffMobaMaterialModern (u16 material index, modern form)
+        uint8_t  _pad0C[kOffMobaMaxIndex - (kOffMobaMaterialModern + sizeof(uint16_t))];
+        uint16_t maxIndex;          // kOffMobaMaxIndex (last vertex index)
+        uint8_t  flags;             // kOffMobaFlags (high nibble = frame scratch; bit kMobaFlagMaterialModern)
+        uint8_t  material;          // kOffMobaMaterial (u8 material index, stock form)
+    };
+    static_assert(offsetof(MobaRecord, materialModern) == kOffMobaMaterialModern, "MobaRecord.materialModern");
+    static_assert(offsetof(MobaRecord, maxIndex)        == kOffMobaMaxIndex,       "MobaRecord.maxIndex");
+    static_assert(offsetof(MobaRecord, flags)           == kOffMobaFlags,          "MobaRecord.flags");
+    static_assert(offsetof(MobaRecord, material)        == kOffMobaMaterial,       "MobaRecord.material");
+    static_assert(sizeof(MobaRecord) == kMobaStride, "MobaRecord size/stride");
 
     /** @brief Group-info entry (root->mogiTable + i * kMogiStride): the per-group world AABB. */
     struct MogiEntry
