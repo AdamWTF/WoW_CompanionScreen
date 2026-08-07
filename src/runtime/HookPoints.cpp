@@ -20,6 +20,7 @@
 #include "common/Log.hpp"
 #include "engine/hook/Hook.hpp"
 
+#include "offsets/engine/Gx.hpp"
 #include "offsets/engine/Mem.hpp"
 #include "offsets/engine/Shader.hpp"
 #include "offsets/game/ADT.hpp"
@@ -34,6 +35,7 @@ namespace wxl::runtime::hookpoints
     namespace
     {
         namespace adt   = wxl::offsets::game::adt;
+        namespace gxoff = wxl::offsets::engine::gx;
         namespace mem   = wxl::offsets::engine::mem;
         namespace m2    = wxl::offsets::game::m2;
         namespace shoff = wxl::offsets::engine::shader;
@@ -54,6 +56,19 @@ namespace wxl::runtime::hookpoints
             { "M2.IsDrawable",                m2::kIsDrawable },
             { "M2.IsBatchDoodadCompatible",   m2::kIsBatchDoodadCompatible },
             { "M2.SetupMaterial",             m2::kSetupMaterial },
+            { "M2.PerFrameUpdate",            m2::kM2PerFrameUpdate },
+            { "M2.Init",                      m2::kInit },
+            { "M2.FinalizeSkin",              m2::kFinalizeSkin },
+            { "M2.BuildBatchMaterial",        m2::kBuildBatchMaterial },
+            { "M2.AnimLoadComplete",          m2::kAnimLoadComplete },
+            { "M2.DrawBatch",                 gxoff::kDrawTriangleBatch },
+            { "M2.RibbonDraw",                m2::kRibbonDraw },
+            { "M2.SceneTriangleHitTest",      m2::kSceneTriangleHitTest },
+            { "M2.SortOpaqueGeoBatches",      m2::kSortOpaqueGeoBatches },
+            { "M2.InitializeLoaded",          m2::kInitializeLoaded },
+            { "M2.RenderBatchShadowMap",      m2::kRenderBatchShadowMap },
+            { "M2.BufferAlloc",               m2::kBufferAlloc },
+            { "M2.BufferFree",                m2::kBufferFree },
             { "World.AsyncFileReadInitialize", wld::kAsyncFileReadInitialize },
             { "World.AsyncFileReadObject",     wld::kAsyncFileReadObject },
             { "World.ValidateFarClip",         wld::kValidateFarClip },
