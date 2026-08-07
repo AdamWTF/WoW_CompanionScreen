@@ -21,8 +21,10 @@
 #include "engine/hook/Hook.hpp"
 
 #include "offsets/engine/Mem.hpp"
+#include "offsets/engine/Shader.hpp"
 #include "offsets/game/ADT.hpp"
 #include "offsets/game/M2.hpp"
+#include "offsets/game/WMO.hpp"
 #include "offsets/game/World.hpp"
 
 #include <cstring>
@@ -31,10 +33,12 @@ namespace wxl::runtime::hookpoints
 {
     namespace
     {
-        namespace adt = wxl::offsets::game::adt;
-        namespace mem = wxl::offsets::engine::mem;
-        namespace m2  = wxl::offsets::game::m2;
-        namespace wld = wxl::offsets::game::world;
+        namespace adt   = wxl::offsets::game::adt;
+        namespace mem   = wxl::offsets::engine::mem;
+        namespace m2    = wxl::offsets::game::m2;
+        namespace shoff = wxl::offsets::engine::shader;
+        namespace wld   = wxl::offsets::game::world;
+        namespace wmo   = wxl::offsets::game::wmo;
 
         struct Point
         {
@@ -64,6 +68,23 @@ namespace wxl::runtime::hookpoints
             { "Adt.ChunkBuild",                adt::kChunkBuild },
             { "Adt.SurfaceChunkDrawShader",    adt::kSurfaceChunkDrawShader },
             { "Adt.BuildTerrainConstants",     adt::kBuildTerrainConstants },
+            { "Wmo.SpawnFromModf",             wmo::kSpawnFromModf },
+            { "Wmo.RootComplete",              wmo::kRootComplete },
+            { "Wmo.CreateMaterial",            wmo::kResolveMaterialTexture },
+            { "Wmo.RootWalk",                  wmo::kRootWalk },
+            { "Wmo.GroupWalk",                 wmo::kGroupWalk },
+            { "Wmo.CullBatch",                 wmo::kCullBatch },
+            { "Wmo.LocateViewerMapObjs",       wmo::kLocateViewerMapObjs },
+            { "Wmo.PortalTraverse",            wmo::kPortalTraverse },
+            { "Wmo.CullSortTable",             wmo::kCullSortTable },
+            { "Wmo.CreateOccluders",           wmo::kCreateOccluders },
+            { "Wmo.AllocOccluder",             wmo::kAllocOccluder },
+            { "Wmo.AddOccluderEdge",           wmo::kAddOccluderEdge },
+            { "Wmo.HorizonAabbTest",           wmo::kHorizonAabbTest },
+            { "Wmo.GroupParse",                wmo::kGroupParse },
+            { "Wmo.ExtRender",                 wmo::kExtRender },
+            { "Wmo.IntRender",                 wmo::kIntRender },
+            { "Wmo.CompositeEffectBind",       shoff::kEffectBind },
         };
 
         const Point* Find(const char* name)
