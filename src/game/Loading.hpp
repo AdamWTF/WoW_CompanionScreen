@@ -19,6 +19,7 @@
 #include <cstdint>
 
 #include "game/Binding.hpp"
+#include "offsets/game/ADT.hpp"
 #include "offsets/game/World.hpp"
 
 /**
@@ -27,6 +28,7 @@
 namespace wxl::game::world
 {
     namespace woff = wxl::offsets::game::world;
+    namespace adt  = wxl::offsets::game::adt;
 
     /**
      * @brief Runs one world tick plus the loading-screen synchronous drain.
@@ -60,6 +62,87 @@ namespace wxl::game::world
     }
 
     /**
+     * @brief Reads a tile's in-flight async-read object (CMapArea+0x70), null while idle.
+     * @param area  the tile (CMapArea), as held by the caller (opaque outside this binding).
+     */
+    inline void* TileAsyncRead(const void* area)
+    {
+        return area ? reinterpret_cast<void*>(static_cast<const adt::TileArea*>(area)->asyncRead) : nullptr;
+    }
+
+    /**
+     * @brief Sets a tile's in-flight async-read object (CMapArea+0x70). Does not itself cancel or
+     *        start a read; a caller passing null here is only clearing the marker.
+     * @param area   the tile (CMapArea).
+     * @param value  the async-read object to record, or null.
+     */
+    inline void SetTileAsyncRead(void* area, void* value)
+    {
+        if (area)
+            static_cast<adt::TileArea*>(area)->asyncRead = reinterpret_cast<uint32_t>(value);
+    }
+
+    /**
+     * @brief Reads a tile's open file handle (CMapArea+0x6C, SFile*), null when no file is open.
+     * @param area  the tile (CMapArea).
+     */
+    inline void* TileFileHandle(const void* area)
+    {
+        return area ? reinterpret_cast<void*>(static_cast<const adt::TileArea*>(area)->fileHandle) : nullptr;
+    }
+
+    /**
+     * @brief Sets a tile's open file handle (CMapArea+0x6C).
+     * @param area   the tile (CMapArea).
+     * @param value  the file handle to record, or null.
+     */
+    inline void SetTileFileHandle(void* area, void* value)
+    {
+        if (area)
+            static_cast<adt::TileArea*>(area)->fileHandle = reinterpret_cast<uint32_t>(value);
+    }
+
+    /**
+     * @brief Reads a tile's raw ADT file buffer (CMapArea+0x80), null before a read has allocated it.
+     * @param area  the tile (CMapArea).
+     */
+    inline void* TileFileBuffer(const void* area)
+    {
+        return area ? reinterpret_cast<void*>(static_cast<const adt::TileArea*>(area)->fileBuffer) : nullptr;
+    }
+
+    /**
+     * @brief Sets a tile's raw ADT file buffer (CMapArea+0x80).
+     * @param area   the tile (CMapArea).
+     * @param value  the buffer to record, or null.
+     */
+    inline void SetTileFileBuffer(void* area, void* value)
+    {
+        if (area)
+            static_cast<adt::TileArea*>(area)->fileBuffer = reinterpret_cast<uint32_t>(value);
+    }
+
+    /**
+     * @brief Reads the byte size of a tile's raw file buffer (CMapArea+0x84).
+     * @param area  the tile (CMapArea).
+     */
+    inline uint32_t TileFileSize(const void* area)
+    {
+        return area ? static_cast<const adt::TileArea*>(area)->fileSize : 0;
+    }
+
+    /**
+     * @brief Sets the byte size of a tile's raw file buffer (CMapArea+0x84).
+     * @param area   the tile (CMapArea).
+     * @param value  the byte size to record.
+     */
+    inline void SetTileFileSize(void* area, uint32_t value)
+    {
+        if (area)
+            static_cast<adt::TileArea*>(area)->fileSize = value;
+    }
+
+    /**
      * @brief Re-streams the loaded terrain tiles in place (no map reload). A dev lever to pick up changed
      *        served bytes without relogging; the terrain phase does NOT use this (it re-enters via EnterMap).
      *
@@ -79,10 +162,11 @@ namespace wxl::game::world
             const uint32_t tile = *reinterpret_cast<uint32_t*>(node + 4);
             const uint32_t next = *reinterpret_cast<uint32_t*>(linkBase + 4 + node);
             if (tile >= 0x00400000 && tile < 0xF0000000 &&
-                *reinterpret_cast<uint32_t*>(tile + woff::kOffTileAsyncRead) == 0) // idle: no read in flight
+                !TileAsyncRead(reinterpret_cast<void*>(tile))) // idle: no read in flight
             {
-                *reinterpret_cast<uint32_t*>(tile + woff::kOffTileFileBuffer) = 0; // reopen the load gate
-                *reinterpret_cast<uint32_t*>(tile + woff::kOffTileFileId)     = 0;
+                // reopen the load gate
+                SetTileFileBuffer(reinterpret_cast<void*>(tile), nullptr);
+                SetTileFileSize(reinterpret_cast<void*>(tile), 0);
             }
             node = next;
         }

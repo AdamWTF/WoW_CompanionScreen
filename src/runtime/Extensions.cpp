@@ -23,6 +23,7 @@
 #include "engine/hook/Hook.hpp"
 #include "engine/ui/ImGuiHost.hpp"
 #include "game/Boot.hpp"
+#include "runtime/HookPoints.hpp"
 
 #include <windows.h>
 
@@ -87,6 +88,13 @@ namespace wxl::runtime::extensions
             return hook::Install(name ? name : "extension", target, detour, original, priority) ? 1 : 0;
         }
 
+        int __cdecl ApiHookAttachByName(const char* pointName, void* detour, void** original,
+                                        int priority)
+        {
+            if (!detour || !original) return 0;
+            return hookpoints::AttachByName(pointName, detour, original, priority);
+        }
+
         /// A service one extension offers another. Name, version and pointer are stored without
         /// being interpreted, so two extensions can agree on a capability this table does not model.
         struct Service
@@ -138,6 +146,7 @@ namespace wxl::runtime::extensions
             &ApiSubscribe,
             &ApiEmit,
             &ApiHookAttach,
+            &ApiHookAttachByName,
             &ApiPublishInterface,
             &ApiGetInterface,
             // Straight through to the overlay host: it already owns the panel registry and the one

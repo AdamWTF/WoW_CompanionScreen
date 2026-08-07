@@ -56,7 +56,4 @@ namespace wxl::modern::assets::m3
      * @param src   source to fill (m3a / map / tex / texroot / lift keys)
      */
     void ParseOptions(const std::string& text, ModelSource& src);
-
-    /** @brief Lowercases and normalizes separators of a served path. */
-    std::string NormalizePath(std::string s);
 }

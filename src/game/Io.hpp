@@ -28,6 +28,10 @@ namespace wxl::game::io
 {
     namespace off = wxl::offsets::engine::io;
 
+    /// Open flag: load the whole file into the handle buffer. Re-exported so a caller never needs
+    /// offsets/engine/Io.hpp itself just to pass this one value to FileOpen.
+    constexpr uint32_t kOpenWholeFile = off::kOpenWholeFile;
+
     /**
      * @brief Opens a file by name.
      * @param name       File name to open.

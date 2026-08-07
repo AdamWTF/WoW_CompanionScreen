@@ -67,8 +67,13 @@ namespace wxl::offsets::game::world
     constexpr uintptr_t kActiveListHead     = 0x00ADFBF4;
     constexpr uintptr_t kActiveListLinkBase = 0x00ADFBEC;
     constexpr uintptr_t kTileGrid           = 0x00CE48D0;
-    // Tile fields: async read-in-flight handle (0 = idle), ADT file-buffer ptr (0 = not loaded), file id.
+    // Tile fields: async read-in-flight handle (0 = idle), open file handle, raw ADT file-buffer ptr
+    // (0 = not loaded), and that buffer's byte size (kOffTileFileId is a historical misnomer -- it
+    // holds a byte count, not an id). Same CMapArea object as ADT.hpp's TileArea struct, which is the
+    // canonical typed (offset-checked) view of these fields -- use that from C++ code instead of these
+    // raw constants when a named struct member will do.
     constexpr size_t kOffTileAsyncRead  = 0x70;
+    constexpr size_t kOffTileFileHandle = 0x6C;
     constexpr size_t kOffTileFileBuffer = 0x80;
     constexpr size_t kOffTileFileId     = 0x84;
     // Per-tile ADT loader: formats <dir>\<name>_<x>_<y>.adt and queues the read. Native __cdecl(tile);

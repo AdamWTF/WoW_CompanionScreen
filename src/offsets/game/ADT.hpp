@@ -146,12 +146,25 @@ namespace wxl::offsets::game::adt
     constexpr uint32_t  kWdlSlotCount = 64 * 64; // dimension of the [6..] slot array (0x1000)
     // CMap::AllocAreaLow: pool-allocates one CMapAreaLow (the per-tile low-detail object stored in
     // the kWdlState [6..] slots). BYTE-VERIFIED __cdecl, no args, pointer in EAX (prologue
-    // 55 8B EC 83 EC 08 8B 15 18 54 D2 00 -- pool head at 0xD25418 -- plain C3 ret). Fields the
-    // native kLoadWdl grid loop writes on the returned object: +0x04/+0x08/+0x0C min corner,
-    // +0x10/+0x14/+0x18 max corner, +0x1C/+0x20/+0x24 center, +0x28 radius, +0x2C/+0x30 world
-    // origin, +0x38/+0x3C column/row, +0x40 render-index byte budget (0xC per unholed cell),
-    // +0x44 MARE heightmap data (545 s16: 17x17 outer + 16x16 inner), +0x48 MAHO hole-mask data
-    // (16 u16) or 0.
+    // 55 8B EC 83 EC 08 8B 15 18 54 D2 00 -- pool head at 0xD25418 -- plain C3 ret). Fields below are
+    // what the native kLoadWdl grid loop writes on the returned object; see AreaLow for the typed view.
+    constexpr size_t kOffAreaLowMinX         = 0x04;
+    constexpr size_t kOffAreaLowMinY         = 0x08;
+    constexpr size_t kOffAreaLowMinZ         = 0x0C;
+    constexpr size_t kOffAreaLowMaxX         = 0x10;
+    constexpr size_t kOffAreaLowMaxY         = 0x14;
+    constexpr size_t kOffAreaLowMaxZ         = 0x18;
+    constexpr size_t kOffAreaLowCenterX      = 0x1C;
+    constexpr size_t kOffAreaLowCenterY      = 0x20;
+    constexpr size_t kOffAreaLowCenterZ      = 0x24;
+    constexpr size_t kOffAreaLowRadius       = 0x28;
+    constexpr size_t kOffAreaLowOriginX      = 0x2C;
+    constexpr size_t kOffAreaLowOriginY      = 0x30;
+    constexpr size_t kOffAreaLowCol          = 0x38;
+    constexpr size_t kOffAreaLowRow          = 0x3C;
+    constexpr size_t kOffAreaLowRenderBudget = 0x40; // byte budget for render indices, 0xC per unholed cell
+    constexpr size_t kOffAreaLowMareData     = 0x44; // -> 545 s16 heightmap (17x17 outer + 16x16 inner)
+    constexpr size_t kOffAreaLowMahoData     = 0x48; // -> 16 u16 hole mask, or 0
     constexpr uintptr_t kAllocAreaLow = 0x007C0A90;
     using AllocAreaLowFn = void*(__cdecl*)();
     // CMap::FreeAreaLow (landmark, not called by the core): the unload 0x007CC770 releases every
@@ -357,38 +370,106 @@ namespace wxl::offsets::game::adt
     // with every member offset checked against a constant at compile time (a wrong padding fails the build).
     // Only RE'd fields are named; the gaps are explicit padding. Pointers are 4 bytes on the 32-bit client.
 #pragma pack(push, 1)
-    /** @brief Tile-area object (one per resident map tile): async-read state and file buffer slots. */
+    /**
+     * @brief Tile-area object (one per resident map tile): filename index, file handle, async-read
+     *        state, file buffer.
+     *
+     * Pointer-valued fields are stored as uint32_t, not void*: with more than one such field in the same
+     * struct, sizeof(void*) would drive the padding between them, and this header is 32/64-bit-neutral
+     * (sizeof(uint32_t) is not). Only ever the LAST field of a struct is safe to type as a real pointer.
+     */
     struct TileArea
     {
-        uint8_t  _pad00[kOffTileAsyncRead];
-        uint32_t asyncRead;        // kOffTileAsyncRead (non-zero while the root read is in flight)
+        uint8_t  _pad00[kOffTileIdxFirst];
+        int32_t  tileFirst;        // kOffTileIdxFirst  (first  %d of "<Map>_%d_%d.adt")
+        int32_t  tileSecond;       // kOffTileIdxSecond (second %d of "<Map>_%d_%d.adt")
+        uint8_t  _pad50[kOffTileFileHandle - (kOffTileIdxSecond + sizeof(int32_t))];
+        uint32_t fileHandle;       // kOffTileFileHandle (SFile* of the open tile file)
+        uint32_t asyncRead;        // kOffTileAsyncRead  (non-zero while the root read is in flight)
         uint8_t  _pad74[kOffTileFileBuffer - (kOffTileAsyncRead + sizeof(uint32_t))];
-        void*    fileBuffer;       // kOffTileFileBuffer (non-zero once the file buffer is allocated)
+        uint32_t fileBuffer;       // kOffTileFileBuffer (non-zero once the file buffer is allocated)
+        uint32_t fileSize;         // kOffTileFileSize   (byte size of the +0x80 buffer)
     };
+    static_assert(offsetof(TileArea, tileFirst)  == kOffTileIdxFirst,  "TileArea.tileFirst");
+    static_assert(offsetof(TileArea, tileSecond) == kOffTileIdxSecond, "TileArea.tileSecond");
+    static_assert(offsetof(TileArea, fileHandle) == kOffTileFileHandle, "TileArea.fileHandle");
     static_assert(offsetof(TileArea, asyncRead)  == kOffTileAsyncRead,  "TileArea.asyncRead");
     static_assert(offsetof(TileArea, fileBuffer) == kOffTileFileBuffer, "TileArea.fileBuffer");
+    static_assert(offsetof(TileArea, fileSize)   == kOffTileFileSize,   "TileArea.fileSize");
 
     /**
-     * @brief Runtime chunk object (CMapChunk): the MCNK data-header pointer.
+     * @brief Runtime chunk object (CMapChunk): tex-owner link, local grid index, and the sub-chunk
+     *        pointer block ProcessIffChunks fills (raw MCNK, header, and each parsed sub-chunk).
      *
      * The old single struct conflated two objects: nodeLayerCount @0x09 is a CMapRenderChunk (draw
-     * node) field, while mcnkHeader @0x110 is a CMapChunk field. They are now two typed views --
+     * node) field, while everything here is a CMapChunk field. They are now two typed views --
      * MapChunk for the CMapChunk, RenderNode for the CMapRenderChunk reached via chunk+0xA8.
      */
     struct MapChunk
     {
-        uint8_t  _pad00[kOffChunkMcnkHeader];
-        void*    mcnkHeader;       // kOffChunkMcnkHeader -> McnkHeader (raw MCNK ptr + 8-byte tag)
+        uint8_t  _pad00[kOffChunkTexOwnerSrc];
+        uint32_t texOwnerSrc;      // kOffChunkTexOwnerSrc (tagged link; tile tex-owner = (v & ~1) + 8)
+        int32_t  indexX;           // kOffMapChunkIndexX (local 0..15, MCIN slot = y*16 + x)
+        int32_t  indexY;           // kOffMapChunkIndexY
+        uint8_t  _pad2C[kOffChunkRawMcnk - (kOffMapChunkIndexY + sizeof(int32_t))];
+        uint32_t rawMcnk;          // kOffChunkRawMcnk    (raw MCNK tag+size header in the tile buffer)
+        uint32_t mcnkHeader;       // kOffChunkMcnkHeader -> McnkHeader (raw MCNK ptr + 8-byte tag)
+        uint8_t  _pad114[kOffChunkMcvt - (kOffChunkMcnkHeader + sizeof(uint32_t))];
+        uint32_t mcvt;             // kOffChunkMcvt (145 floats, relative heights)
+        uint32_t mccv;             // kOffChunkMccv (145 x BGRA vertex colors, vertex format 2 only)
+        uint32_t mcnr;             // kOffChunkMcnr (435 signed normal bytes)
+        uint32_t mcsh;             // kOffChunkMcsh (512-byte shadow bitmap, header flags bit0 gates use)
+        uint32_t mcly;             // kOffChunkMcly (raw on-disk layer records)
+        uint32_t mcal;             // kOffChunkMcal (raw on-disk alpha maps)
+        uint32_t mcrf;             // kOffChunkMcrf (u32 refs: doodads first, then wmos)
+        uint32_t mclq;             // kOffChunkMclq (legacy liquid layers, header sizeLiquid > 8 gates)
+        uint32_t mcse;             // kOffChunkMcse (sound emitters, header nSndEmitters gates)
     };
-    static_assert(offsetof(MapChunk, mcnkHeader) == kOffChunkMcnkHeader, "MapChunk.mcnkHeader");
+    static_assert(offsetof(MapChunk, texOwnerSrc) == kOffChunkTexOwnerSrc,  "MapChunk.texOwnerSrc");
+    static_assert(offsetof(MapChunk, indexX)      == kOffMapChunkIndexX,   "MapChunk.indexX");
+    static_assert(offsetof(MapChunk, indexY)      == kOffMapChunkIndexY,   "MapChunk.indexY");
+    static_assert(offsetof(MapChunk, rawMcnk)     == kOffChunkRawMcnk,    "MapChunk.rawMcnk");
+    static_assert(offsetof(MapChunk, mcnkHeader)  == kOffChunkMcnkHeader, "MapChunk.mcnkHeader");
+    static_assert(offsetof(MapChunk, mcvt)        == kOffChunkMcvt,       "MapChunk.mcvt");
+    static_assert(offsetof(MapChunk, mccv)        == kOffChunkMccv,       "MapChunk.mccv");
+    static_assert(offsetof(MapChunk, mcnr)        == kOffChunkMcnr,       "MapChunk.mcnr");
+    static_assert(offsetof(MapChunk, mcsh)        == kOffChunkMcsh,       "MapChunk.mcsh");
+    static_assert(offsetof(MapChunk, mcly)        == kOffChunkMcly,       "MapChunk.mcly");
+    static_assert(offsetof(MapChunk, mcal)        == kOffChunkMcal,       "MapChunk.mcal");
+    static_assert(offsetof(MapChunk, mcrf)        == kOffChunkMcrf,       "MapChunk.mcrf");
+    static_assert(offsetof(MapChunk, mclq)        == kOffChunkMclq,       "MapChunk.mclq");
+    static_assert(offsetof(MapChunk, mcse)        == kOffChunkMcse,       "MapChunk.mcse");
 
-    /** @brief Draw node (CMapRenderChunk, chunk+0xA8): the per-node layer count. */
+    /**
+     * @brief One MCLY layer slot inside a draw node's layer array
+     *        (record = node + kOffChunkLayerRecords + i*kChunkLayerRecordStride).
+     */
+    struct LayerRecord
+    {
+        uint8_t  _pad00[kOffLayerSlotTexId];
+        uint32_t texId;    // kOffLayerSlotTexId (MCLY textureId, dedup key only at draw time)
+        uint8_t  _pad0C[kChunkLayerRecordStride - (kOffLayerSlotTexId + sizeof(uint32_t))];
+    };
+    static_assert(offsetof(LayerRecord, texId) == kOffLayerSlotTexId,   "LayerRecord.texId");
+    static_assert(sizeof(LayerRecord)          == kChunkLayerRecordStride, "LayerRecord size/stride");
+
+    /** @brief Draw node (CMapRenderChunk, chunk+0xA8): layer count/flags, owning chunk, layer array. */
     struct RenderNode
     {
-        uint8_t  _pad00[kOffChunkNodeLayerCount];
-        uint8_t  nodeLayerCount;   // kOffChunkNodeLayerCount (draw-node layer count)
+        uint8_t     _pad00[kOffChunkNodeLayerCount];
+        uint8_t     nodeLayerCount;   // kOffChunkNodeLayerCount (draw-node layer count)
+        uint16_t    nodeFlags;        // kOffChunkNodeFlags (bit0 = mask-family layer, bit2 = cube-env layer)
+        uint8_t     _pad0C[kOffChunkNodeChunk - (kOffChunkNodeFlags + sizeof(uint16_t))];
+        uint32_t    nodeChunk;        // kOffChunkNodeChunk -> MapChunk backing the node
+        uint8_t     _pad14[kOffChunkLayerRecords - (kOffChunkNodeChunk + sizeof(uint32_t))];
+        LayerRecord layers[4];        // kOffChunkLayerRecords; only [0..nodeLayerCount) are valid
     };
     static_assert(offsetof(RenderNode, nodeLayerCount) == kOffChunkNodeLayerCount, "RenderNode.nodeLayerCount");
+    static_assert(offsetof(RenderNode, nodeFlags)      == kOffChunkNodeFlags,      "RenderNode.nodeFlags");
+    static_assert(offsetof(RenderNode, nodeChunk)      == kOffChunkNodeChunk,      "RenderNode.nodeChunk");
+    static_assert(offsetof(RenderNode, layers)         == kOffChunkLayerRecords,   "RenderNode.layers");
+    static_assert(offsetof(RenderNode, layers) + sizeof(RenderNode::layers) == kOffChunkNodeAlphaRT,
+                  "RenderNode.layers should end exactly at the combined alpha-RT slot");
 
     /** @brief MCNK 128-byte data header (chunk->mcnkHeader): the authoritative texture-layer count. */
     struct McnkHeader
@@ -397,5 +478,49 @@ namespace wxl::offsets::game::adt
         uint32_t nLayers;          // kOffMcnkNLayers (SMChunk.nLayers, 0..4)
     };
     static_assert(offsetof(McnkHeader, nLayers) == kOffMcnkNLayers, "McnkHeader.nLayers");
+
+    /**
+     * @brief Low-detail tile object (CMapAreaLow, from CMap::AllocAreaLow): the WDL grid-loop bounds,
+     *        column/row, render-index budget, and MARE/MAHO data.
+     */
+    struct AreaLow
+    {
+        uint8_t  _pad00[kOffAreaLowMinX];
+        float    minX;
+        float    minY;
+        float    minZ;
+        float    maxX;
+        float    maxY;
+        float    maxZ;
+        float    centerX;
+        float    centerY;
+        float    centerZ;
+        float    radius;
+        float    originX;
+        float    originY;
+        uint8_t  _pad34[kOffAreaLowCol - (kOffAreaLowOriginY + sizeof(float))];
+        int32_t  col;               // kOffAreaLowCol
+        int32_t  row;               // kOffAreaLowRow
+        uint32_t renderBudget;      // kOffAreaLowRenderBudget
+        uint32_t mareData;          // kOffAreaLowMareData (raw address; see MapChunk's note on why)
+        uint32_t mahoData;          // kOffAreaLowMahoData (raw address, or 0)
+    };
+    static_assert(offsetof(AreaLow, minX)         == kOffAreaLowMinX,         "AreaLow.minX");
+    static_assert(offsetof(AreaLow, minY)         == kOffAreaLowMinY,         "AreaLow.minY");
+    static_assert(offsetof(AreaLow, minZ)         == kOffAreaLowMinZ,         "AreaLow.minZ");
+    static_assert(offsetof(AreaLow, maxX)         == kOffAreaLowMaxX,         "AreaLow.maxX");
+    static_assert(offsetof(AreaLow, maxY)         == kOffAreaLowMaxY,         "AreaLow.maxY");
+    static_assert(offsetof(AreaLow, maxZ)         == kOffAreaLowMaxZ,         "AreaLow.maxZ");
+    static_assert(offsetof(AreaLow, centerX)      == kOffAreaLowCenterX,      "AreaLow.centerX");
+    static_assert(offsetof(AreaLow, centerY)      == kOffAreaLowCenterY,      "AreaLow.centerY");
+    static_assert(offsetof(AreaLow, centerZ)      == kOffAreaLowCenterZ,      "AreaLow.centerZ");
+    static_assert(offsetof(AreaLow, radius)       == kOffAreaLowRadius,       "AreaLow.radius");
+    static_assert(offsetof(AreaLow, originX)      == kOffAreaLowOriginX,      "AreaLow.originX");
+    static_assert(offsetof(AreaLow, originY)      == kOffAreaLowOriginY,      "AreaLow.originY");
+    static_assert(offsetof(AreaLow, col)          == kOffAreaLowCol,          "AreaLow.col");
+    static_assert(offsetof(AreaLow, row)          == kOffAreaLowRow,          "AreaLow.row");
+    static_assert(offsetof(AreaLow, renderBudget) == kOffAreaLowRenderBudget, "AreaLow.renderBudget");
+    static_assert(offsetof(AreaLow, mareData)     == kOffAreaLowMareData,     "AreaLow.mareData");
+    static_assert(offsetof(AreaLow, mahoData)     == kOffAreaLowMahoData,     "AreaLow.mahoData");
 #pragma pack(pop)
 }

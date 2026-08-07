@@ -19,8 +19,10 @@
 #include "engine/hook/Registry.hpp"
 
 #include "common/Log.hpp"
+#include "engine/assets/shared/common/Chunk.hpp"
 #include "game/Loading.hpp"
 #include "offsets/engine/Io.hpp"
+#include "offsets/game/ADT.hpp"
 #include "offsets/game/World.hpp"
 
 #include <cstdint>
@@ -30,15 +32,15 @@
 
 namespace
 {
+    namespace adt  = wxl::offsets::game::adt;
     namespace woff = wxl::offsets::game::world;
     namespace io   = wxl::offsets::engine::io;
+    namespace iff  = wxl::modern::assets::common::iff;
 
     woff::TileLoaderFn g_origTileLoad = nullptr;
     char    g_childMap[64] = { 0 };       // active phase directory
     char    g_baseMap[64]  = { 0 };       // the base map the phase overlays
     uint8_t g_phaseMain[0x8000] = { 0 };  // phase WDT MAIN: 64x64 entries, 8 bytes each, bit0 = tile present
-
-    uint32_t Rd32(const uint8_t* p) { return p[0] | (p[1] << 8) | (p[2] << 16) | (uint32_t(p[3]) << 24); }
 
     /** @brief Bounded copy of a map-name string into a 64-byte buffer. */
     void CopyName(char* dst, const char* src)
@@ -78,27 +80,23 @@ namespace
         close(handle);
         wdt.resize(got);
 
-        // Walk the WDT chunks for MAIN (stored 'NIAM'); copy its 64x64 present-table data into g_phaseMain.
-        for (size_t p = 0; p + 8 <= wdt.size(); )
+        iff::Chunk main{};
+        if (!iff::Reader(wdt).Find(iff::FourCC('M', 'A', 'I', 'N'), main))
         {
-            const uint32_t sz = Rd32(&wdt[p + 4]);
-            if (std::memcmp(&wdt[p], "NIAM", 4) == 0)
-            {
-                const size_t n = sz < sizeof g_phaseMain ? sz : sizeof g_phaseMain;
-                if (p + 8 + n <= wdt.size()) std::memcpy(g_phaseMain, &wdt[p + 8], n);
-                return true;
-            }
-            p += 8 + sz;
+            WLOG_INFO("phasing: phase WDT '%s' has no MAIN chunk", path);
+            return false;
         }
-        WLOG_INFO("phasing: phase WDT '%s' has no MAIN chunk", path);
-        return false;
+        const size_t n = main.size < sizeof g_phaseMain ? main.size : sizeof g_phaseMain;
+        std::memcpy(g_phaseMain, main.data, n);
+        return true;
     }
 
     /** @brief Reports whether the active phase has a variant tile at this tile's coords. */
     bool PhaseHasTile(const void* tile)
     {
-        const int first  = *reinterpret_cast<const int*>(static_cast<const char*>(tile) + woff::kOffTileIdxFirst);
-        const int second = *reinterpret_cast<const int*>(static_cast<const char*>(tile) + woff::kOffTileIdxSecond);
+        const auto* t = static_cast<const adt::TileArea*>(tile);
+        const int first  = t->tileFirst;
+        const int second = t->tileSecond;
         if (first < 0 || first >= 64 || second < 0 || second >= 64) return false;
         const int slot = second * 64 + first; // matches DAT_00ce88d0 indexing (tile[0x4c]*64 + tile[0x48])
         return (g_phaseMain[slot * 8] & 1) != 0;

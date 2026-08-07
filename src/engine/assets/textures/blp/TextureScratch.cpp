@@ -17,23 +17,23 @@
 #include "config.hpp"
 #include "common/Log.hpp"
 #include "common/Mem.hpp"
+#include "engine/hook/Registry.hpp"
 #include "offsets/engine/Gx.hpp"
-#include "runtime/ModuleInstall.hpp"
 
 #include <cstdint>
 
 // wxl-modern-blp can serve tileset diffuse textures at up to 2048 px, but the client sizes its
 // mip decode scratch at boot for 1024 px chains; a wider chain overflows it. The two size operands are
-// patched through the boot-installer seam (DllMain, before any client boot code), so the allocation is
-// made wide. Each site is verified against the stock operand first; an unexpected value leaves the
-// client untouched.
+// patched through the Boot-phase installer seam (DllMain, before any client boot code), so the
+// allocation is made wide. Each site is verified against the stock operand first; an unexpected value
+// leaves the client untouched.
 namespace wxl::modern::assets::textures::blp
 {
     namespace
     {
         namespace gxoff = wxl::offsets::engine::gx;
 
-        void WidenMipScratch()
+        bool WidenMipScratch()
         {
             const uintptr_t sites[2] = { gxoff::kMipScratchDimHImm, gxoff::kMipScratchDimWImm };
             for (uintptr_t site : sites)
@@ -43,7 +43,7 @@ namespace wxl::modern::assets::textures::blp
                 {
                     WLOG_INFO("texture: mip-scratch operand at %08X is %08X, expected %08X - not patched",
                               uint32_t(site), current, gxoff::kMipScratchStockEdge);
-                    return;
+                    return true;
                 }
             }
             for (uintptr_t site : sites)
@@ -51,17 +51,11 @@ namespace wxl::modern::assets::textures::blp
                                       sizeof(uint32_t));
             WLOG_INFO("texture: mip scratch widened to %u (2048-wide chains fit)",
                       gxoff::kMipScratchWideEdge);
+            return true;
         }
-
-        // File-scope registration: the patch must precede the client's boot-time scratch allocation, so
-        // it rides the boot-installer seam (DllMain) rather than the deferred module installer.
-        struct Registrar
-        {
-            Registrar()
-            {
-                // Install the mip-scratch widen ahead of the client's boot-time scratch allocation.
-                wxl::runtime::modules::RegisterBoot("wxl-modern-assets blp scratch", &WidenMipScratch);
-            }
-        } g_registrar;
     }
 }
+
+WXL_REGISTER_FEATURE_PHASED("wxl-modern-blp mip scratch", true,
+                            wxl::modern::assets::textures::blp::WidenMipScratch,
+                            wxl::hook::Phase::Boot)

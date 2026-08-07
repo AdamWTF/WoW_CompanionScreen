@@ -141,6 +141,21 @@ typedef struct WXL_Api
                              int priority);
 
     /**
+     * @brief Adds a detour to a hook point the core knows by name, alongside any party already
+     *        detouring it.
+     *
+     * Same chaining semantics as HookAttach, except the core resolves pointName against its own
+     * hook-point table instead of the caller supplying a raw address -- an extension that only ever
+     * attaches to named points never needs to include an offsets/ header itself.
+     * @param pointName  name the core registered the hook point under.
+     * @param detour     replacement function.
+     * @param original   receives the next link in the chain.
+     * @param priority   chain position; see WXL_HOOK_DEFAULT_PRIORITY.
+     * @return non-zero if the detour was registered; zero if pointName is not a registered hook point.
+     */
+    int(__cdecl* HookAttachByName)(const char* pointName, void* detour, void** original, int priority);
+
+    /**
      * @brief Offers a service to other extensions.
      *
      * The core stores the name, version and pointer without interpreting them, so two extensions can

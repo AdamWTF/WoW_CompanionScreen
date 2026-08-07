@@ -22,7 +22,6 @@
 #include "common/Log.hpp"
 #include "game/Gx.hpp"
 #include "runtime/Extensions.hpp"
-#include "runtime/ModuleInstall.hpp"
 
 /**
  * @brief IAT anchor; the patcher imports this symbol so the loader maps the DLL.
@@ -44,7 +43,6 @@ namespace
      */
     DWORD WINAPI MainThread(LPVOID)
     {
-        wxl::runtime::modules::RunEarly();
         wxl::runtime::storage::Install();
 
         // Wait for the graphics device (and the window) before installing detours that publish the
@@ -53,7 +51,6 @@ namespace
             Sleep(100);
 
         wxl::hook::InstallRegisteredFeatures(wxl::hook::Phase::Normal);
-        wxl::runtime::modules::RunAll(); // module-registered installers (wxl-modern-adt, ...)
         wxl::hook::EnableAll();
         wxl::hook::InstallRegisteredFeatures(wxl::hook::Phase::PostEnable);
 
@@ -95,10 +92,6 @@ BOOL WINAPI DllMain(HINSTANCE module, DWORD reason, LPVOID)
         // immediately so these detours are armed when the client boot code reaches them.
         wxl::hook::InstallRegisteredFeatures(wxl::hook::Phase::Boot);
         wxl::hook::EnableAll();
-
-        // Module boot installers: memory patches that must land before the client's own startup code
-        // runs (boot-sized allocations), e.g. the wxl-modern-blp mip-scratch widening.
-        wxl::runtime::modules::RunBoot();
 
         CloseHandle(CreateThread(nullptr, 0, &MainThread, nullptr, 0, nullptr));
     }

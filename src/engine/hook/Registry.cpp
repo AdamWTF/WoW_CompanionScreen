@@ -51,7 +51,12 @@ namespace wxl::hook
         int installed = 0;
         for (const Entry& entry : Registry())
         {
-            if (!entry.enabled || entry.phase != phase) continue;
+            if (entry.phase != phase) continue;
+            if (!entry.enabled)
+            {
+                WLOG_DEBUG("feature: '%s' disabled", entry.name);
+                continue;
+            }
             if (entry.install && entry.install())
             {
                 WLOG_DEBUG("feature: installed '%s'", entry.name);

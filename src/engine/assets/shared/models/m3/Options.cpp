@@ -16,8 +16,8 @@
 
 #include "Options.hpp"
 
-#include <algorithm>
 #include <cctype>
+#include <cstdlib>
 
 namespace wxl::modern::assets::m3
 {
@@ -30,14 +30,15 @@ namespace wxl::modern::assets::m3
             while (b > a && std::isspace(static_cast<unsigned char>(s[b - 1]))) --b;
             return s.substr(a, b - a);
         }
-    }
 
-    std::string NormalizePath(std::string s)
-    {
-        std::replace(s.begin(), s.end(), '/', '\\');
-        std::transform(s.begin(), s.end(), s.begin(),
-                       [](unsigned char c) { return char(std::tolower(c)); });
-        return s;
+        // Leaves dst untouched on a malformed value instead of throwing: the sidecar file is
+        // modder-authored text, and one bad key shouldn't take the rest of the option set down with it.
+        void ParseFloat(const std::string& s, float& dst)
+        {
+            char* end = nullptr;
+            const float v = std::strtof(s.c_str(), &end);
+            if (end != s.c_str()) dst = v;
+        }
     }
 
     void ParseOptions(const std::string& text, ModelSource& src)
@@ -58,18 +59,18 @@ namespace wxl::modern::assets::m3
             else if (key == "map")     src.map = val;
             else if (key == "tex")     src.tex = val;
             else if (key == "texroot") src.texroot = val;
-            else if (key == "lift")    src.lift = std::stof(val);
+            else if (key == "lift")    ParseFloat(val, src.lift);
             else if (key == "ribmesh") src.ribmesh = (val != "0");
-            else if (key == "ribtilt") src.ribtilt = std::stof(val);
-            else if (key == "riblen")  src.riblen = std::stof(val);
-            else if (key == "ribbasewidth") src.ribbasewidth = std::stof(val);
+            else if (key == "ribtilt") ParseFloat(val, src.ribtilt);
+            else if (key == "riblen")  ParseFloat(val, src.riblen);
+            else if (key == "ribbasewidth") ParseFloat(val, src.ribbasewidth);
             else if (key == "ambient") src.ambient = val;
             else if (key == "parcolor")
             {
                 size_t p = 0;
                 for (int c = 0; c < 3 && p != std::string::npos; ++c)
                 {
-                    src.parcolor[c] = std::stof(val.substr(p));
+                    ParseFloat(val.substr(p), src.parcolor[c]);
                     p = val.find(',', p);
                     if (p != std::string::npos) ++p;
                 }
