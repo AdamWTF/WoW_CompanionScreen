@@ -1,21 +1,16 @@
-# WarcraftXL. Two artifact families share this tree and cannot share one toolchain platform, so the file
-# is platform-aware: configure -A Win32 for the injected DLL + patcher + proxy (32-bit), and -A x64 with
-# -DWXL_BUILD_HOST=ON for the asset host (64-bit). build.ps1 drives both.
+# WarcraftXL. Everything builds Win32: the target client is a 32-bit process, and every archive an
+# extension needs -- named, loose-directory, or a Patch-* the client's own patch-name scan finds --
+# now mounts and reads natively (see docs/host-retirement-m3.md; there is no 64-bit asset host anymore).
 # Copyright (C) 2026 WarcraftXL. GPLv3 (see source headers).
 
 cmake_minimum_required(VERSION 3.20)
-# C is enabled for the vendored C libraries pulled in via add_subdirectory (MinHook; StormLib in the host).
+# C is enabled for the vendored C libraries pulled in via add_subdirectory (MinHook).
 project(WarcraftXL LANGUAGES CXX C)
 
-# Static CRT everywhere: the DLLs load inside the player's Wow.exe and the host runs standalone on
-# machines that have no reason to carry the toolset's brand-new VC++ redistributable. A dynamic CRT
-# turns a missing/stale redist into a loader failure at process start (0xc0000142) with no log at all.
+# Static CRT: the DLLs load inside the player's Wow.exe, which has no reason to carry the toolset's
+# brand-new VC++ redistributable. A dynamic CRT turns a missing/stale redist into a loader failure at
+# process start (0xc0000142) with no log at all.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-
-# The 64-bit asset host (WarcraftXLHost.exe) is opt-in: OFF by default so a contributor who only wants the
-# DLL needs no x64 toolchain and pays no build/deploy cost. build.ps1 -Host flips it on in an x64 configure.
-option(WXL_BUILD_HOST "Build WarcraftXLHost.exe (64-bit asset host)" OFF)
-
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -58,19 +53,21 @@ endif()
 if(CMAKE_SIZEOF_VOID_P EQUAL 4)
     # --- Automatic, recursive source discovery (no hand-written paths) -----------------------------
     # CONFIGURE_DEPENDS re-globs at build time, so dropping a file (or a whole script) needs no edit here.
-    # The DLL excludes the patcher/host trees and the proxy (engine/gpu builds its own target below).
+    # The DLL excludes the patcher tree and the proxy (engine/gpu builds its own target below).
     file(GLOB_RECURSE WXL_CORE_SRC CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
 
-    list(FILTER WXL_CORE_SRC EXCLUDE REGEX "/src/(patcher|host)/|/src/engine/gpu/|/src/engine/assets/shared/models/m2/")
+    # models/m2, models/m3, textures/blp and textures/dds are each owned by exactly one extension target
+    # (wxl-m2, wxl-modern-m3, wxl-modern-blp -- added to their own target below); none of them has a
+    # consumer in the plain DLL, so excluding them here is what keeps that true instead of shipping
+    # four unused cross-target .cpp files inside WarcraftXL.dll by glob accident.
+    list(FILTER WXL_CORE_SRC EXCLUDE REGEX
+         "/src/patcher/|/src/engine/gpu/|/src/engine/assets/shared/(models/m2|models/m3|textures/blp|textures/dds)/")
 
     # =========================================================================
     # Target 1: WarcraftXL.dll  (32-bit, injected) = engine + features + assets pipelines
     #   The modern-assets DLL + cross-target-shared halves now live in src/engine/assets/ and are caught
-    #   by the src/*.cpp glob above (the shared half also compiles into the 64-bit host, added there).
+    #   by the src/*.cpp glob above.
     # =========================================================================
-    # FlatBuffers runtime (flexbuffers string utils) for the host IPC client (engine/storage).
-    set(WXL_FLATBUFFERS "${CMAKE_CURRENT_SOURCE_DIR}/deps/flatbuffers/src/util.cpp")
-
     # Dear ImGui: the in-game tuning panels (engine/ui). Listed explicitly rather than globbed -- only
     # the core plus the DX9 and Win32 backends are vendored, and the demo window is deliberately not.
     set(WXL_IMGUI
@@ -81,13 +78,12 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
         "${CMAKE_CURRENT_SOURCE_DIR}/deps/imgui/backends/imgui_impl_dx9.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/deps/imgui/backends/imgui_impl_win32.cpp")
 
-    add_library(WarcraftXL SHARED ${WXL_CORE_SRC} ${WXL_FLATBUFFERS} ${WXL_IMGUI})
+    add_library(WarcraftXL SHARED ${WXL_CORE_SRC} ${WXL_IMGUI})
     set_target_properties(WarcraftXL PROPERTIES OUTPUT_NAME "WarcraftXL" PREFIX "")
     target_include_directories(WarcraftXL PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/include"   # the extension ABI, shared verbatim with extensions
         "${CMAKE_CURRENT_SOURCE_DIR}/deps/minhook/include"
-        "${CMAKE_CURRENT_SOURCE_DIR}/deps/flatbuffers/include"
         "${CMAKE_CURRENT_SOURCE_DIR}/deps/imgui"
         "${CMAKE_CURRENT_SOURCE_DIR}/deps/imgui/backends")
 
@@ -111,8 +107,7 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
     file(GLOB_RECURSE WXL_PATCHER_CORE CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/patcher/*.cpp")
 
     # src/common/ compiles into every binary (leveled logger, config, shared helpers): the patcher and
-    # proxy do not link the engine, and the host is another architecture, so the shared infrastructure
-    # is object-level, not a link dependency.
+    # proxy do not link the engine, so the shared infrastructure is object-level, not a link dependency.
     file(GLOB WXL_COMMON_SRC CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/common/*.cpp")
 
     add_executable(wxl-patcher ${WXL_PATCHER_CORE} ${WXL_COMMON_SRC})
@@ -161,11 +156,14 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
             continue()
         endif()
 
-        if(wxl_ext_name STREQUAL "wxl-m2")
-            file(GLOB WXL_M2_SHARED_SRC CONFIGURE_DEPENDS
-                 "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/assets/shared/models/m2/*.cpp")
-            list(APPEND WXL_EXT_SRC ${WXL_M2_SHARED_SRC})
-        endif()
+        # An extension that needs cross-target-shared source (src/engine/assets/shared/...) declares it
+        # in its own extensions/<name>/shared.cmake (populates WXL_EXT_SHARED_SRC) instead of this loop
+        # hardcoding extension names -- drop a new extension in, give it a shared.cmake if it needs
+        # one, and it's picked up with no edit here. Reset before each include: file(GLOB) in the
+        # included script would otherwise accumulate the previous iteration's stale value.
+        set(WXL_EXT_SHARED_SRC "")
+        include("${wxl_ext_dir}/shared.cmake" OPTIONAL)
+        list(APPEND WXL_EXT_SRC ${WXL_EXT_SHARED_SRC})
 
         add_library(${wxl_ext_name} SHARED ${WXL_EXT_SRC} ${WXL_SDK_SRC})
         set_target_properties(${wxl_ext_name} PROPERTIES OUTPUT_NAME "${wxl_ext_name}" PREFIX "")
@@ -187,52 +185,7 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
     endforeach()
 endif()
 
-# =============================================================================
-# 64-bit family (opt-in): WarcraftXLHost.exe = archive owner + IPC transport.
-#   Format-blind: src/host/ (incl. assets/ host handlers + resolver/) + the cross-target byte transforms
-#   shared with the DLL in src/engine/assets/shared/. StormLib + FlatBuffers (deps/). Requires x64.
-# =============================================================================
-if(WXL_BUILD_HOST AND CMAKE_SIZEOF_VOID_P EQUAL 8)
-    # StormLib (vendored) supplies MPQ reading. Static, read-only use; no install/tests.
-    set(STORM_SKIP_INSTALL ON CACHE BOOL "" FORCE)
-    set(STORM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-    add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/deps/stormlib" "${CMAKE_BINARY_DIR}/stormlib")
-
-    # src/host/ = host core + the ex-module host handlers (assets/, resolver/), all self-registering.
-    file(GLOB_RECURSE WXL_HOST_CORE CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/host/*.cpp")
-    # The cross-target byte transforms shared with the DLL (ex scripts/*/shared) now live here.
-    file(GLOB_RECURSE WXL_HOST_SHARED CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/assets/shared/*.cpp")
-
-    # The shared infrastructure (leveled logger, config) compiles straight into the host too.
-    file(GLOB WXL_COMMON_SRC CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/common/*.cpp")
-
-    add_executable(WarcraftXLHost
-        ${WXL_HOST_CORE}
-        ${WXL_HOST_SHARED}
-        ${WXL_COMMON_SRC}
-        "${CMAKE_CURRENT_SOURCE_DIR}/deps/flatbuffers/src/util.cpp")
-    set_target_properties(WarcraftXLHost PROPERTIES OUTPUT_NAME "WarcraftXLHost")
-    target_include_directories(WarcraftXLHost PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}/src"
-        "${CMAKE_CURRENT_SOURCE_DIR}/src/host"
-        "${CMAKE_CURRENT_SOURCE_DIR}/deps/flatbuffers/include"
-        "${CMAKE_CURRENT_SOURCE_DIR}/deps/stormlib/src")
-    target_link_libraries(WarcraftXLHost PRIVATE storm)
-    target_compile_definitions(WarcraftXLHost PRIVATE ${WXL_DEFS} WXL_HOST=1)
-
-    source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${WXL_HOST_CORE} ${WXL_HOST_SHARED})
-
-    # Deploy the host into the client's Utils folder after build.
-    if(CLIENT_PATH)
-        add_custom_command(TARGET WarcraftXLHost POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E make_directory "${CLIENT_PATH}/Utils"
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:WarcraftXLHost>" "${CLIENT_PATH}/Utils/WarcraftXLHost.exe"
-            COMMENT "Deploy WarcraftXLHost.exe -> ${CLIENT_PATH}/Utils")
-    endif()
-endif()
-
-# A 64-bit configure that did not ask for the host builds nothing; nudge toward the right flags.
-if(CMAKE_SIZEOF_VOID_P EQUAL 8 AND NOT WXL_BUILD_HOST)
-    message(WARNING "x64 configure without -DWXL_BUILD_HOST=ON builds nothing; the 32-bit family needs -A Win32.")
+# Everything here is Win32-only; a 64-bit configure builds nothing.
+if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+    message(WARNING "x64 configure builds nothing here; configure -A Win32.")
 endif()

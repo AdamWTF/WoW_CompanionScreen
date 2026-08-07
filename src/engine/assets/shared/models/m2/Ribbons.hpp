@@ -16,9 +16,6 @@
 
 #pragma once
 
-// Live-engine, DLL-only: this is device state at draw time, so it and its event dependency are
-// excluded from the host build (WXL_HOST).
-#ifndef WXL_HOST
 #include "engine/events/Event.hpp"
 
 /**
@@ -38,4 +35,3 @@ namespace wxl::modern::assets::m2::ribbons
      */
     void OnRibbonDraw(const wxl::events::RibbonDrawArgs& a);
 }
-#endif

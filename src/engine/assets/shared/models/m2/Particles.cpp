@@ -16,7 +16,6 @@
 
 #include "Particles.hpp"
 
-#ifndef WXL_HOST
 #include "game/M2.hpp" // PushAlphaRef: live-engine, DLL-only draw path
 
 namespace wxl::modern::assets::m2::particles
@@ -40,4 +39,3 @@ namespace wxl::modern::assets::m2::particles
             wxl::game::m2::PushAlphaRef(kSourceAlphaKeyRef);
     }
 }
-#endif

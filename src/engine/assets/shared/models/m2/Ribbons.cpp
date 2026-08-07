@@ -16,7 +16,6 @@
 
 #include "Ribbons.hpp"
 
-#ifndef WXL_HOST
 namespace wxl::modern::assets::m2::ribbons
 {
     /**
@@ -31,4 +30,3 @@ namespace wxl::modern::assets::m2::ribbons
         *a.useMultiTexture = true;
     }
 }
-#endif

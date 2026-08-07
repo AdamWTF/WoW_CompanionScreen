@@ -1,4 +1,5 @@
-// Opt-in host console: runtime toggles behind the print macros.
+// A growable byte sink, shared by every published interface that hands variable-length bytes back
+// across the extension ABI boundary (no std::vector, no C++ ABI -- see PluginApi.h).
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -14,19 +15,22 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-#include "Console.hpp"
+#ifndef WXL_BYTE_SINK_H
+#define WXL_BYTE_SINK_H
 
-namespace wxl::host
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/** Growable byte sink the caller hands a callee to write output bytes into, in order, once. */
+typedef struct WXL_ByteSink
 {
-    namespace
-    {
-        // Set once during argument parsing, before any worker starts; read-only thereafter.
-        bool g_console = false;
-        bool g_consoleOpenLog = false;
-    }
+    void* ctx;
+    void(__cdecl* Write)(void* ctx, const void* data, unsigned int len);
+} WXL_ByteSink;
 
-    void EnableConsole(bool on) { g_console = on; }
-    void EnableConsoleOpenLog(bool on) { g_consoleOpenLog = on; }
-    bool ConsoleEnabled() { return g_console; }
-    bool ConsoleOpenLogEnabled() { return g_consoleOpenLog; }
+#ifdef __cplusplus
 }
+#endif
+
+#endif // WXL_BYTE_SINK_H

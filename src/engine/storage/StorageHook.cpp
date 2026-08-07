@@ -1,4 +1,5 @@
-// Storage I/O hook: launch the host, then forward archive file opens to it (asset-agnostic).
+// Storage I/O hook: client-side file providers and transforms, layered over the client's own
+// (now fully native) archive reads.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -16,8 +17,6 @@
 
 #include "engine/storage/StorageHook.hpp"
 
-#include "engine/storage/ShmClient.hpp"
-
 #include "common/Config.hpp"
 #include "engine/hook/Hook.hpp"
 #include "common/Log.hpp"
@@ -33,58 +32,44 @@
 #include <mutex>
 #include <string>
 #include <string_view>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
-namespace io  = wxl::offsets::engine::io;
-namespace ipc = wxl::runtime::ipc;
+namespace io = wxl::offsets::engine::io;
 
 namespace
 {
     // Marks a synthetic handle at +0x00 (a native handle holds a small kind there).
     constexpr uint32_t kHandleMagic = 0x464C5857; // 'WXLF'
     constexpr size_t   kMaxArchiveName = 512;     // upper bound when copying a name out of the native boundary
-    constexpr uint32_t kLargeBlobStreamThreshold = 8u * 1024u * 1024u;
-    constexpr uint32_t kModelBlobStreamThreshold = 512u * 1024u;
-    constexpr uint32_t kTextureBlobStreamThreshold = 512u * 1024u;
-    constexpr uint32_t kSoundBlobStreamThreshold = 256u * 1024u;
-    constexpr uint32_t kStreamReadAheadSize = 512u * 1024u;
-    constexpr uint32_t kStreamReadAheadDirectThreshold = 256u * 1024u;
 
 #pragma pack(push, 1)
     /**
      * @brief Synthetic file handle matching the native 0x30-byte file layout.
      *
-     * The +0x14/+0x18/+0x1c fields match the native size/buffer/position fields the engine may read.
+     * The +0x14/+0x18/+0x1c fields match the native size/buffer/position fields the engine may read
+     * directly. Kept at the native size and layout even though every field past +0x1c is now unused
+     * -- other client code may still assume a file handle is 0x30 bytes.
      */
     struct HostFile
     {
         uint32_t magic;        // +0x00  kHandleMagic
-        uint32_t hostId;       // +0x04  host file handle (streaming mode; 0 when buffered)
+        uint32_t reserved04;   // +0x04
         uint32_t reserved08;   // +0x08
         char*    shortName;    // +0x0c
         char*    fullName;     // +0x10
         uint32_t size;         // +0x14
-        uint8_t* buffer;       // +0x18  whole-file bytes when buffered; the mapping when zero-copy; null streaming
+        uint8_t* buffer;       // +0x18  whole-file bytes, always malloc'd
         uint32_t position;     // +0x1c
         uint32_t reserved20;   // +0x20
         uint32_t reserved24;   // +0x24
-        void*    mapView;      // +0x28  blob-section view (zero-copy); null otherwise
-        void*    mapHandle;    // +0x2c  blob-section handle (zero-copy); null otherwise
+        void*    reserved28;   // +0x28
+        void*    reserved2c;   // +0x2c
     };
 #pragma pack(pop)
-    static_assert(sizeof(HostFile) == 0x30, "HostFile must match the native 0x30 file layout");
-
-    struct StreamWindow
-    {
-        uint32_t base = 0;
-        uint32_t size = 0;
-        std::vector<uint8_t> bytes;
-    };
+    static_assert(sizeof(HostFile) == 0x30, "HostFile must match the native 0x30-byte file layout");
 
     /**
-     * @brief Reports whether a handle is a synthetic host handle.
+     * @brief Reports whether a handle is a synthetic handle.
      * @param h  handle to test.
      * @return true when the handle carries kHandleMagic.
      */
@@ -98,67 +83,13 @@ namespace
     io::Storage_FileReadFn  g_origRead  = nullptr;
     io::Storage_FileSeekFn  g_origSeek  = nullptr;
     io::Storage_FileCloseFn g_origClose = nullptr;
-    io::MopaqOpenArchiveFn g_origMopaqOpenArchive = nullptr;
     io::InitializeWowConfigFn g_origInitializeWowConfig = nullptr;
 
-    uint32_t g_served = 0; // files served from the host
-    uint32_t g_missed = 0; // host connected but file not served (read natively)
+    uint32_t g_served = 0; // opens claimed by a client provider or reshaped by a client transform
     uint32_t g_opens  = 0; // intercept attempts
 
-    // Names the host explicitly reported absent. Re-opening one skips the IPC round-trip and goes straight
-    // native. Only a CONFIRMED host miss is recorded here -- never a timeout/desync -- so a transient failure
-    // can never poison a servable file for the session. Capped so a pathological session stays bounded.
-    // The host answers miss for every stock-archive file (the client reads those natively), so a long
-    // session accumulates most of its unique opens here; the cap must hold them all or re-probing returns.
-    std::mutex g_missMutex;
-    std::unordered_set<std::string> g_knownMisses;
-    constexpr size_t kKnownMissCap = 65536;
-
-    std::mutex g_streamWindowMutex;
-    std::unordered_map<HostFile*, StreamWindow> g_streamWindows;
-
-    // Retired window buffers, recycled so streaming is not a steady 512 KB heap alloc/free per
-    // refill. Guarded by g_streamWindowMutex.
-    std::vector<std::vector<uint8_t>> g_windowPool;
-    constexpr size_t kWindowPoolCap = 8;
-
-    /** @brief Returns a pooled buffer resized to fetch, or a fresh one. Takes the window mutex itself. */
-    std::vector<uint8_t> AcquireWindowBuffer(uint32_t fetch)
-    {
-        {
-            std::lock_guard<std::mutex> lock(g_streamWindowMutex);
-            if (!g_windowPool.empty())
-            {
-                std::vector<uint8_t> buf = std::move(g_windowPool.back());
-                g_windowPool.pop_back();
-                buf.resize(fetch);
-                return buf;
-            }
-        }
-        return std::vector<uint8_t>(fetch);
-    }
-
-    /** @brief Pools a retired window buffer. The CALLER holds g_streamWindowMutex. */
-    void RecycleWindowBufferLocked(std::vector<uint8_t>&& buf)
-    {
-        if (buf.capacity() && g_windowPool.size() < kWindowPoolCap)
-        {
-            buf.clear();
-            g_windowPool.push_back(std::move(buf));
-        }
-    }
-
-    void ClearStreamWindow(HostFile* f)
-    {
-        std::lock_guard<std::mutex> lock(g_streamWindowMutex);
-        auto it = g_streamWindows.find(f);
-        if (it == g_streamWindows.end()) return;
-        RecycleWindowBufferLocked(std::move(it->second.bytes));
-        g_streamWindows.erase(it);
-    }
-
-    // Providers/filters are registered by module installers while loader threads already run the
-    // open detours; every access to the two registries goes through this mutex, and iteration
+    // Providers/transforms/filters are registered by module installers while loader threads already
+    // run the open detours; every access to these registries goes through this mutex, and iteration
     // works on a snapshot so no module callback runs under the lock.
     std::mutex& RegistryMutex()
     {
@@ -179,19 +110,23 @@ namespace
         return ClientProviders();
     }
 
-    /**
-     * @brief Tests case-insensitively whether a string ends with a suffix.
-     * @param s       string to test.
-     * @param suffix  suffix to match.
-     * @return true when s ends with suffix.
-     */
-    bool EndsWithCI(std::string_view s, const char* suffix)
+    struct TransformEntry
     {
-        size_t ls = s.size(), lf = strlen(suffix);
-        if (lf > ls) return false;
-        for (size_t i = 0; i < lf; ++i)
-            if (tolower(static_cast<unsigned char>(s[ls - lf + i])) != suffix[i]) return false;
-        return true;
+        std::string suffix; // lowercase, e.g. ".blp"
+        wxl::runtime::storage::ClientTransformFn fn;
+    };
+
+    std::vector<TransformEntry>& ClientTransforms()
+    {
+        static std::vector<TransformEntry> v;
+        return v;
+    }
+
+    /** @brief Returns a snapshot of the client transforms safe to iterate without the lock. */
+    std::vector<TransformEntry> ClientTransformsSnapshot()
+    {
+        std::lock_guard<std::mutex> lock(RegistryMutex());
+        return ClientTransforms();
     }
 
     std::vector<wxl::runtime::storage::ServeFilterFn>& ServeFilters()
@@ -207,6 +142,31 @@ namespace
         return ServeFilters();
     }
 
+    /**
+     * @brief Tests case-insensitively whether a string ends with a suffix.
+     * @param s       string to test.
+     * @param suffix  suffix to match.
+     * @return true when s ends with suffix.
+     */
+    bool EndsWithCI(std::string_view s, std::string_view suffix)
+    {
+        size_t ls = s.size(), lf = suffix.size();
+        if (lf > ls) return false;
+        for (size_t i = 0; i < lf; ++i)
+            if (tolower(static_cast<unsigned char>(s[ls - lf + i])) != tolower(static_cast<unsigned char>(suffix[i])))
+                return false;
+        return true;
+    }
+
+    /** @brief Returns the first registered transform whose suffix matches name, or null. */
+    wxl::runtime::storage::ClientTransformFn FindClientTransform(std::string_view name)
+    {
+        for (const TransformEntry& e : ClientTransformsSnapshot())
+            if (EndsWithCI(name, e.suffix))
+                return e.fn;
+        return nullptr;
+    }
+
     bool VerboseStorageLogs()
     {
         static const bool enabled =
@@ -217,22 +177,13 @@ namespace
     }
 
     /**
-     * @brief Reports whether a name is routed to the host.
+     * @brief Reports whether a name is worth offering to client providers/transforms at all.
      *
      * Skips .pub/.url, which are existence probes rather than archive content. Skips .tex, the per-map
-     * texture catalog nothing here reads: serving its bytes stalls the terrain load, so the open is left
-     * to miss and the loader proceeds without it.
-     *
-     * The reduced-tile sidecar used to be skipped for the same reason, and no longer is -- it now has a
-     * reader (the split-ADT reduced mesh), and that reader is its ONLY opener: the stock client has no
-     * concept of the file and never asks for it. So the bytes can reach nothing but code written to
-     * validate them. Skips audio (.wav/.mp3/.ogg): world sound loads read
-     * through the client's async path, which a synthetic handle never completes (glue-screen music reads
-     * synchronously and survives; world SFX/music never finish loading). No transform targets audio and no
-     * host-only source ships it, so the native archives already serve it correctly. The name is already
-     * validated/non-empty (CopyArchiveName).
+     * texture catalog nothing here reads. Skips audio (.wav/.mp3/.ogg): world sound loads read through
+     * the client's async path, which a synthetic handle never completes.
      * @param name  file name to test.
-     * @return true when the name should be served from the host.
+     * @return true when the name is worth checking.
      */
     bool ShouldIntercept(std::string_view name)
     {
@@ -243,188 +194,10 @@ namespace
     }
 
     /**
-     * @brief Returns a stable cache key for archive names that may vary by slash or case.
-     * @param name  validated archive name.
-     * @return lowercased name with forward slashes folded to backslashes.
-     */
-    std::string NameKey(std::string_view name)
-    {
-        std::string key(name);
-        for (char& c : key)
-            c = (c == '/') ? '\\' : static_cast<char>(tolower(static_cast<unsigned char>(c)));
-        return key;
-    }
-
-    bool StreamReadAheadEnabled()
-    {
-        static const bool enabled =
-            wxl::config::Flag("WXL_STREAM_READAHEAD", "WarcraftXL_stream_readahead.disable");
-        return enabled;
-    }
-
-    bool StreamWholeLargeModelsEnabled()
-    {
-        static const bool enabled =
-            wxl::config::Flag("WXL_STREAM_WHOLE_LARGE_M2", "WarcraftXL_stream_whole_large_m2.disable");
-        return enabled;
-    }
-
-    bool StreamLargeSoundsEnabled()
-    {
-        static const bool enabled =
-            wxl::config::Flag("WXL_STREAM_SOUNDS", "WarcraftXL_stream_sounds.disable");
-        return enabled;
-    }
-
-    bool StreamLargeTexturesEnabled()
-    {
-        static const bool enabled =
-            wxl::config::Flag("WXL_STREAM_TEXTURES", "WarcraftXL_stream_textures.disable");
-        return enabled;
-    }
-
-    uint32_t ModelBlobStreamThreshold()
-    {
-        static const uint32_t threshold = wxl::config::BytesMbKb(
-            "WXL_STREAM_MODEL_THRESHOLD_MB", "WXL_STREAM_MODEL_THRESHOLD_KB",
-            kModelBlobStreamThreshold, 64, 2048u * 1024u);
-        return threshold;
-    }
-
-    uint32_t SoundBlobStreamThreshold()
-    {
-        static const uint32_t threshold = wxl::config::BytesMbKb(
-            "WXL_STREAM_SOUND_THRESHOLD_MB", "WXL_STREAM_SOUND_THRESHOLD_KB",
-            kSoundBlobStreamThreshold, 32, 2048u * 1024u);
-        return threshold;
-    }
-
-    uint32_t TextureBlobStreamThreshold()
-    {
-        static const uint32_t threshold = wxl::config::BytesMbKb(
-            "WXL_STREAM_TEXTURE_THRESHOLD_MB", "WXL_STREAM_TEXTURE_THRESHOLD_KB",
-            kTextureBlobStreamThreshold, 32, 2048u * 1024u);
-        return threshold;
-    }
-
-    bool IsModelFile(std::string_view name)
-    {
-        return EndsWithCI(name, ".m2") || EndsWithCI(name, ".mdx");
-    }
-
-    bool IsSoundFile(std::string_view name)
-    {
-        return EndsWithCI(name, ".wav") || EndsWithCI(name, ".mp3") || EndsWithCI(name, ".ogg");
-    }
-
-    bool IsTextureFile(std::string_view name)
-    {
-        return EndsWithCI(name, ".blp");
-    }
-
-    uint32_t ReadHostDirect(HostFile* f, uint32_t off, void* dst, uint32_t want)
-    {
-        uint8_t* p = static_cast<uint8_t*>(dst);
-        uint32_t got = 0;
-        while (got < want)
-        {
-            uint32_t n = ipc::FileReadChunk(f->hostId, off + got, p + got, want - got);
-            if (n == 0) break;
-            got += n;
-        }
-        return got;
-    }
-
-    uint32_t ReadHostStream(HostFile* f, void* dst, uint32_t want)
-    {
-        if (!StreamReadAheadEnabled() || want >= kStreamReadAheadDirectThreshold)
-            return ReadHostDirect(f, f->position, dst, want);
-
-        uint8_t* out = static_cast<uint8_t*>(dst);
-        uint32_t got = 0;
-        while (got < want)
-        {
-            const uint32_t pos = f->position + got;
-            uint32_t copied = 0;
-            {
-                std::lock_guard<std::mutex> lock(g_streamWindowMutex);
-                auto it = g_streamWindows.find(f);
-                if (it != g_streamWindows.end())
-                {
-                    const StreamWindow& w = it->second;
-                    if (w.size && pos >= w.base && pos < w.base + w.size)
-                    {
-                        const uint32_t inWindow = pos - w.base;
-                        const uint32_t available = w.size - inWindow;
-                        copied = (available < want - got) ? available : (want - got);
-                        memcpy(out + got, w.bytes.data() + inWindow, copied);
-                    }
-                }
-            }
-            if (copied)
-            {
-                got += copied;
-                continue;
-            }
-
-            const uint32_t remaining = (pos < f->size) ? (f->size - pos) : 0;
-            const uint32_t fetch = (remaining < kStreamReadAheadSize) ? remaining : kStreamReadAheadSize;
-            if (!fetch) break;
-
-            std::vector<uint8_t> fresh = AcquireWindowBuffer(fetch);
-            uint32_t n = ipc::FileReadChunk(f->hostId, pos, fresh.data(), fetch);
-            if (n == 0)
-            {
-                std::lock_guard<std::mutex> lock(g_streamWindowMutex);
-                RecycleWindowBufferLocked(std::move(fresh));
-                break;
-            }
-            fresh.resize(n);
-
-            {
-                std::lock_guard<std::mutex> lock(g_streamWindowMutex);
-                StreamWindow& w = g_streamWindows[f];
-                w.base = pos;
-                w.size = n;
-                RecycleWindowBufferLocked(std::move(w.bytes)); // retire the replaced window's buffer
-                w.bytes = std::move(fresh);
-
-                const uint32_t copyNow = (w.size < want - got) ? w.size : (want - got);
-                memcpy(out + got, w.bytes.data(), copyNow);
-                got += copyNow;
-            }
-        }
-        return got;
-    }
-
-    /**
-     * @brief Tests whether the host already reported this name absent.
-     * @param key  normalized archive name key.
-     * @return true when the name can go straight to native fallback.
-     */
-    bool KnownMiss(const std::string& key)
-    {
-        std::lock_guard<std::mutex> lock(g_missMutex);
-        return g_knownMisses.find(key) != g_knownMisses.end();
-    }
-
-    /**
-     * @brief Records a confirmed host miss, capped so pathological sessions do not grow unbounded.
-     * @param key  normalized archive name key.
-     */
-    void RememberMiss(std::string&& key)
-    {
-        std::lock_guard<std::mutex> lock(g_missMutex);
-        if (g_knownMisses.size() < kKnownMissCap)
-            g_knownMisses.insert(std::move(key));
-    }
-
-    /**
      * @brief Copies a plausible archive path out of the native call boundary.
      *
      * The native open surface occasionally receives non-path sentinels or stale small integers whose bytes
-     * look like a string (e.g. a lone 0x01). Keeping those out of the host IPC path stops one bogus open from
-     * desynchronising later requests. Validates content only -- a wild pointer is assumed not to occur here.
+     * look like a string (e.g. a lone 0x01). Validates content only -- a wild pointer is assumed not to occur here.
      * @param name  native name pointer.
      * @param out   receives a bounded, validated copy.
      * @return true when the bytes look like a normal archive path.
@@ -456,229 +229,155 @@ namespace
         return p;
     }
 
-    bool MakeHostHandleFromOpenResult(const std::string& hostName, const std::string& handleName,
-                                      uint32_t flags, ipc::FileOpenResult& r, void** out,
-                                      const char* logSuffix)
+    /**
+     * @brief Builds a buffered synthetic handle owning a copy of bytes.
+     * @param name  file name the handle answers to (logging + module filters).
+     * @param data  bytes to copy in; may be null when size is 0.
+     * @param size  byte count.
+     * @return the new handle, or null on allocation failure.
+     */
+    HostFile* BuildBufferedHandle(const std::string& name, const uint8_t* data, uint32_t size)
     {
         auto* f = static_cast<HostFile*>(calloc(1, sizeof(HostFile)));
-        if (!f) return false;
-
+        if (!f) return nullptr;
         f->magic = kHandleMagic;
-        f->size = r.size;
-        f->position = 0;
-        f->fullName = DupName(handleName.c_str());
+        f->size = size;
+        f->buffer = static_cast<uint8_t*>(malloc(size ? size : 1));
+        if (!f->buffer) { free(f); return nullptr; }
+        if (size && data) memcpy(f->buffer, data, size);
+        f->fullName = DupName(name.c_str());
         f->shortName = f->fullName;
 
-        bool wholeFile = (flags & io::kOpenWholeFile) != 0;
-        const char* mode;
-        bool ok = true;
-        void* view = nullptr;
-        void* mapHandle = nullptr;
-        const bool modelBlob = r.id != 0 && IsModelFile(handleName);
-        const bool textureBlob = r.id != 0 && IsTextureFile(handleName);
-        const bool soundBlob = r.id != 0 && IsSoundFile(handleName);
-        const bool largeBlob = r.id != 0 && r.size >= kLargeBlobStreamThreshold;
-        const bool streamModelBlob = modelBlob && r.size >= ModelBlobStreamThreshold() &&
-                                     StreamWholeLargeModelsEnabled();
-        const bool streamTextureBlob = !wholeFile && textureBlob && r.size >= TextureBlobStreamThreshold() &&
-                                       StreamLargeTexturesEnabled();
-        const bool streamSoundBlob = soundBlob && r.size >= SoundBlobStreamThreshold() &&
-                                     StreamLargeSoundsEnabled();
-        if (r.id == 0)
+        for (wxl::runtime::storage::ServeFilterFn filter : ServeFiltersSnapshot())
         {
-            // Inline: bytes came back in the open response.
-            f->buffer = static_cast<uint8_t*>(malloc(r.size ? r.size : 1));
-            if (f->buffer && r.size) memcpy(f->buffer, r.inlineData.data(), r.size);
-            ok = (f->buffer != nullptr);
-            mode = "inline";
+            const uint32_t served = filter(name.c_str(), f->buffer, f->size);
+            if (served < f->size) f->size = served;
         }
-        else if ((largeBlob && !wholeFile) || streamModelBlob || streamTextureBlob || streamSoundBlob)
-        {
-            // Keep large host blobs in the 64-bit host and stream chunks on Read().
-            // Mapping every 20-30 MB HD character M2, decode-copied BLP, or FMOD-copied audio costs
-            // precious 32-bit address space.
-            f->buffer = nullptr;
-            f->hostId = r.id;
-            mode = streamModelBlob ? "stream-model" :
-                   (streamTextureBlob ? "stream-texture" :
-                   (streamSoundBlob ? "stream-sound" : "stream-large"));
-        }
-        else if (largeBlob && wholeFile)
-        {
-            // Whole-file opens need handle+0x18 populated. Copy once, then release the host section so
-            // the client does not hold both a malloc buffer and a mapped view for the same large file.
-            // A transient map turns the pull into one memcpy instead of one 512 KB IPC round trip per
-            // chunk; the chunk loop remains as the fallback when the section cannot be mapped.
-            f->buffer = static_cast<uint8_t*>(malloc(r.size ? r.size : 1));
-            uint32_t off = 0;
-            void* view = nullptr;
-            void* viewHandle = nullptr;
-            if (f->buffer && r.size && ipc::MapBlob(r.id, r.size, view, viewHandle))
-            {
-                memcpy(f->buffer, view, r.size);
-                ipc::UnmapBlob(view, viewHandle);
-                off = r.size;
-            }
-            while (f->buffer && off < r.size)
-            {
-                uint32_t n = ipc::FileReadChunk(r.id, off, f->buffer + off, r.size - off);
-                if (n == 0) break;
-                off += n;
-            }
-            ipc::FileClose(r.id);
-            ok = (f->buffer != nullptr && off == r.size);
-            mode = "whole-large";
-        }
-        else if (ipc::MapBlob(r.id, r.size, view, mapHandle))
-        {
-            // Zero-copy: map the host's section read-only and read bytes straight from it.
-            f->buffer = static_cast<uint8_t*>(view);
-            f->mapView = view;
-            f->mapHandle = mapHandle;
-            f->hostId = r.id;
-            mode = "map";
-        }
-        else if (wholeFile)
-        {
-            // Buffered: pull all bytes now, release the host handle.
-            f->buffer = static_cast<uint8_t*>(malloc(r.size ? r.size : 1));
-            uint32_t off = 0;
-            while (f->buffer && off < r.size)
-            {
-                uint32_t n = ipc::FileReadChunk(r.id, off, f->buffer + off, r.size - off);
-                if (n == 0) break;
-                off += n;
-            }
-            ipc::FileClose(r.id);
-            ok = (f->buffer != nullptr && off == r.size);
-            mode = "whole";
-        }
-        else
-        {
-            // Streaming: keep the host handle, pull chunks on demand.
-            f->buffer = nullptr;
-            f->hostId = r.id;
-            mode = "stream";
-        }
+        return f;
+    }
 
-        // Module filters may consume/record trailing side tables and trim them before native parsing.
-        if (ok && f->buffer && f->size)
-            for (wxl::runtime::storage::ServeFilterFn filter : ServeFiltersSnapshot())
-            {
-                const uint32_t served = filter(hostName.c_str(), f->buffer, f->size);
-                if (served < f->size) f->size = served;
-            }
-
-        if (ok)
+    /**
+     * @brief Tries every registered client provider for name, building a synthetic handle on a claim.
+     * @param name  validated archive name.
+     * @param out   receives the synthetic handle on a claim.
+     * @return true on a claim, false to let the native open run.
+     */
+    bool TryClientProvider(const std::string& name, void** out)
+    {
+        std::vector<uint8_t> provided;
+        for (auto fn : ClientProvidersSnapshot())
         {
+            if (!fn(name.c_str(), provided)) continue;
+            HostFile* f = BuildBufferedHandle(name, provided.data(), static_cast<uint32_t>(provided.size()));
+            if (!f) break;
             if (out) *out = f;
-            if (VerboseStorageLogs() && g_served < 60)
-                WLOG_INFO("Storage: serve '%s' (%u B, %s) from host%s",
-                          handleName.c_str(), r.size, mode, logSuffix ? logSuffix : "");
             ++g_served;
+            if (VerboseStorageLogs() && g_served < 60)
+                WLOG_INFO("Storage: '%s' supplied by client provider (%u B)", name.c_str(), f->size);
             return true;
         }
-
-        free(f->buffer);
-        free(f->fullName);
-        free(f);
         return false;
     }
 
     /**
-     * @brief Attempts to serve an open from the host, building a synthetic handle on a hit.
-     * @param archive  archive object; specific-archive opens (non-null) stay native except .anim
-     *                 sibling loads, which need the host transform path.
+     * @brief Attempts a client-provider claim before the native open runs.
+     * @param archive  archive object; specific-archive opens (non-null) stay native.
      * @param name     file name.
-     * @param flags    native open flags.
-     * @param out      receives the synthetic handle on a host hit.
-     * @return true on a host hit, false to let the native open run.
+     * @param out      receives the resulting handle on a claim.
+     * @return true on a claim, false to let the native open run.
      */
-    bool TryServe(void* archive, const char* name, uint32_t flags, void** out)
+    bool TryServe(void* archive, const char* name, void** out)
     {
         std::string safeName;
         if (!CopyArchiveName(name, safeName) || !ShouldIntercept(safeName)) return false;
 
-        // Specific-archive opens usually name files the client wants from one concrete MPQ. External M2
-        // sequence loads are the exception: modern .anim siblings need the same host normalization as
-        // regular archive opens, otherwise AFM2/AFSB/raw modern payloads bypass wxl-modern-anim.
-        const bool specificAnim = archive != nullptr && EndsWithCI(safeName, ".anim");
-        if (archive != nullptr && !specificAnim) return false;
+        // Specific-archive opens usually name files the client wants from one concrete MPQ; a
+        // provider deals in served *names*, not archive membership, so it stays scoped to the
+        // generic (archive == nullptr) search-path opens.
+        if (archive != nullptr) return false;
 
         if ((++g_opens % 2000) == 0)
-            WLOG_INFO("Storage stats: opens=%u served=%u missed=%u", g_opens, g_served, g_missed);
+            WLOG_INFO("Storage stats: opens=%u served=%u", g_opens, g_served);
 
-        // Client-side virtual providers: checked before IPC to avoid a host round-trip.
-        // A provider returns true and fills `provided` to claim the file.
-        {
-            std::vector<uint8_t> provided;
-            for (auto fn : ClientProvidersSnapshot())
-            {
-                if (!fn(safeName.c_str(), provided)) continue;
-                auto* f = static_cast<HostFile*>(calloc(1, sizeof(HostFile)));
-                if (!f) break;
-                f->magic     = kHandleMagic;
-                f->size      = static_cast<uint32_t>(provided.size());
-                f->buffer    = static_cast<uint8_t*>(malloc(f->size ? f->size : 1));
-                f->fullName  = DupName(safeName.c_str());
-                f->shortName = f->fullName;
-                if (f->buffer && f->size) memcpy(f->buffer, provided.data(), f->size);
-                if (out) *out = f;
-                ++g_served;
-                return true;
-            }
-        }
-
-        std::string key = NameKey(safeName);
-        // Skip the IPC round-trip for a name the host has already confirmed absent.
-        if (KnownMiss(key)) return false;
-
-        ipc::FileOpenResult r = ipc::FileOpen(safeName, flags);
-        if (r.ok)
-        {
-            if (MakeHostHandleFromOpenResult(safeName, safeName, flags, r, out,
-                                             specificAnim ? " (specific)" : nullptr))
-                return true;
-        }
-        // The host resolves texture-component and helm suffix aliases internally. Keeping that logic there
-        // collapses a miss-or-alias lookup into one IPC request instead of several client round-trips.
-
-        if (r.hostMiss)
-        {
-            // The host answered and reported the file absent: cache it so the next open skips the IPC and
-            // goes straight native. Only a CONFIRMED miss is cached -- a timeout/desync (r.hostMiss == false)
-            // falls back to native for this open alone and is retried next time, never poisoning the name.
-            RememberMiss(std::move(key));
-            if (VerboseStorageLogs() && g_missed < 200)
-            {
-                if (specificAnim)
-                    WLOG_INFO("Storage: anim MISS '%s' (specific) -> native archive", safeName.c_str());
-                else
-                    WLOG_INFO("Storage: MISS '%s' -> native archive", safeName.c_str());
-            }
-            ++g_missed;
-        }
-        return false;
+        return TryClientProvider(safeName, out);
     }
 
     /**
-     * @brief Detours the per-file content open entry point, serving from the host when possible.
+     * @brief Runs a native open's bytes through any matching client transform, swapping the handle.
+     *
+     * Reads the whole file through the native handle it was just given, offers it to the first
+     * matching transform, and on a claim replaces *out with a buffered handle over the reshaped
+     * bytes (closing the native one). On a decline or any read failure the native handle is left for
+     * the real caller, rewound to position 0 first -- this function's own speculative read must never
+     * leave that handle sitting at EOF for whoever actually asked for it.
+     * @param name    validated archive name.
+     * @param handle  the native handle *out already holds.
+     * @param out     receives the replacement handle on a claim.
+     */
+    void TryNativeTransform(const std::string& name, void* handle, void** out)
+    {
+        wxl::runtime::storage::ClientTransformFn transform = FindClientTransform(name);
+        if (!transform) return;
+
+        uint32_t sizeHigh = 0;
+        const uint32_t size = g_origSize(handle, &sizeHigh);
+        if (sizeHigh != 0 || size == 0) return; // >4GB or empty: not a texture, leave native
+
+        std::vector<uint8_t> raw(size);
+        uint32_t got = 0;
+        const bool readOk = g_origRead(handle, raw.data(), size, &got, nullptr, 0) && got == size;
+        if (readOk)
+        {
+            std::vector<uint8_t> reshaped;
+            if (transform(name.c_str(), raw, reshaped))
+            {
+                HostFile* f = BuildBufferedHandle(name, reshaped.data(), static_cast<uint32_t>(reshaped.size()));
+                if (f)
+                {
+                    g_origClose(handle);
+                    if (out) *out = f;
+                    ++g_served;
+                    if (VerboseStorageLogs() && g_served < 60)
+                        WLOG_INFO("Storage: '%s' reshaped by client transform (%u -> %u B)",
+                                  name.c_str(), size, f->size);
+                    return;
+                }
+            }
+        }
+        // Declined, or the speculative read/reshape failed: the native handle stays the real answer,
+        // so undo the read this function did on it before handing it back. distHigh is a real
+        // variable, not null: unlike this file's own SeekDetour, the native Seek's null-tolerance
+        // for that out-param isn't known.
+        uint32_t distHigh = 0;
+        g_origSeek(handle, 0, &distHigh, 0);
+    }
+
+    /**
+     * @brief Detours the per-file content open entry point.
      * @param archive  archive object.
      * @param name     file name.
      * @param flags    native open flags.
      * @param out      receives the resulting handle.
-     * @return 1 on a host hit, otherwise the native open result.
+     * @return 1 on a claim, otherwise the native open result.
      */
     int __stdcall OpenDetour(void* archive, const char* name, uint32_t flags, void** out)
     {
-        if (TryServe(archive, name, flags, out)) return 1;
-        return g_origOpen(archive, name, flags, out);
+        if (TryServe(archive, name, out)) return 1;
+
+        const int result = g_origOpen(archive, name, flags, out);
+        if (result != 0 && out && *out)
+        {
+            std::string safeName;
+            if (CopyArchiveName(name, safeName) && ShouldIntercept(safeName))
+                TryNativeTransform(safeName, *out, out);
+        }
+        return result;
     }
 
     /**
-     * @brief Detours file size, returning the host file size for synthetic handles.
+     * @brief Detours file size, returning the buffered size for synthetic handles.
      * @param handle    file handle.
-     * @param sizeHigh  receives the high 32 bits (always 0 for host handles).
+     * @param sizeHigh  receives the high 32 bits (always 0 for synthetic handles).
      * @return the low 32 bits of the file size.
      */
     uint32_t __stdcall SizeDetour(void* handle, uint32_t* sizeHigh)
@@ -692,7 +391,7 @@ namespace
     }
 
     /**
-     * @brief Detours file read, copying from the buffer or streaming chunks for synthetic handles.
+     * @brief Detours file read, copying out of the buffer for synthetic handles.
      * @param handle  file handle.
      * @param dst     destination buffer.
      * @param len     requested byte count.
@@ -708,29 +407,16 @@ namespace
             auto* f = reinterpret_cast<HostFile*>(handle);
             uint32_t avail = (f->position < f->size) ? (f->size - f->position) : 0;
             uint32_t want = (len < avail) ? len : avail;
-            uint32_t got = 0;
-
-            if (f->buffer)
-            {
-                if (want) memcpy(dst, f->buffer + f->position, want);
-                got = want;
-            }
-            else
-            {
-                got = ReadHostStream(f, dst, want);
-            }
-
-            f->position += got;
-            if (!f->buffer && f->hostId && f->position >= f->size)
-                ClearStreamWindow(f);
-            if (read) *read = got;
-            return (got == len) ? 1 : 0; // nonzero only when the full request was satisfied
+            if (want) memcpy(dst, f->buffer + f->position, want);
+            f->position += want;
+            if (read) *read = want;
+            return (want == len) ? 1 : 0; // nonzero only when the full request was satisfied
         }
         return g_origRead(handle, dst, len, read, ovl, unk);
     }
 
     /**
-     * @brief Detours file seek, clamping the position within the host file for synthetic handles.
+     * @brief Detours file seek, clamping the position within the buffer for synthetic handles.
      * @param handle    file handle.
      * @param distLow   signed seek distance.
      * @param distHigh  receives the high 32 bits of the resulting position (always 0).
@@ -754,27 +440,16 @@ namespace
     }
 
     /**
-     * @brief Detours file close, releasing the mapping, buffer and host id for synthetic handles.
+     * @brief Detours file close, releasing the buffer for synthetic handles.
      * @param handle  file handle.
-     * @return 1 for host handles, otherwise the native close result.
+     * @return 1 for synthetic handles, otherwise the native close result.
      */
     int __stdcall CloseDetour(void* handle)
     {
         if (IsOurs(handle))
         {
             auto* f = reinterpret_cast<HostFile*>(handle);
-            ClearStreamWindow(f);
-            if (f->mapView)
-            {
-                // Zero-copy: buffer points into the mapping, so unmap (do not free) then release the section.
-                ipc::UnmapBlob(f->mapView, f->mapHandle);
-                ipc::FileClose(f->hostId);
-            }
-            else
-            {
-                if (!f->buffer && f->hostId) ipc::FileClose(f->hostId);
-                free(f->buffer);
-            }
+            free(f->buffer);
             free(f->fullName);
             free(f);
             return 1;
@@ -782,71 +457,11 @@ namespace
         return g_origClose(handle);
     }
 
-    // The one loose override the mount guard lets through. Shader containers we generate ship in a
-    // patch slot of their own, and they are only reachable if that slot is actually mounted: the
-    // content lookup then finds them there like any other data file, with nothing of ours on the
-    // path. The tree is a handful of files, so none of the address-space cost the guard exists to
-    // avoid applies to it.
-    constexpr const char* kShaderOverrideSlot    = "\\patch-w.mpq";
-    constexpr const char* kShaderOverrideSlotAlt = "/patch-w.mpq";
-
-    /** @brief True when a mount path's last component is the shader override slot. */
-    bool IsShaderOverrideSlot(const char* name)
-    {
-        if (!name) return false;
-        return EndsWithCI(name, kShaderOverrideSlot) || EndsWithCI(name, kShaderOverrideSlotAlt);
-    }
-
-    /**
-     * @brief Detours the true archive/directory mount primitive, dropping the loose override
-     *        directories the host owns.
-     *
-     * Every native mount call in the client -- the boot-time base+patch table, the per-patch nested
-     * "alternate.MPQ" probe, and the runtime patch-download mounts -- funnels through this one
-     * primitive, so hooking here closes every one of those paths at once.
-     *
-     * Real .MPQ archives mount natively, exactly like stock. Making the host the sole reader of real
-     * archive content too was tried and reverted: each individual blocker hit along the way was fixable,
-     * but the cumulative in-game result was not good enough, so real archives went back to mounting
-     * natively -- the hooks/offsets stay in place since they may be useful for something else later.
-     * A loose override that is a DIRECTORY (the modern/custom data the host serves) is still
-     * skipped, so the client never indexes its huge tree into its 32-bit address space; the file-open
-     * detour serves those files from the host instead, same as before this whole detour existed. The
-     * shader override slot is the single exception, and it is deliberate: what lives there has to be
-     * found by the ordinary content lookup, not by us.
-     * Returning 0 reads as an absent optional archive, which every caller already tolerates.
-     * @param name      archive path the client is about to mount.
-     * @param priority  search priority.
-     * @param flags     mount flags.
-     * @param out       receives the archive handle on a native mount.
-     * @return the native mount result, or 0 when the directory is skipped.
-     */
-    char __cdecl MopaqOpenArchiveDetour(const char* name, int priority, uint32_t flags, void** out)
-    {
-        const DWORD attrs = name ? GetFileAttributesA(name) : INVALID_FILE_ATTRIBUTES;
-        if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY) &&
-            IsShaderOverrideSlot(name))
-        {
-            WLOG_INFO("archive-mount: keep shader override '%s'", name);
-            return g_origMopaqOpenArchive(name, priority, flags, out);
-        }
-        if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY))
-        {
-            WLOG_INFO("archive-mount: SKIP loose dir '%s' (host-owned)", name);
-            if (out) *out = nullptr;
-            return 0;
-        }
-        if (VerboseStorageLogs())
-            WLOG_INFO("archive-mount: keep '%s'", name ? name : "(null)");
-        return g_origMopaqOpenArchive(name, priority, flags, out);
-    }
-
     // InitializeWowConfig's required-archive hard-fail gate (io::kRequiredArchiveGateJnz):
     // `0F 85 11 01 00 00` (jne 0x4061d4) -> `E9 12 01 00 00 90` (unconditional jmp + 1-byte NOP pad).
-    // Both encodings are 6 bytes so nothing after the patch site needs to move. Kept applied as a
-    // harmless defensive measure even with real archives mounting natively again (turns a genuinely
+    // Both encodings are 6 bytes so nothing after the patch site needs to move. Turns a genuinely
     // corrupted/missing required archive into a tolerated, logged skip instead of a hard "Failed to
-    // open archive" dialog + exit).
+    // open archive" dialog + exit.
     constexpr uint8_t kRequiredGateOriginal[6] = { 0x0F, 0x85, 0x11, 0x01, 0x00, 0x00 };
     constexpr uint8_t kRequiredGatePatched[6]  = { 0xE9, 0x12, 0x01, 0x00, 0x00, 0x90 };
 
@@ -854,11 +469,6 @@ namespace
      * @brief Detours InitializeWowConfig: runs the original archive-mount/signature-check/config-parse
      *        sequence unmodified, then forces the expansion-content-present flag (io::kWotlkContentFlag)
      *        on.
-     *
-     * Originally load-bearing for a since-reverted experiment that blocked the expansion archives from
-     * mounting natively; kept installed since real archives mount natively again now, so the native
-     * derivation already produces the same value on its own in the normal case -- this is a harmless,
-     * idempotent safety net, not a required fix.
      */
     void __cdecl InitializeWowConfigDetour()
     {
@@ -870,19 +480,15 @@ namespace
 namespace wxl::runtime::storage
 {
     /**
-     * @brief Arms the archive-mount guard, dropping the host-owned loose directories at mount time, plus
-     *        two harmless-by-default safety nets (the required-archive hard-fail gate, the
-     *        expansion-content flag force) kept installed from a since-reverted full-native-mount-block
-     *        experiment.
+     * @brief Arms the archive-mount safety nets (required-archive hard-fail gate, expansion-content
+     *        flag force). Independent of Install(); every archive -- named, loose-directory, or a
+     *        Patch-* the client's own patch-name scan finds -- mounts exactly as stock from here.
      *
      * Must run before the client builds its archive set (call it from the DLL entry, on the loader
-     * thread, before the client's startup proceeds). Independent of the host connection.
+     * thread, before the client's startup proceeds).
      */
     void InstallArchiveGuard()
     {
-        wxl::hook::Install("Mopaq_OpenArchive", io::kMopaqOpenArchive,
-            &MopaqOpenArchiveDetour, &g_origMopaqOpenArchive);
-
         wxl::hook::Install("InitializeWowConfig", io::kInitializeWowConfig,
             &InitializeWowConfigDetour, &g_origInitializeWowConfig);
 
@@ -898,38 +504,20 @@ namespace wxl::runtime::storage
         }
 
         wxl::hook::EnableAll();
-        WLOG_INFO("Storage: archive-mount guard armed");
+        WLOG_INFO("Storage: archive-mount safety nets armed");
     }
 
     /**
-     * @brief Launches the host, connects best-effort, and installs the archive file-I/O detours.
-     *
-     * The host is opt-out: WXL_HOST=0 (or a WarcraftXL_host.disable sentinel file) skips the launch,
-     * the connection, and the file-I/O detours entirely, so every read goes straight to the native
-     * archives. Used to test the client on the native path alone -- the state the host is meant to
-     * reach once the stock code is optimized in place. The archive-mount guard (installed separately)
-     * is independent of this and stays armed.
+     * @brief Installs the archive file-I/O detours so client providers and transforms can run.
      */
     void Install()
     {
-        if (!wxl::config::Flag("WXL_HOST", "WarcraftXL_host.disable"))
-        {
-            WLOG_INFO("Storage: host DISABLED (WXL_HOST=0 / WarcraftXL_host.disable) -- all reads native, no host IPC");
-            return;
-        }
-
-        // Launch the host (if installed) and connect best-effort. Absent host: the hooks fall through to
-        // native; a later request reconnects if the host comes up after this point.
-        ipc::EnsureHostRunning();
-        ipc::WaitForHost(3000);
-        ipc::Connect();
-
         wxl::hook::Install("Storage_FileOpen",  io::kFileOpen,  &OpenDetour, &g_origOpen);
         wxl::hook::Install("Storage_FileSize",  io::kFileSize,  &SizeDetour, &g_origSize);
         wxl::hook::Install("Storage_FileRead",  io::kFileRead,  &ReadDetour, &g_origRead);
         wxl::hook::Install("Storage_FileSeek",  io::kFileSeek,  &SeekDetour, &g_origSeek);
         wxl::hook::Install("Storage_FileClose", io::kFileClose, &CloseDetour, &g_origClose);
-        WLOG_INFO("Storage: hooks installed (host %s)", ipc::IsConnected() ? "connected" : "absent");
+        WLOG_INFO("Storage: hooks installed");
     }
 
     void RegisterClientProvider(ClientProvideFn fn)
@@ -937,6 +525,15 @@ namespace wxl::runtime::storage
         if (!fn) return;
         std::lock_guard<std::mutex> lock(RegistryMutex());
         ClientProviders().push_back(fn);
+    }
+
+    void RegisterClientTransform(const char* suffix, ClientTransformFn fn)
+    {
+        if (!fn || !suffix || !*suffix) return;
+        std::string lower(suffix);
+        for (char& c : lower) c = static_cast<char>(tolower(static_cast<unsigned char>(c)));
+        std::lock_guard<std::mutex> lock(RegistryMutex());
+        ClientTransforms().push_back(TransformEntry{ std::move(lower), fn });
     }
 
     void RegisterServeFilter(ServeFilterFn fn)

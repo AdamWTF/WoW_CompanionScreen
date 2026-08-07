@@ -17,12 +17,7 @@
 #pragma once
 
 #include "engine/assets/shared/models/m2/M2Format.hpp"
-
-// Live-engine, DLL-only: this half is device state at draw time, so it and its event dependency are
-// excluded from the host build (WXL_HOST).
-#ifndef WXL_HOST
 #include "engine/events/Event.hpp"
-#endif
 
 /**
  * @brief Scopes the alpha-key cutoff a source-authored batch expects, at draw time.
@@ -37,7 +32,6 @@ namespace wxl::modern::assets::m2::particles
     /// draw-frequency callers can test it BEFORE paying any per-batch lookup.
     inline constexpr uint16_t kBlendAlphaKey = 1;
 
-#ifndef WXL_HOST
     /**
      * @brief Lowers the alpha-key cutoff to the source coverage midpoint for an alpha-key batch of a
      *        downported model.
@@ -47,5 +41,4 @@ namespace wxl::modern::assets::m2::particles
      * @param downported  True if the model was reshaped by this module.
      */
     void OnSetupBatchAlpha(const wxl::events::M2SetupBatchAlphaArgs& a, bool downported);
-#endif
 }
