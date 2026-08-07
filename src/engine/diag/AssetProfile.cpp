@@ -96,20 +96,13 @@ namespace wxl::runtime::assetprof
 
         void LogWindow(const Window& window, uint64_t elapsedTicks)
         {
-            const PhaseStats& m2Pre = At(window, Phase::M2Pre);
-            const PhaseStats& m2Native = At(window, Phase::M2Native);
-            const PhaseStats& m2Post = At(window, Phase::M2Post);
             const PhaseStats& texRequest = At(window, Phase::TextureRequest);
             const PhaseStats& texUpload = At(window, Phase::TextureUpload);
-            const PhaseStats& rootPre = At(window, Phase::WmoRootPre);
-            const PhaseStats& rootNative = At(window, Phase::WmoRootNative);
-            const PhaseStats& groupPre = At(window, Phase::WmoGroupPre);
-            const PhaseStats& groupNative = At(window, Phase::WmoGroupNative);
 
             WLOG_INFO(
                 "asset-prof: win_s=%.1f slow_ms=%u frame[n/h25/h50/h100/avg/max]=%llu/%llu/%llu/%llu/%.2f/%.2f "
-                "m2_pre[n/s/total/avg/max]=%llu/%llu/%.2f/%.2f/%.2f "
-                "m2_native=%llu/%llu/%.2f/%.2f/%.2f m2_post=%llu/%llu/%.2f/%.2f/%.2f",
+                "tex_request[n/s/total/avg/max]=%llu/%llu/%.2f/%.2f/%.2f "
+                "tex_upload[n/s/pixels/total/avg/max]=%llu/%llu/%llu/%.2f/%.2f/%.2f",
                 ToMs(elapsedTicks) / 1000.0, GetConfig().slowMs,
                 static_cast<unsigned long long>(window.frames),
                 static_cast<unsigned long long>(window.hitch25),
@@ -117,31 +110,11 @@ namespace wxl::runtime::assetprof
                 static_cast<unsigned long long>(window.hitch100),
                 window.frames ? static_cast<double>(window.frameUs) / window.frames / 1000.0 : 0.0,
                 static_cast<double>(window.maxFrameUs) / 1000.0,
-                static_cast<unsigned long long>(m2Pre.calls), static_cast<unsigned long long>(m2Pre.slow),
-                ToMs(m2Pre.ticks), AverageMs(m2Pre), ToMs(m2Pre.maxTicks),
-                static_cast<unsigned long long>(m2Native.calls), static_cast<unsigned long long>(m2Native.slow),
-                ToMs(m2Native.ticks), AverageMs(m2Native), ToMs(m2Native.maxTicks),
-                static_cast<unsigned long long>(m2Post.calls), static_cast<unsigned long long>(m2Post.slow),
-                ToMs(m2Post.ticks), AverageMs(m2Post), ToMs(m2Post.maxTicks));
-
-            WLOG_INFO(
-                "asset-prof-load: tex_request[n/s/total/avg/max]=%llu/%llu/%.2f/%.2f/%.2f "
-                "tex_upload[n/s/pixels/total/avg/max]=%llu/%llu/%llu/%.2f/%.2f/%.2f "
-                "wmo_root_pre=%llu/%llu/%.2f/%.2f/%.2f wmo_root_native=%llu/%llu/%.2f/%.2f/%.2f "
-                "wmo_group_pre=%llu/%llu/%.2f/%.2f/%.2f wmo_group_native=%llu/%llu/%.2f/%.2f/%.2f",
                 static_cast<unsigned long long>(texRequest.calls), static_cast<unsigned long long>(texRequest.slow),
                 ToMs(texRequest.ticks), AverageMs(texRequest), ToMs(texRequest.maxTicks),
                 static_cast<unsigned long long>(texUpload.calls), static_cast<unsigned long long>(texUpload.slow),
                 static_cast<unsigned long long>(texUpload.units),
-                ToMs(texUpload.ticks), AverageMs(texUpload), ToMs(texUpload.maxTicks),
-                static_cast<unsigned long long>(rootPre.calls), static_cast<unsigned long long>(rootPre.slow),
-                ToMs(rootPre.ticks), AverageMs(rootPre), ToMs(rootPre.maxTicks),
-                static_cast<unsigned long long>(rootNative.calls), static_cast<unsigned long long>(rootNative.slow),
-                ToMs(rootNative.ticks), AverageMs(rootNative), ToMs(rootNative.maxTicks),
-                static_cast<unsigned long long>(groupPre.calls), static_cast<unsigned long long>(groupPre.slow),
-                ToMs(groupPre.ticks), AverageMs(groupPre), ToMs(groupPre.maxTicks),
-                static_cast<unsigned long long>(groupNative.calls), static_cast<unsigned long long>(groupNative.slow),
-                ToMs(groupNative.ticks), AverageMs(groupNative), ToMs(groupNative.maxTicks));
+                ToMs(texUpload.ticks), AverageMs(texUpload), ToMs(texUpload.maxTicks));
         }
     }
 

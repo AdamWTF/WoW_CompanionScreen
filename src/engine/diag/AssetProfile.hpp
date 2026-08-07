@@ -14,15 +14,8 @@ namespace wxl::runtime::assetprof
 {
     enum class Phase : uint8_t
     {
-        M2Pre,
-        M2Native,
-        M2Post,
         TextureRequest,
         TextureUpload,
-        WmoRootPre,
-        WmoRootNative,
-        WmoGroupPre,
-        WmoGroupNative,
         Count
     };
 

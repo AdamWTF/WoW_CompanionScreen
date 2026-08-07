@@ -19,7 +19,6 @@
 #include "engine/hook/Registry.hpp"
 #include "engine/events/Event.hpp"
 #include "engine/diag/AssetProfile.hpp"
-#include "engine/diag/DrawStats.hpp"
 
 #include "common/Log.hpp"
 #include "common/Mem.hpp"
@@ -70,10 +69,6 @@ namespace
         ev::UpdateArgs a{ deltaSeconds, frameTimeMs };
         ev::Emit(ev::Event::OnUpdate, &a);
         aprof::RecordFrame(a.dt);
-        // Frame boundary for the draw-call counters. The frame-time tick is the one place that runs
-        // exactly once per frame regardless of which present path the device took -- it has to be,
-        // since it is the sole writer of the delta every other consumer in the client reads back.
-        wxl::runtime::drawstats::EndFrame();
     }
 
     bool InstallWorld()

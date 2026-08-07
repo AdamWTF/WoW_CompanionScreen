@@ -1,4 +1,4 @@
-// Async streaming detours: reentrant-drain serialization, and tile-teardown read cancellation.
+// Async streaming detour: reentrant-drain serialization.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -19,7 +19,6 @@
 #include "engine/hook/Registry.hpp"
 
 #include "offsets/engine/Gx.hpp"
-#include "offsets/game/ADT.hpp"
 #include "offsets/game/World.hpp"
 
 #include <windows.h>
@@ -29,12 +28,10 @@
 
 namespace
 {
-    namespace adt   = wxl::offsets::game::adt;
     namespace wld   = wxl::offsets::game::world;
     namespace gxoff = wxl::offsets::engine::gx;
 
-    wld::AsyncServiceQueuesFn g_origAsyncDrain      = nullptr;
-    adt::TileAreaDestroyFn    g_origTileAreaDestroy = nullptr;
+    wld::AsyncServiceQueuesFn g_origAsyncDrain = nullptr;
 
     // Per-thread async-drain recursion depth. A texture build force-waits nested reads, which re-enter the
     // completion drain; a nested pump running unrelated completions frees / rewrites a buffer the outer
@@ -183,41 +180,12 @@ namespace
     }
 
     /**
-     * @brief Detours TILE-AREA teardown (CMapArea::destructor -- historically misnamed "ChunkDestroy")
-     *        to cancel the tile's in-flight async read before its file buffer is freed.
-     *
-     * The tile's completed-read callback parses the tile's IO buffer (+0x80). If a teardown frees that
-     * buffer while the read is still queued, the later completion parses freed memory and faults
-     * (0x7d6f05). Retiring the async object (+0x70) here unlinks the pending completion first.
-     * @param area  CMapArea (tile) being destroyed (ECX).
-     */
-    void __fastcall hkTileAreaDestroy(void* area)
-    {
-        if (area)
-        {
-            auto* slot = reinterpret_cast<void**>(static_cast<uint8_t*>(area) + adt::kOffTileAsyncRead);
-            if (*slot)
-            {
-                reinterpret_cast<wld::AsyncDestroyFn>(wld::kAsyncDestroy)(*slot);
-                *slot = nullptr;
-            }
-        }
-        g_origTileAreaDestroy(area);
-    }
-
-    /**
-     * @brief Normal-phase install: reentrant-drain serialization and ADT chunk-build event.
+     * @brief Normal-phase install: reentrant-drain serialization.
      */
     bool InstallStreaming()
     {
         wxl::hook::Install("AsyncDrain", wld::kAsyncServiceQueues,
                            &hkAsyncDrain, &g_origAsyncDrain);
-        // TileAreaDestroy (ADT cancel-on-teardown, ex "ChunkDestroy") temporarily disabled: it correlates
-        // with a render-path null-deref (0x7c846c) and the cancel timing relative to a sibling free is
-        // unconfirmed. Re-enable once that ordering is confirmed as teardown rather than a sibling free.
-        // (The adt-split feature installs its own detour on the same address for split-tile side-store
-        // teardown; MinHook chains them if both are ever enabled.)
-        (void)&hkTileAreaDestroy; (void)&g_origTileAreaDestroy;
         return true;
     }
 }
