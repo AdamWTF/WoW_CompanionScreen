@@ -31,8 +31,8 @@ namespace
      *
      * Plain "KEY=value" lines, '#' comments, spaces trimmed. Looked up AFTER the environment (an
      * env var always wins) and BEFORE sentinel files/defaults. Searched in the working directory
-     * (the client root for the DLL/proxy/patcher) then one level up (the host runs from Utils\).
-     * Config.wtf stays reserved for real engine CVars; this file covers all four binaries.
+     * (the client root for the DLL/proxy/patcher), then one level up as a fallback for a binary
+     * launched from a subdirectory. Config.wtf stays reserved for real engine CVars.
      */
     const std::unordered_map<std::string, std::string>& CfgFile()
     {

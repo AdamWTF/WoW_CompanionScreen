@@ -1,5 +1,6 @@
-// Case-insensitive path/string matching shared by every host and DLL asset transform. '/' and '\\'
-// compare equal, so a check matches a source path regardless of which separator it used.
+// Case-insensitive path/string matching shared by asset-transform code across the DLL and its
+// extensions. '/' and '\\' compare equal, so a check matches a source path regardless of which
+// separator it used.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify

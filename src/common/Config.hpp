@@ -22,7 +22,7 @@
  * @brief One truthiness convention, one bounds convention, for every knob in the project.
  *
  * Replaces the ~10 hand-rolled copies of env parsing (GameHooks, StorageHook, ModuleInstall,
- * host, profilers) whose bounds had silently diverged. Values are read at call time; callers
+ * profilers) whose bounds had silently diverged. Values are read at call time; callers
  * that want caching wrap the call in a function-local static, as before.
  */
 namespace wxl::config

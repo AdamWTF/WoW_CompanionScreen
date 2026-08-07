@@ -17,6 +17,7 @@
 
 #include "engine/storage/StorageHook.hpp"
 
+#include "engine/assets/shared/common/Text.hpp"
 #include "common/Config.hpp"
 #include "engine/hook/Hook.hpp"
 #include "common/Log.hpp"
@@ -50,7 +51,7 @@ namespace
      * directly. Kept at the native size and layout even though every field past +0x1c is now unused
      * -- other client code may still assume a file handle is 0x30 bytes.
      */
-    struct HostFile
+    struct SyntheticFile
     {
         uint32_t magic;        // +0x00  kHandleMagic
         uint32_t reserved04;   // +0x04
@@ -66,7 +67,7 @@ namespace
         void*    reserved2c;   // +0x2c
     };
 #pragma pack(pop)
-    static_assert(sizeof(HostFile) == 0x30, "HostFile must match the native 0x30-byte file layout");
+    static_assert(sizeof(SyntheticFile) == 0x30, "SyntheticFile must match the native 0x30-byte file layout");
 
     /**
      * @brief Reports whether a handle is a synthetic handle.
@@ -142,21 +143,7 @@ namespace
         return ServeFilters();
     }
 
-    /**
-     * @brief Tests case-insensitively whether a string ends with a suffix.
-     * @param s       string to test.
-     * @param suffix  suffix to match.
-     * @return true when s ends with suffix.
-     */
-    bool EndsWithCI(std::string_view s, std::string_view suffix)
-    {
-        size_t ls = s.size(), lf = suffix.size();
-        if (lf > ls) return false;
-        for (size_t i = 0; i < lf; ++i)
-            if (tolower(static_cast<unsigned char>(s[ls - lf + i])) != tolower(static_cast<unsigned char>(suffix[i])))
-                return false;
-        return true;
-    }
+    using wxl::modern::assets::common::text::EndsWithCI;
 
     /** @brief Returns the first registered transform whose suffix matches name, or null. */
     wxl::runtime::storage::ClientTransformFn FindClientTransform(std::string_view name)
@@ -236,9 +223,9 @@ namespace
      * @param size  byte count.
      * @return the new handle, or null on allocation failure.
      */
-    HostFile* BuildBufferedHandle(const std::string& name, const uint8_t* data, uint32_t size)
+    SyntheticFile* BuildBufferedHandle(const std::string& name, const uint8_t* data, uint32_t size)
     {
-        auto* f = static_cast<HostFile*>(calloc(1, sizeof(HostFile)));
+        auto* f = static_cast<SyntheticFile*>(calloc(1, sizeof(SyntheticFile)));
         if (!f) return nullptr;
         f->magic = kHandleMagic;
         f->size = size;
@@ -268,7 +255,7 @@ namespace
         for (auto fn : ClientProvidersSnapshot())
         {
             if (!fn(name.c_str(), provided)) continue;
-            HostFile* f = BuildBufferedHandle(name, provided.data(), static_cast<uint32_t>(provided.size()));
+            SyntheticFile* f = BuildBufferedHandle(name, provided.data(), static_cast<uint32_t>(provided.size()));
             if (!f) break;
             if (out) *out = f;
             ++g_served;
@@ -331,7 +318,7 @@ namespace
             std::vector<uint8_t> reshaped;
             if (transform(name.c_str(), raw, reshaped))
             {
-                HostFile* f = BuildBufferedHandle(name, reshaped.data(), static_cast<uint32_t>(reshaped.size()));
+                SyntheticFile* f = BuildBufferedHandle(name, reshaped.data(), static_cast<uint32_t>(reshaped.size()));
                 if (f)
                 {
                     g_origClose(handle);
@@ -385,7 +372,7 @@ namespace
         if (IsOurs(handle))
         {
             if (sizeHigh) *sizeHigh = 0;
-            return reinterpret_cast<HostFile*>(handle)->size;
+            return reinterpret_cast<SyntheticFile*>(handle)->size;
         }
         return g_origSize(handle, sizeHigh);
     }
@@ -404,7 +391,7 @@ namespace
     {
         if (IsOurs(handle))
         {
-            auto* f = reinterpret_cast<HostFile*>(handle);
+            auto* f = reinterpret_cast<SyntheticFile*>(handle);
             uint32_t avail = (f->position < f->size) ? (f->size - f->position) : 0;
             uint32_t want = (len < avail) ? len : avail;
             if (want) memcpy(dst, f->buffer + f->position, want);
@@ -427,7 +414,7 @@ namespace
     {
         if (IsOurs(handle))
         {
-            auto* f = reinterpret_cast<HostFile*>(handle);
+            auto* f = reinterpret_cast<SyntheticFile*>(handle);
             int64_t base = (method == 1) ? f->position : (method == 2) ? f->size : 0; // 0=BEGIN,1=CURRENT,2=END
             int64_t pos = base + distLow;
             if (pos < 0) pos = 0;
@@ -448,7 +435,7 @@ namespace
     {
         if (IsOurs(handle))
         {
-            auto* f = reinterpret_cast<HostFile*>(handle);
+            auto* f = reinterpret_cast<SyntheticFile*>(handle);
             free(f->buffer);
             free(f->fullName);
             free(f);

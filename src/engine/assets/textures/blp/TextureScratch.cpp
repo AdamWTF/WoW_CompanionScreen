@@ -22,7 +22,7 @@
 
 #include <cstdint>
 
-// This module's host face serves tileset diffuse textures at up to 2048 px, but the client sizes its
+// wxl-modern-blp can serve tileset diffuse textures at up to 2048 px, but the client sizes its
 // mip decode scratch at boot for 1024 px chains; a wider chain overflows it. The two size operands are
 // patched through the boot-installer seam (DllMain, before any client boot code), so the allocation is
 // made wide. Each site is verified against the stock operand first; an unexpected value leaves the

@@ -20,9 +20,9 @@
 #include "engine/storage/StorageHook.hpp"
 #include "runtime/Extensions.hpp"
 
+#include "engine/assets/shared/common/Text.hpp"
 #include "wxl/StorageApi.h"
 
-#include <cctype>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -31,15 +31,7 @@
 
 namespace
 {
-    bool EndsWithCI(std::string_view s, std::string_view suffix)
-    {
-        if (suffix.size() > s.size()) return false;
-        for (size_t i = 0; i < suffix.size(); ++i)
-            if (tolower(static_cast<unsigned char>(s[s.size() - suffix.size() + i]))
-                != tolower(static_cast<unsigned char>(suffix[i])))
-                return false;
-        return true;
-    }
+    using wxl::modern::assets::common::text::EndsWithCI;
 
     void __cdecl SinkWrite(void* ctx, const void* data, uint32_t len)
     {

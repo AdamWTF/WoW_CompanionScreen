@@ -56,7 +56,7 @@ namespace wxl::modern::assets::m3
         uint32_t    blend;   // source blend mode
         std::string diffuse; // diffuse image path, else emissive fallback, else empty
         uint32_t    uvAnim = 0;         // uv-offset anim id of the picked layer
-        float       uvRate[2] = { 0, 0 }; // uv scroll per millisecond, resolved by the host
+        float       uvRate[2] = { 0, 0 }; // uv scroll per millisecond, resolved during M3->M2 conversion
         bool        sheetUv = false;    // used by a ribbon sheet: U runs along the length
     };
 

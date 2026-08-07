@@ -1,4 +1,4 @@
-// Leveled logging engine shared by every WarcraftXL binary (DLL, proxy, patcher, host).
+// Leveled logging engine shared by every WarcraftXL binary (DLL, proxy, patcher).
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -23,7 +23,7 @@
  * @brief Severity-leveled logging with a compile-time floor and a runtime threshold.
  *
  * Each binary owns its own instance of this engine (static per module), so the DLL, the d3d9
- * proxy, the patcher, and the host naturally write to separate sinks. A call below the runtime
+ * proxy, and the patcher naturally write to separate sinks. A call below the runtime
  * threshold costs one relaxed atomic load — no formatting, no lock, no timestamp.
  *
  * Runtime threshold: WXL_LOG_LEVEL env var (trace|debug|info|warn|error|off, or 0-5); defaults

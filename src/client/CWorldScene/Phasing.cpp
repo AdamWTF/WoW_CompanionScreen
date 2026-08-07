@@ -51,8 +51,8 @@ namespace
     /**
      * @brief Reads the phase map's WDT MAIN present table into g_phaseMain.
      *
-     * Goes through the client's own storage entry points (which are detoured): a host-served phase map
-     * and a native-archive one both resolve here, so the phase source's location never matters.
+     * Goes through the client's own storage entry points (which are detoured): a client-provided phase
+     * map and a native-archive one both resolve here, so the phase source's location never matters.
      */
     bool LoadPhaseMain(const char* dir)
     {

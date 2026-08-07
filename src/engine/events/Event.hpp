@@ -61,7 +61,6 @@ namespace wxl::events
         OnItemSlotClear, // a character model equipment slot was cleared(ItemSlotClearArgs)
         OnWorldEnter,    // the world/map finished loading, in-world   (WorldEnterArgs)
         OnWorldLeave,    // the world/map is being torn down           (WorldLeaveArgs)
-        OnBeforeHostLaunch, // the DLL is about to launch the asset host (HostLaunchArgs)
         OnGrassWind,     // grass wind integrator advanced this frame (GrassWindArgs)
         OnAdtHeightBlend,// a terrain PS permutation was patched for height blending (AdtHeightBlendArgs)
         OnM2NativeLoad,  // a modern MD21 model was direct-filled by the native reader (M2NativeLoadArgs)
@@ -249,12 +248,6 @@ namespace wxl::events
     struct WorldEnterArgs    { uint32_t mapId; };
     /** @brief Args for OnWorldLeave. */
     struct WorldLeaveArgs    { uint32_t mapId; };
-    /**
-     * @brief Args for OnBeforeHostLaunch; a subscriber may set *cancel true to suppress the
-     *        auto-launch (e.g. it manages the host itself). exePath is the path about to be launched.
-     *        cancel is never null and starts false. Fired once, before the CreateProcess.
-     */
-    struct HostLaunchArgs    { const char* exePath; bool* cancel; };
     /**
      * @brief Args for OnGrassWind, emitted once per frame when the grass-wind integrator advances (only
      *        while grass is drawing — the tick lives on the detail-doodad chunk pass). dirX/dirY is the

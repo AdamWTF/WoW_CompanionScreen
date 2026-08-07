@@ -575,7 +575,7 @@ namespace wxl::modern::assets::textures::blp
                                     uint32_t maxEdge)
     {
         // Native character component textures usually top out around 256px on the long edge. Higher
-        // componentTextureLevel values can ask the host to preserve a larger modern mip before palettizing.
+        // componentTextureLevel values preserve a larger modern mip before palettizing.
         if (maxEdge < 256) maxEdge = 256;
         if (maxEdge > 1024) maxEdge = 1024;
 

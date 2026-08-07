@@ -77,7 +77,8 @@ namespace wxl::offsets::game::world
     constexpr size_t kOffTileIdxFirst  = 0x48;
     constexpr size_t kOffTileIdxSecond = 0x4C;
     // Archive file-exists test. __stdcall taking two args (ret 8): (value, &pathObject), not a bare C
-    // string. Resolves against the Client's own archive/loose set only, not host-served files.
+    // string. Resolves against the Client's own archive/loose set only, not files a client provider
+    // or transform serves synthetically (StorageHook does not hook this entry point).
     constexpr uintptr_t kFileExists = 0x00422170;
     // Loader path globals: the bare map name and the "World\Maps\<Map>" dir string the per-tile loader
     // formats into <dir>\<name>_<x>_<y>.adt. The address holds the string buffer (passed by &).
