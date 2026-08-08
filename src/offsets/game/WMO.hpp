@@ -30,8 +30,12 @@ namespace wxl::offsets::game::wmo
     constexpr uintptr_t kRootComplete = 0x007D8050;
     // Group reader (group): the join point of both the sync and async group-load paths, run before the
     // group sub-chunk walk. Also a shim around the real sub-chunk walkers below; it decodes the 0x44-byte
-    // MOGP header inline, then hands `groupBuffer + 0x58` to kGroupWalk.
+    // MOGP header inline, then hands `groupBuffer + kGroupWalkCursorOffset` to kGroupWalk.
     constexpr uintptr_t kGroupParse = 0x007D82E0;
+    // 0x14-byte outer chunk header + 0x44-byte MOGP body prefix: the fixed offset kGroupParse always
+    // hands to kGroupWalk as `cursor`, computable directly from groupBuffer without waiting for
+    // kGroupParse to run -- what lets WmoAsync.cpp's background stage1 call WalkGroupModern itself.
+    constexpr size_t kGroupWalkCursorOffset = 0x58;
 
     // --- the actual chunk walkers (the code a native modern reader replaces) ---
     // ROOT chunk walker. Positional: it skips MVER blind (+0x0C) then consumes 17 chunks in a fixed
