@@ -83,6 +83,7 @@ namespace wxl::runtime::hookpoints
             { "Adt.ChunkBuild",                adt::kChunkBuild },
             { "Adt.SurfaceChunkDrawShader",    adt::kSurfaceChunkDrawShader },
             { "Adt.BuildTerrainConstants",     adt::kBuildTerrainConstants },
+            { "Adt.AreaUpdate",                adt::kAreaUpdate },
             { "Wmo.SpawnFromModf",             wmo::kSpawnFromModf },
             { "Wmo.RootComplete",              wmo::kRootComplete },
             { "Wmo.CreateMaterial",            wmo::kResolveMaterialTexture },
@@ -100,6 +101,12 @@ namespace wxl::runtime::hookpoints
             { "Wmo.ExtRender",                 wmo::kExtRender },
             { "Wmo.IntRender",                 wmo::kIntRender },
             { "Wmo.CompositeEffectBind",       shoff::kEffectBind },
+            { "Wmo.GroupComplete",             wmo::kGroupComplete },
+            { "Wmo.FreeMapObj",                wmo::kFreeMapObj },
+            { "Wmo.FreeMapObjGroup",           wmo::kFreeMapObjGroup },
+            { "Wmo.WaitLoad",                  wmo::kWaitLoad },
+            { "Wmo.WaitLoadGroup",             wmo::kWaitLoadGroup },
+            { "Wmo.UpdateMaterials",           wmo::kUpdateMaterials },
         };
 
         const Point* Find(const char* name)

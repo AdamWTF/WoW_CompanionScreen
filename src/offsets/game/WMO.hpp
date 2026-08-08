@@ -51,6 +51,31 @@ namespace wxl::offsets::game::wmo
     // Root finaliser: runs kRootWalk, then CreateMaterials, copies the MOHD scalars, and allocates one
     // group object per MOGI entry into the inline array at kOffGroupArray.
     constexpr uintptr_t kRootCreateData = 0x007D7EB0;
+    // Group read-completion callback (group): the async-read mirror of kRootComplete -- fires once the
+    // async read fills the group buffer, clears the group's async handle (group+0x194), and tail-jumps
+    // to kGroupParse. Not previously pinned; found (this session) by tracing CMapObj::ReadGroup's async
+    // request setup. Backgrounding kGroupWalk's CPU work means hooking HERE, not at kGroupParse: by the
+    // time kGroupParse runs, the native callback has already cleared group+0x194, so anything gating on
+    // that field has to own the moment BEFORE this call, not after -- see wxl-wmo's WmoAsync.cpp.
+    constexpr uintptr_t kGroupComplete = 0x007D8570;
+    using Wmo_GroupCompleteFn = void(__cdecl*)(void* group);
+
+    // CMap::FreeMapObj (root on the stack, cdecl)
+    constexpr uintptr_t kFreeMapObj = 0x007BFF70;
+    using Wmo_FreeMapObjFn = void(__cdecl*)(void* root);
+    // CMap::FreeMapObjGroup (group on the stack, cdecl): the group front door.
+    constexpr uintptr_t kFreeMapObjGroup = 0x007C0030;
+    using Wmo_FreeMapObjGroupFn = void(__cdecl*)(void* group);
+
+    // CMapObj::WaitLoad (this = root, thiscall, no stack args)
+    constexpr uintptr_t kWaitLoad = 0x007AE1C0;
+    using Wmo_WaitLoadFn = void(__fastcall*)(void* root, void* edx);
+    // CMapObj::WaitLoadGroup (this = root, thiscall, one stack arg = group index)
+    constexpr uintptr_t kWaitLoadGroup = 0x007AEAB0;
+    using Wmo_WaitLoadGroupFn = void(__fastcall*)(void* root, void* edx, int groupIndex);
+    // CMapObj::UpdateMaterials (this = root, thiscall, no stack args):
+    constexpr uintptr_t kUpdateMaterials = 0x007A8520;
+    using Wmo_UpdateMaterialsFn = void(__fastcall*)(void* root, void* edx);
     // Zeroes MOMT[i]+0x38 / +0x3C for every material -- the two GPU texture handles live INSIDE the
     // root file buffer, in the last 8 bytes of each 0x40-byte MOMT record.
     constexpr uintptr_t kCreateMaterials = 0x007D72D0;

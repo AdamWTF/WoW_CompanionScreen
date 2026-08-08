@@ -104,6 +104,13 @@ namespace wxl::offsets::game::adt
     using TileAreaCreateFn = void(__fastcall*)(void* area, void* edx);
     // Native async-read completion (__cdecl, ctx = area): Create + async destroy + zero +0x70/+0x6C.
     constexpr uintptr_t kTileAreaAsyncLoadCallback = 0x007D7020;
+    // CMapArea::PrepareChunk (__thiscall: ECX = area, two stack args = grid row/col 0..15):
+    constexpr uintptr_t kPrepareChunk = 0x007D6B30;
+    using Map_PrepareChunkFn = void(__fastcall*)(void* area, void* edx, int row, int col);
+    // CMapArea::Update (__thiscall: ECX = area, stack args = buildFlag, uint32_t bounds[4] = {colMin,
+    // rowMin, colMax, rowMax})
+    constexpr uintptr_t kAreaUpdate = 0x007D6BF0;
+    using Map_AreaUpdateFn = void(__fastcall*)(void* area, void* edx, int buildFlag, uint32_t* bounds);
     // CMapChunk::ProcessIffChunks (__thiscall: ECX = chunk, one stack arg = firstBuild): the
     // SEQUENTIAL sub-chunk walk over the raw MCNK at chunk+0x10C that assigns the sub-chunk data
     // pointers at chunk+0x11C..+0x13C (3.3.5 never reads the MCNK-internal ofs* fields). Called only
