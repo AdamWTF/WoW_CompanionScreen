@@ -56,7 +56,7 @@ namespace wxl::events
         OnObjectDestroy, // an object is about to despawn                  (ObjectDestroyArgs)
         OnTargetChanged, // the player's target was set via the API        (TargetChangedArgs)
         OnSoundPlay,     // a UI/world sound is about to play              (SoundPlayArgs)
-        OnDoodadSpawn,   // a placed map doodad (CMapDoodad) was built (DoodadSpawnArgs)
+        OnDoodadSpawn,   // a placed map doodad object was built       (DoodadSpawnArgs)
         OnItemSlotChange,// a character model slot received an item    (ItemSlotChangeArgs)
         OnItemSlotClear, // a character model equipment slot was cleared(ItemSlotClearArgs)
         OnWorldEnter,    // the world/map finished loading, in-world   (WorldEnterArgs)
@@ -237,7 +237,7 @@ namespace wxl::events
      *         WoW equipment slot index (EQUIPMENT_SLOT_* constants, 0-18). */
     struct ItemSlotClearArgs  { void* charModelObj; uint32_t equipSlotWow; };
     /** @brief Args for OnM2PerFrameUpdate; renderCtx is the per-instance render context that the
-     *         scene graph is updating — fires once per visible M2 instance per frame. */
+     *         scene graph is updating -- fires once per visible M2 instance per frame. */
     struct M2PerFrameUpdateArgs { void* renderCtx; };
     /** @brief Args for OnBuildBonePalette; fires after the engine fills the per-instance bone palette
      *         from the current animation pose, immediately before the batch draw uploads it to the
@@ -250,7 +250,7 @@ namespace wxl::events
     struct WorldLeaveArgs    { uint32_t mapId; };
     /**
      * @brief Args for OnGrassWind, emitted once per frame when the grass-wind integrator advances (only
-     *        while grass is drawing — the tick lives on the detail-doodad chunk pass). dirX/dirY is the
+     *        while grass is drawing -- the tick lives on the detail-doodad chunk pass). dirX/dirY is the
      *        damped current wind vector, strength its magnitude scalar, phase the accumulated sway phase
      *        in radians. Read-only observation; runtime tuning goes through wxl.wind.* (methods).
      */

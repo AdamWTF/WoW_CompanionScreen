@@ -74,7 +74,7 @@ namespace
         case Level::Debug: return "DEBUG: ";
         case Level::Warn:  return "WARN: ";
         case Level::Error: return "ERROR: ";
-        default:           return ""; // Info keeps the historical untagged format
+        default:           return ""; // Info stays untagged
         }
     }
 
@@ -114,8 +114,7 @@ namespace wxl::log
         std::lock_guard<std::mutex> lock(g_mutex);
         if (g_file || !path) return;
 
-        // Create the parent directory so a missing Logs\ folder cannot silently eat the sink
-        // (the old proxy logger lost every line that way).
+        // Create the parent directory so a missing Logs\ folder cannot silently eat every logged line.
         char dir[MAX_PATH];
         const size_t len = strnlen(path, MAX_PATH);
         if (len < MAX_PATH)

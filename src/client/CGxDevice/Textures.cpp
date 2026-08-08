@@ -41,7 +41,7 @@ namespace
 
     // Keep SEH in a POD-only leaf. TextureUpdate invokes the texture's completion callback before it
     // returns; a late font-atlas/cache callback can retain a row/tree pointer whose owner was rebuilt
-    // during world entry. Letting that AV escape kills the client from TextureCallback (0x006C9F50).
+    // during world entry. Letting that AV escape kills the client from inside the texture completion callback.
     bool SafeTextureUpdate(void* tex, int x, int y, int x2, int y2, int flag) noexcept
     {
         __try
@@ -63,7 +63,7 @@ namespace
      * The mip source the upload reads is a process-wide singleton (kMipTablePtr is a pointer whose
      * buffer holds the per-mip source pointers; kMipTableValid gates the read). A build fills it with
      * raw aliases into its transient IO buffer, then uploads. Two ways that singleton turns into an
-     * access-violation use-after-free (0x40cb6a), both fixed without ever clearing kMipTableValid
+     * access-violation use-after-free, both fixed without ever clearing kMipTableValid
      * (which would route atlas icons through a source callback that has no self-heal and blank them):
      *  - a NESTED build run while this upload is mid-copy overwrites the table and frees its buffer; the
      *    async-drain serializer (streaming) snapshots and restores the table around the nested build it

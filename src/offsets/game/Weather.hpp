@@ -22,11 +22,11 @@
 // INTERNAL to the core. Modules never include this; they use wxl::water.
 namespace wxl::offsets::game::weather
 {
-    // The live Weather object -- a POINTER, not the object itself. CWorldScene::RenderWeather is
-    // `mov ecx, [0xCD7544]` followed by a tail-call into Weather::Render, which settles it.
+    // The live weather object -- a POINTER, not the object itself. Loaded once per frame by the scene
+    // render before it dispatches into the weather renderer, which settles the object's identity.
     constexpr uintptr_t kWorldWeather = 0x00CD7544;
 
-    // Current storm intensity. Weather::SetStormIntensity does not snap this: it walks the value
+    // Current storm intensity. The engine's intensity setter does not snap this: it walks the value
     // from where it was toward its target over a duration derived from the size of the change, so
     // what is stored here is already a smooth ramp and can be read raw every frame.
     constexpr size_t kIntensity = 0x008;
@@ -34,8 +34,8 @@ namespace wxl::offsets::game::weather
     // remapped onto 0..1. Reused rather than replaced so a sea rises exactly when the sky does.
     constexpr float  kIntensityKnee = 0.25f;
 
-    // Non-zero counts of live precipitation of each kind; Weather::GetType reports 1/2/3 by testing
-    // them in this order, and 0 (fine) when all three are clear.
+    // Non-zero counts of live precipitation of each kind; the engine's type query reports 1/2/3 by
+    // testing them in this order, and 0 (fine) when all three are clear.
     constexpr size_t kRainCount = 0x13C;
     constexpr size_t kSnowCount = 0x140;
     constexpr size_t kSandCount = 0x144;

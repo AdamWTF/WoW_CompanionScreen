@@ -25,7 +25,7 @@
  * @brief The one audited protect-write-restore implementation.
  *
  * Header-only so every binary (including the d3d9 proxy, which links nothing else) shares the
- * single audited implementation — one place to guarantee the restore actually happens and the
+ * single audited implementation - one place to guarantee the restore actually happens and the
  * instruction cache is flushed.
  */
 namespace wxl::mem

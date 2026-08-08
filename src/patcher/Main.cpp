@@ -54,7 +54,7 @@ namespace
     /**
      * @brief Writes a byte buffer to a file atomically: the bytes go to a sibling temp file,
      *        flushed to disk, then swapped into place. The target is either fully replaced or
-     *        untouched — a crash or short write can never leave it truncated.
+     *        untouched - a crash or short write can never leave it truncated.
      * @param path  file path to write.
      * @param data  bytes to write.
      * @return True on success, false on any I/O failure (the temp file is removed).

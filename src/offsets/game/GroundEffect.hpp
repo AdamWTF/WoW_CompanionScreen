@@ -29,11 +29,11 @@ namespace wxl::offsets::game::groundeffect
     constexpr uintptr_t kChunkConstantUpload = 0x007B10E0;
     using ChunkConstantUploadFn = void(__cdecl*)(const float* mtx, int group);
 
-    // Per-frame grass shader-constant setup on the shader path (CDetailDoodad::InitializeShaderConstants):
-    // memsets the c0..c22 block at kVsConstantBlock and fills it, once per frame at the top of the
-    // detail-doodad pass (only when the shader path is active). Static void(void). Tail-hook it to publish
-    // the wind constants (c35..c37 — above everything the grass/shadow passes touch) into the free
-    // registers every frame, so a swapped wind vertex shader never samples stale constants.
+    // Per-frame grass shader-constant setup on the shader path: memsets the c0..c22 block at
+    // kVsConstantBlock and fills it, once per frame at the top of the detail-doodad pass (only when the
+    // shader path is active). Static void(void). Tail-hook it to publish per-frame values (e.g. wind) into
+    // the free registers (kVsFirstFreeReg onward) every frame, so a swapped vertex shader never samples
+    // stale constants.
     constexpr uintptr_t kInitShaderConstants = 0x007B15D0;
     using InitShaderConstantsFn = void(__cdecl*)();
 

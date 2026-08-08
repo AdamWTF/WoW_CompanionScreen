@@ -74,8 +74,8 @@ namespace wxl::config
     /**
      * @brief Reads a byte size from an MB env var, then a KB env var, then a default.
      *
-     * A candidate outside [minKb, maxKb] (after unit conversion) is REJECTED — the next source is
-     * tried — matching the historical MB→KB→default cascades in GameHooks/StorageHook.
+     * A candidate outside [minKb, maxKb] (after unit conversion) is REJECTED - the next source is
+     * tried - matching the MB->KB->default cascade used by GameHooks/StorageHook.
      * @param envMb     environment variable holding megabytes, may be null.
      * @param envKb     environment variable holding kilobytes, may be null.
      * @param defBytes  default when both are absent or out of range.

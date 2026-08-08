@@ -72,7 +72,7 @@ namespace wxl::runtime::hookpoints
             { "World.AsyncFileReadInitialize", wld::kAsyncFileReadInitialize },
             { "World.AsyncFileReadObject",     wld::kAsyncFileReadObject },
             { "World.ValidateFarClip",         wld::kValidateFarClip },
-            { "Mem.SMemAlloc",                 mem::kAlloc },
+            { "Mem.Alloc",                     mem::kAlloc },
             { "Mem.M2SceneAdvanceTime",        mem::kM2SceneAdvanceTime },
             { "Adt.TileAreaLoad",              adt::kTileAreaLoad },
             { "Adt.ProcessIffChunks",          adt::kChunkProcessIffChunks },

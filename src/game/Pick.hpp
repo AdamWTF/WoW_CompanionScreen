@@ -143,8 +143,8 @@ namespace wxl::game::world
         void* input = *reinterpret_cast<void**>(reinterpret_cast<char*>(wf) + woff::kWorldFrameInput);
         if (!input) return false;
 
-        // This is the same NDCToDDC conversion used by CGWorldFrame::SetupDefaultAction
-        // immediately before its native HitTestPoint call (WorldFrame.cpp).
+        // This mirrors the engine's own normalized-to-device cursor conversion, applied
+        // immediately before its native hit-test call.
         const float ndcX = *reinterpret_cast<float*>(
             reinterpret_cast<char*>(input) + woff::kInputCursorNdcX);
         const float ndcY = *reinterpret_cast<float*>(

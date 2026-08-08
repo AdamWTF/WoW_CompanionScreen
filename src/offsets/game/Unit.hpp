@@ -65,8 +65,8 @@ namespace wxl::offsets::game::unit
     constexpr size_t kHeaderTypeField   = 0x08;  // header -> type mask; what kGetObjectByGuid filters on
 
     // --- virtual slots shared by every object type ---
-    // CGObject_C's descendants agree on this part of their vftable. Only these four are common: past
-    // them the layouts diverge, and two of the slots below them are stubs on some types.
+    // Every object type's descendants agree on this part of their vtable. Only these four are common:
+    // past them the layouts diverge, and two of the slots below them are stubs on some types.
     constexpr size_t kVtNamePosition = 8;  // anchor above the model, where the client hangs the name
     constexpr size_t kVtPosition     = 11; // world position; the base implementation reports the origin
     constexpr size_t kVtRawPosition  = 12;
@@ -96,7 +96,7 @@ namespace wxl::offsets::game::unit
     // --- typed views over the objects above ---
     // The constants are the curated landmarks; these structs give named, typed access to the same fields,
     // with every member offset checked against a constant at compile time (a wrong padding fails the build).
-    // Only RE'd fields are named; the gaps are explicit padding. Pointers are 4 bytes on the 32-bit client.
+    // Only known fields are named; the gaps are explicit padding. Pointers are 4 bytes on the 32-bit client.
 #pragma pack(push, 1)
     /** @brief Unit / world object: the body-model slot and the world position. */
     struct UnitObject

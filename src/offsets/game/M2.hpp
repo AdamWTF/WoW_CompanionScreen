@@ -65,7 +65,7 @@ namespace wxl::offsets::game::m2
     constexpr uintptr_t kSMemAlloc = 0x0076E540;
     using SMemAllocFn = void*(__stdcall*)(uint32_t size, const char* name, uint32_t line, uint32_t flags);
     constexpr size_t   kOffModelExtSeqCount  = 0x24; // uint32: sequences whose data streams from .anim
-    constexpr size_t   kOffModelExtSeqArray  = 0x28; // -> SMemAlloc'd u32 array (count * 4)
+    constexpr size_t   kOffModelExtSeqArray  = 0x28; // -> allocator-owned u32 array (count * 4)
     constexpr size_t   kOffModelExtSeqCursor = 0x2C; // uint32: zeroed by kInit's tail
 
     // Per-field header readers driven by kInit's offset->pointer walk. Shared cdecl shape:

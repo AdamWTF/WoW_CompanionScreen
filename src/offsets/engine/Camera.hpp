@@ -33,13 +33,13 @@ namespace wxl::offsets::engine::camera
     constexpr uintptr_t kBuildCameraMatrices = 0x00795400;
 
     // --- the camera the world renderer reads ---
-    // CGWorldFrame::GetActiveCamera returns *(worldFrame + 0x7E20), or null when there is no world
+    // Returns the active world-frame camera (*(worldFrame + 0x7E20)), or null when there is no world
     // frame. The world scene render calls it and immediately calls a virtual on the result, so this is
     // where a scene rendered outside the world has to supply one.
     constexpr uintptr_t kGetActiveCamera = 0x004F5960;
     using GetActiveCameraFn = void*(__cdecl*)();
 
-    // CSimpleCamera's vtable, exactly four entries: field of view, forward, right, up. Each is a single
+    // The camera vtable, exactly four entries: field of view, forward, right, up. Each is a single
     // field read, so an object laid out as below and pointed at this vtable answers all four with the
     // engine's own implementations rather than a hand-written stand-in.
     constexpr uintptr_t kSimpleCameraVTable = 0x00A1E864;

@@ -56,9 +56,9 @@ namespace wxl::offsets::engine::io
     constexpr uintptr_t kRequiredArchiveGateJnz = 0x004060BD;
 
     // Boot's archive-mount + signature-file-check + expansion-tier-flag driver (void, no args). Hooked
-    // "call original, then extend": forces the expansion-content-present flag (kWotlkContentFlag) to its
-    // full value right after the original runs, as a harmless idempotent safety net -- the native
-    // derivation already produces the same value on its own when the expansion archives mount normally.
+    // "call original, then extend": forces the expansion-content-present flag below to its full value
+    // right after the original runs, as a harmless idempotent safety net -- the native derivation
+    // already produces the same value on its own when the expansion archives mount normally.
     constexpr uintptr_t kInitializeWowConfig = 0x00405DD0;
     using InitializeWowConfigFn = void(__cdecl*)();
 

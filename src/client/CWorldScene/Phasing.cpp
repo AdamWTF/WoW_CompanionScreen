@@ -98,7 +98,7 @@ namespace
         const int first  = t->tileFirst;
         const int second = t->tileSecond;
         if (first < 0 || first >= 64 || second < 0 || second >= 64) return false;
-        const int slot = second * 64 + first; // matches DAT_00ce88d0 indexing (tile[0x4c]*64 + tile[0x48])
+        const int slot = second * 64 + first; // matches the client's MAIN-chunk tile indexing (tile[0x4c]*64 + tile[0x48])
         return (g_phaseMain[slot * 8] & 1) != 0;
     }
 

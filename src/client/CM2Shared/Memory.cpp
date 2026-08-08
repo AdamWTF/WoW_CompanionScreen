@@ -38,7 +38,7 @@
 namespace
 {
     // Reserve only what the observed city workload actually needs. A 256 MB reservation stranded roughly
-    // 190 MB of scarce 32-bit VA while CM2Model later failed to find a separate 15 MB contiguous block.
+    // 190 MB of scarce 32-bit VA while the model loader later failed to find a separate 15 MB contiguous block.
     constexpr uint32_t kDefaultM2ArenaSizeMb = 128u;
 
     struct M2ArenaRange
@@ -270,7 +270,7 @@ namespace
     /**
      * @brief Boot-phase reservation of the large-M2 arena before world loading fragments the VA space.
      *
-     * Grabs the contiguous 32-bit reservation early, on the loader thread, so a later large CM2Model
+     * Grabs the contiguous 32-bit reservation early, on the loader thread, so a later large model
      * buffer finds room; deferring it to the first allocation would race the client's own world-load
      * allocations for the same scarce address space. Best-effort: a disabled arena or a failed reserve
      * is not fatal (large buffers then fall back to a standalone VirtualAlloc or the native allocator).

@@ -459,8 +459,7 @@ namespace
 
     /**
      * @brief Detours InitializeWowConfig: runs the original archive-mount/signature-check/config-parse
-     *        sequence unmodified, then forces the expansion-content-present flag (io::kWotlkContentFlag)
-     *        on.
+     *        sequence unmodified, then forces the expansion-content-present flag on.
      */
     void __cdecl InitializeWowConfigDetour()
     {

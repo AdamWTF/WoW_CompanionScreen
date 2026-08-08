@@ -69,18 +69,18 @@ namespace wxl::offsets::engine::shader
     constexpr uintptr_t kTerrainShaderSelect = 0x007D3E10;
 
     // --- per-shader D3D create seam (below the effect-collection stack) ---------------------------
-    // CGxDeviceD3d::IShaderCreateVertex: the point where a CGxShader wrapper's bytecode becomes a live
-    // IDirect3DVertexShader9. Reads the wrapper's bytecode pointer (+kCgxShaderBytePtr) and length
+    // The device's vertex-shader create entry: the point where a shader wrapper's bytecode becomes a
+    // live IDirect3DVertexShader9. Reads the wrapper's bytecode pointer (+kCgxShaderBytePtr) and length
     // (+kCgxShaderByteLen), calls the device CreateVertexShader (D3D vtbl +0x16c), and stores the handle
     // at +kCgxShaderHandle. Confirmed __thiscall(device /*ecx*/, wrapper /*one stack arg*/), ret 4. Detour
-    // as __fastcall(device, edx, wrapper) — byte-compatible — to substitute a recognised shader's bytecode
-    // (swap the wrapper's +0x50/+0x4c fields around the original call, then restore).
+    // as __fastcall(device, edx, wrapper) -- byte-compatible -- to substitute a recognised shader's
+    // bytecode (swap the wrapper's +0x50/+0x4c fields around the original call, then restore).
     constexpr uintptr_t kShaderCreateVertex = 0x006AA0D0;
     using ShaderCreateVertexFn = void(__fastcall*)(void* device, void* edx, void* wrapper);
 
     // Global cdecl helper that uploads programmable-shader constants through the live device
     // (device vtbl +0x118, __thiscall): (target 0=vertex/4=pixel, startReg, const float* data, numVec4).
-    // No-ops when data is null. The grass wind feature uses it to publish c35..c37 each frame.
+    // No-ops when data is null.
     constexpr uintptr_t kShaderConstantsSet = 0x00408210;
     using ShaderConstantsSetHelperFn = void(__cdecl*)(int target, int startReg, const float* data, int numVec4);
 
@@ -118,13 +118,13 @@ namespace wxl::offsets::engine::shader
     constexpr unsigned  kStateTexture0     = 0x15;     // + stage index (0..15)
     using GxStateSetFn = void(__thiscall*)(void* gxDevice, unsigned stateIdx, void* value);
 
-    // --- CGxShader wrapper layout (the native per-permutation shader object) -----------------------
+    // --- shader wrapper layout (the native per-permutation shader object) -----------------------
     // The GxState flush applies a slot by reading the WRAPPER at the slot: if its created flag (+0x30) is
     // set it binds the live handle (+0x20) straight to the device, else it re-creates from the bytecode
     // pointer (+0x50)/length (+0x4c). The own stack therefore builds a minimal wrapper: live handle at
     // +0x20 and created flag = 1 at +0x30 (so the flush binds our handle and never tries to re-create).
     // Live handle at +0x20, created flag +0x30, bytecode length +0x4c, bytecode pointer +0x50.
-    // RTTI ".?AVCGxShader@@".
+    // Identified at runtime by its RTTI type descriptor.
     constexpr size_t kCgxShaderHandle    = 0x20;
     constexpr size_t kCgxShaderCreated   = 0x30; // non-zero = handle ready, skip re-create at flush
     constexpr size_t kCgxShaderByteLen   = 0x4C;

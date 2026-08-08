@@ -209,9 +209,9 @@ namespace wxl::game::m2
      * @param renderCtx   the parent render context (from GetRenderCtx).
      * @param subObj      the collection-M2 instance to attach.
      * @param slot        the scene slot index to attach to.
-     * @param forceAttach when true, passes zero2=1 to sub_831630, bypassing the BoneIndicesByID
-     *                    LUT check that silently exits for attachment points not present in the
-     *                    character's LUT (e.g. point 19 used by collection M2s).
+     * @param forceAttach when true, bypasses the attachment-point lookup check that otherwise silently
+     *                    exits for attachment points not present in the character's table (e.g. point 19
+     *                    used by collection M2s).
      */
     inline void AttachToScene(void* renderCtx, void* subObj, uint32_t slot, bool forceAttach = false)
     {

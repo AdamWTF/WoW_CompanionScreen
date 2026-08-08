@@ -16,15 +16,14 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 //
-// PatchFiles::LoadArchives (TLK 12340, VA 0x405ab0) hands "patch-?.MPQ" and "patch-%s-?.MPQ" (locale
-// variant) to OsFileList as directory-scan patterns, i.e. Win32 FindFirstFile wildcards, not printf
-// specifiers: '?' matches exactly one character, so the stock scan only ever finds single-letter
-// names. '*' matches any run of characters, so the same scan then also finds "Patch-<anything>.MPQ"
-// -- a real archive AND a plain directory with that name (OsFileList enumerates both; the stock
-// engine already knows how to mount a directory as an uncompressed virtual archive, it just never
-// gets offered one with a name this pattern didn't already match). Verified against the RE corpus
-// (09_program.bytes) rather than assumed from a third-party writeup: both strings live in .rdata
-// starting 0x9e2700, and the '?' byte is at +9 and +6 respectively.
+// The client's own patch-archive directory scan hands "patch-?.MPQ" and "patch-%s-?.MPQ" (locale
+// variant) to its directory-listing helper as directory-scan patterns, i.e. Win32 FindFirstFile
+// wildcards, not printf specifiers: '?' matches exactly one character, so the stock scan only ever
+// finds single-letter names. '*' matches any run of characters, so the same scan then also finds
+// "Patch-<anything>.MPQ" -- a real archive AND a plain directory with that name (the scan enumerates
+// both; the engine already knows how to mount a directory as an uncompressed virtual archive, it just
+// never gets offered one with a name this pattern didn't already match). Both format strings live back
+// to back in the client's read-only data section, with the '?' byte at +9 and +6 respectively.
 
 #include "patcher/PatchScript.hpp"
 

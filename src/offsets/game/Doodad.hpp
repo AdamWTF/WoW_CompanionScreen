@@ -25,10 +25,10 @@
 namespace wxl::offsets::game::doodad
 {
     // --- spawn ---
-    // Build a CMapDoodad from an MDDF placement (modelName, MDDF entry, tile origin). Returns the new
-    // CMapDoodad* in EAX. The "a placed doodad was created" point.
+    // Builds a placed-doodad object from an MDDF placement (modelName, MDDF entry, tile origin).
+    // Returns the new object pointer in EAX. The "a placed doodad was created" point.
     constexpr uintptr_t kSpawnFromMDDF = 0x007BECD0;
-    // __cdecl, 3 stack args, returns CMapDoodad*.
+    // __cdecl, 3 stack args, returns the new placed-doodad object pointer.
     using SpawnFromMDDFFn = void*(__cdecl*)(const char* modelName, void* mddf, void* tileOrigin);
 
     // --- placed-doodad object fields ---
@@ -42,7 +42,7 @@ namespace wxl::offsets::game::doodad
 
     // bbox min / sphere center / bbox max. WARNING: at spawn all three are set equal to the position (a
     // degenerate point), never the model's real extents and never recomputed. Not usable as a real box;
-    // a real wireframe must transform the CM2Model local bounds by the live instance matrix.
+    // a real wireframe must transform the model's local bounds by the live instance matrix.
     constexpr size_t kBBoxMinX = 0x38;
     constexpr size_t kBBoxMinY = 0x3C;
     constexpr size_t kBBoxMinZ = 0x40;
@@ -54,24 +54,24 @@ namespace wxl::offsets::game::doodad
     constexpr size_t kBBoxMaxZ = 0x5C;
 
     // Staging matrix (float[16], row-major) composed once at spawn. NOT what the renderer reads: the spawn
-    // copies it once into the CM2 render instance (kInstWorldMatrix), then never touches it again. Writing
-    // here does NOT move the model; kept only as the editor-facing source of truth.
+    // copies it once into the model render instance (kInstWorldMatrix), then never touches it again.
+    // Writing here does NOT move the model; kept only as the editor-facing source of truth.
     constexpr size_t kWorldMatrix      = 0xD8;
     constexpr size_t kWorldMatrixTransX = 0x108;
     constexpr size_t kWorldMatrixTransY = 0x10C;
     constexpr size_t kWorldMatrixTransZ = 0x110;
 
-    // --- CM2 render instance (the object the renderer actually draws) ---
-    // doodad+0x34 -> CM2 instance. The live world matrix the renderer multiplies every frame lives on the
-    // instance, not the doodad. To move/rotate/scale a placed doodad you write kInstWorldMatrix.
-    constexpr size_t kInstance        = 0x34; // doodad -> CM2 render instance (0 mid async-load)
+    // --- model render instance (the object the renderer actually draws) ---
+    // doodad+0x34 -> model render instance. The live world matrix the renderer multiplies every frame
+    // lives on the instance, not the doodad. To move/rotate/scale a placed doodad you write kInstWorldMatrix.
+    constexpr size_t kInstance        = 0x34; // doodad -> model render instance (0 mid async-load)
     constexpr size_t kInstWorldMatrix = 0xB4; // float[16] row-major, READ every frame, never rewritten
     constexpr size_t kInstTransX      = 0xE4; // translation row of the live matrix (= world X/Y/Z)
     constexpr size_t kInstTransY      = 0xE8;
     constexpr size_t kInstTransZ      = 0xEC;
-    constexpr size_t kInstModel       = 0x2C; // instance -> CM2Model cache node
+    constexpr size_t kInstModel       = 0x2C; // instance -> model cache node
 
-    // --- CM2Model cache node (holds the file path + the parsed MD20 header) ---
+    // --- model cache node (holds the file path + the parsed MD20 header) ---
     constexpr size_t kModelFullPath = 0x3C;  // inline NUL-terminated normalized path (take address)
     constexpr size_t kModelFileName = 0x140; // char* to the bare filename (points into the +0x3C buffer)
     constexpr size_t kModelHeader   = 0x150; // ptr to the parsed MD20 header blob (the local-bounds source)
@@ -93,7 +93,7 @@ namespace wxl::offsets::game::doodad
     // --- typed views over the objects above ---
     // The constants are the curated landmarks; these structs give named, typed access to the same fields,
     // with every member offset checked against a constant at compile time (a wrong padding fails the build).
-    // Only RE'd fields are named; the gaps are explicit padding. Pointers are 4 bytes on the 32-bit client.
+    // Only known fields are named; the gaps are explicit padding. Pointers are 4 bytes on the 32-bit client.
 #pragma pack(push, 1)
     /** @brief Placed-doodad object: one per map M2 placement (the "d" pointer). */
     struct MapDoodad

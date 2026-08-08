@@ -54,14 +54,14 @@ namespace wxl::offsets::engine::liquid
     // restated too, or every later draw of that chunk group describes the new vertices with the old
     // counts.
     constexpr size_t kGeomDirty      = 0x08;  // non-zero forces a full rebuild
-    constexpr size_t kGeomChunkBuf   = 0x1C;  // CMapChunkBuf*, null until first built
+    constexpr size_t kGeomChunkBuf   = 0x1C;  // buffered chunk geometry pointer, null until first built
     constexpr size_t kGeomBatchCache = 0x20;  // the four descriptor dwords, copied out on the fast path
 
     // The cache entry. Its two pools are created for it alone (see the Gx section below), sized to
     // the counts handed to Alloc -- which is why a denser lattice has to be reserved at that call
     // and cannot simply be written into a buffer built for the stock one.
-    constexpr size_t kChunkBufVertex = 0x10;  // CGxBuf*
-    constexpr size_t kChunkBufIndex  = 0x14;  // CGxBuf*
+    constexpr size_t kChunkBufVertex = 0x10;  // vertex buffer view*
+    constexpr size_t kChunkBufIndex  = 0x14;  // index buffer view*
     constexpr uintptr_t kMapChunkBufAlloc = 0x007CF140;
     using MapChunkBufAllocFn = void*(__cdecl*)(int vertexCount, int indexCount, uint32_t tag,
                                                uint32_t vertexFormat);
@@ -100,12 +100,12 @@ namespace wxl::offsets::engine::liquid
 
     // Settings bank cache: one settings pointer per liquid type id (settings = rows[id]); a linear
     // scan inverts a settings pointer back to its id, which the settings object itself does not carry.
-    constexpr uintptr_t kSettingsBankRows  = 0x00D43B1C; // CMaterialSettings** (indexed by type id)
+    constexpr uintptr_t kSettingsBankRows  = 0x00D43B1C; // settings-object pointer array (indexed by type id)
     constexpr uintptr_t kSettingsBankCount = 0x00D43B18; // u32 array length
 
     // Per-chunk vertex emitter: fills one chunk's vertices into the batch VB through per-component
     // write cursors (each advances by the vertex stride when non-null). __thiscall on the
-    // CChunkLiquid; 7 stack args. Positions are written already batch-transformed -- world
+    // chunk-liquid geometry object; 7 stack args. Positions are written already batch-transformed -- world
     // coordinates for map liquids -- and uv0.y receives the depth-ramp value, which is where the
     // true-depth enrichment rewrites placements shipped without a depth stream.
     constexpr uintptr_t kChunkVertexEmit = 0x007CE390;
@@ -122,8 +122,8 @@ namespace wxl::offsets::engine::liquid
     constexpr size_t kChunkCol1 = 0x40;
 
     // ---- Gx geometry buffers ---------------------------------------------------------------
-    // There is no standalone buffer object in this engine. A CGxPool owns one real D3D vertex or
-    // index buffer of a fixed size; a CGxBuf is a 32-byte VIEW into a pool -- offset, stride, count
+    // There is no standalone buffer object in this engine. A geometry pool owns one real D3D vertex or
+    // index buffer of a fixed size; a buffer view is a 32-byte VIEW into a pool -- offset, stride, count
     // -- and several views can share one pool.
     //
     // The liquid chunk cache does NOT share. It creates a pool per cache entry, sized to that
@@ -144,7 +144,7 @@ namespace wxl::offsets::engine::liquid
     /// wrap, which is the contract for geometry rewritten every frame by many unrelated callers.
     constexpr uint32_t kGxUsageStream = 2;
 
-    // CGxBuf fields. +0x1C is ours to set once the contents are written; +0x1D is the engine's
+    // Buffer view fields. +0x1C is ours to set once the contents are written; +0x1D is the engine's
     // statement that the GPU side is healthy, and both must be true for a draw to be worth issuing.
     // +0x14 is also the byte count a lock maps, so it must be set before the lock, not after.
     constexpr size_t kBufPool   = 0x08;
@@ -161,7 +161,7 @@ namespace wxl::offsets::engine::liquid
     constexpr uintptr_t kGxBufSizeSet = 0x006831A0;
     using GxBufSizeSetFn = void(__stdcall*)(void* buf, uint32_t stride, uint32_t count);
 
-    // CGxDevice vtable slots. The base BufLock returns nothing useful -- the D3D override is what
+    // Device vtable slots. The base lock method returns nothing useful -- the D3D override is what
     // hands back the mapped pointer -- so these must go through the vtable, never the base address.
     constexpr unsigned kGxVtLock   = 0xD8 / 4;
     constexpr unsigned kGxVtUnlock = 0xDC / 4;
@@ -204,10 +204,10 @@ namespace wxl::offsets::engine::liquid
     constexpr size_t kRowAmbDarkenIntensity = 0x20; // float 0..1
     constexpr size_t kRowDirDarkenIntensity = 0x24; // float 0..1
 
-    // Liquid::CMaterialBank::GetMaterial (0x008A1FA0) switches on this column to pick the family
+    // The material bank resolver (kMaterialBankGetMaterial) switches on this column to pick the family
     // constructor (1 water, 2 ooze/slime, 3 magma) and has no default case: any other value falls
-    // through every branch, caches a NULL IMaterial* for that row, and the next instance built from
-    // it null-derefs its material pointer at draw time (CLiquidBank::DrawPass, 0x008A2240). A row id
+    // through every branch, caches a NULL material pointer for that row, and the next instance built
+    // from it null-derefs its material pointer at draw time in the per-frame liquid render pass. A row id
     // GetMaterial can't find at all already self-heals ("Material Bank: Liquid type [%d] not found,
     // defaulting to water!", retried with id 1) -- classic content only ever shipped 1/2/3 here, so
     // there was never a reason to extend that same self-heal to a row that resolves but carries an
@@ -215,7 +215,7 @@ namespace wxl::offsets::engine::liquid
     constexpr size_t kRowMaterialId = 0x38; // u32, valid range {1, 2, 3}
 
     // Day/night info block: the per-frame interpolated zone water colors the procedural depth
-    // gradient bakes each frame (close = shallow, far = deep; CImVector 0xAARRGGBB), and the four
+    // gradient bakes each frame (close = shallow, far = deep; a packed 0xAARRGGBB colour), and the four
     // gradient alpha-curve floats that follow them.
     constexpr uintptr_t kDayNightInfo      = 0x00D38B00;
     constexpr size_t    kDnOceanCloseColor = 0x10C;

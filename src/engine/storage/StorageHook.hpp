@@ -55,7 +55,7 @@ namespace wxl::runtime::storage
      *
      * Providers are checked in TryServe before the native archive open. A provider that returns
      * true claims the file; the first claimant wins. Safe to call from a global constructor
-     * (no hooking engine involved — just a function pointer stored in a list).
+     * (no hooking engine involved -- just a function pointer stored in a list).
      * @param fn  provider callback to register
      */
     void RegisterClientProvider(ClientProvideFn fn);
@@ -75,7 +75,7 @@ namespace wxl::runtime::storage
      * Unlike a provider, a transform runs AFTER a successful native open: the file already exists in
      * an archive/directory the client mounted itself, and this reshapes what it read (e.g.
      * re-encoding a texture format the client cannot decode) before the native caller sees it.
-     * Filtering by suffix keeps every open cheap — a name matching no registered suffix never pays
+     * Filtering by suffix keeps every open cheap -- a name matching no registered suffix never pays
      * for the extra read a transform needs to inspect bytes.
      * @param suffix  lowercase suffix a name must end with to be offered to fn (e.g. ".blp")
      * @param fn      transform callback

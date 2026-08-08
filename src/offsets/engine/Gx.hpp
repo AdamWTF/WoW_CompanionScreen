@@ -78,8 +78,8 @@ namespace wxl::offsets::engine::gx
     constexpr size_t    kFormatHeight    = 0x1D4; // active format height (backbuffer px, unscaled)
     constexpr size_t    kViewportDirty   = 0xF6C; // set to 1 to force a viewport recompute from curWindow
     constexpr size_t    kRtOverrideField = 0x2918; // non-zero while an offscreen RT override is active (not the backbuffer pass)
-    // Master switches, one bit per rendering category, read by CGxDevice::MasterEnable. Bit 8 off is
-    // what makes the world scene clear to opaque black instead of the horizon colour.
+    // Master switches, one bit per rendering category, read by the device's master-enable check. Bit 8
+    // off is what makes the world scene clear to opaque black instead of the horizon colour.
     constexpr size_t    kMasterEnableField = 0x2758;
     constexpr uintptr_t kDeviceSetDefWindow = 0x00684360; // resolution choke (create + every resize)
 
@@ -98,8 +98,8 @@ namespace wxl::offsets::engine::gx
     constexpr unsigned  kGxSetViewSlot         = 0xA4 / 4;   // = 41, device view-upload slot
     using GxSetProjectionFn = void(__fastcall*)(void* self, void* edx, const void* proj16);
 
-    // Where the device keeps the matrices those two slots upload, so they can be read back and put
-    // returned. CGWorldFrame::RenderWorld saves both before the world render and uploads them again
+    // Where the device keeps the matrices those two slots upload, so they can be read back and
+    // restored. The per-frame world render saves both before drawing the world and uploads them again
     // after, then refreshes the shader system -- the world render overwrites them and does not restore
     // them, so anything calling it outside that wrapper has to bracket it the same way.
     //
@@ -115,8 +115,8 @@ namespace wxl::offsets::engine::gx
     constexpr uintptr_t kShaderUpdateProjMatrix = 0x00872C10;
     using ShaderUpdateProjMatrixFn = void(__cdecl*)();
 
-    // CSimpleModelFFX::Render: the GLUE 3D-scene render callback -- the login / character-select model preview.
-    // It is the glue-side analogue of CGWorldFrame::RenderWorld (kWorldRenderFinalize): the engine defers every
+    // The GLUE 3D-scene render callback -- the login / character-select model preview.
+    // It is the glue-side analogue of the per-frame world render (kWorldRenderFinalize): the engine defers every
     // 3D render into a per-frame-object callback (there is no single global "3D done" point), so the world hook
     // covers the world and THIS hook covers the glue model. Hooked at its entry and the post-process boundary is
     // fired after the original returns (model rendered, glue UI not yet drawn). In-world it also runs for 3D UI
@@ -124,18 +124,18 @@ namespace wxl::offsets::engine::gx
     constexpr uintptr_t kSimpleModelFFXRender = 0x004E6190;
     using GlueModelRenderFn = void(__cdecl*)(void* frame);
 
-    // CSimpleModel's script-method registration, the callback the metatable builder invokes. Detour it,
-    // let the stock methods register, then append: the frame types built on it -- including the glue
-    // screens' ModelFFX -- inherit whatever was added.
+    // The glue model frame's script-method registration, the callback the metatable builder invokes.
+    // Detour it, let the stock methods register, then append: the frame types built on it -- including
+    // the glue screens' ModelFFX -- inherit whatever was added.
     constexpr uintptr_t kSimpleModelRegisterMethods = 0x009603D0;
     using RegisterScriptMethodsFn = void(__cdecl*)(void* target);
 
-    // CSimpleModel's script type-id slot, zero until its first script method claims one from the global
-    // counter (engine::lua::kObjectTypeCounter). Resolving the invoked object goes through this id.
+    // The glue model frame's script type-id slot, zero until its first script method claims one from the
+    // global counter (engine::lua::kObjectTypeCounter). Resolving the invoked object goes through this id.
     constexpr uintptr_t kSimpleModelTypeId = 0x00DCE428;
 
-    // Scene clear (flags, colour), forwarded to CGxDeviceD3d::SceneClear: flags bit 0 clears the colour
-    // target, bit 1 the depth buffer, so 3 clears both and 2 leaves the colour standing.
+    // Scene clear (flags, colour), forwarded to the device's own clear routine: flags bit 0 clears the
+    // colour target, bit 1 the depth buffer, so 3 clears both and 2 leaves the colour standing.
     //
     // Every glue 3D object's render opens with an unconditional colour+depth clear -- unconditional in
     // the literal sense that only the model draw between them is guarded, not the clears. Anything
@@ -153,8 +153,8 @@ namespace wxl::offsets::engine::gx
 
     // --- typed views over the device objects ---
     // The constants above are the curated landmarks; these structs give named, typed access to the same
-    // fields, with every member offset checked against a constant at compile time. Only RE'd fields are
-    // named; the gaps are explicit padding. Pointers are 4 bytes on the 32-bit client. The graphics-device
+    // fields, with every member offset checked against a constant at compile time. Only confirmed fields
+    // are named; the gaps are explicit padding. Pointers are 4 bytes on the 32-bit client. The graphics-device
     // singleton pointer, the vtable indices, the function addresses, and the render-state ids stay as plain
     // constants: they are not struct fields.
 #pragma pack(push, 1)
@@ -187,8 +187,8 @@ namespace wxl::offsets::engine::gx
     // original returns: world done, UI not yet started. The world -> UI boundary / post-fx slot. The
     // epilogue-anchor address is mid-epilogue, not a hookable entry; kept only as a landmark.
     // The world render pass alone: viewport, scene draw, and the passes around it. Its caller
-    // (kWorldRenderFinalize) pairs it with CGWorldFrame::OnWorldUpdate, which is a different kind of
-    // work -- free lists, effect managers, pending portraits, all belonging to a world frame the engine
+    // (kWorldRenderFinalize) pairs it with the world frame's own per-frame update, which is a different
+    // kind of work -- free lists, effect managers, pending portraits, all belonging to a world frame the engine
     // built. A scene drawn for a frame the engine did not build wants this half and not that one.
     constexpr uintptr_t kWorldOnRender = 0x004F8EA0;
     using WorldOnRenderFn = void(__fastcall*)(void* worldFrame, void* edx);
@@ -223,16 +223,16 @@ namespace wxl::offsets::engine::gx
     constexpr uintptr_t kMipTablePtr   = 0x00B49C90;
     constexpr uintptr_t kMipTableValid = 0x00B49C94; // nonzero while the table is live (gates a reload)
     constexpr size_t    kMipTableSlots = 16;         // upper bound on mip levels (real count <= 13)
-    // The table is filled per build (CBLPFile_LockChain2 writes kMipTablePtr[mip] = alias) only for mip
+    // The table is filled per build (the mip-chain lock writes kMipTablePtr[mip] = alias) only for mip
     // levels with a nonzero size, so a truncated mip chain (common in custom-map BLPs) under-fills it and
-    // leaves a previous build's freed alias in a high slot. The upload (CGxDeviceD3d__ITexUpload) walks mips
-    // by header dimensions and would read that stale slot and fault (the 0x40cb6a UAF on a cold custom-map
-    // login). Its per-mip blit is guarded by "source != 0", so clearing the table after each upload makes an
-    // under-filled build's high slots read 0 and get skipped.
+    // leaves a previous build's freed alias in a high slot. The upload walks mips by header dimensions and
+    // would read that stale slot and fault (a use-after-free on a cold custom-map login). Its per-mip blit
+    // is guarded by "source != 0", so clearing the table after each upload makes an under-filled build's
+    // high slots read 0 and get skipped.
 
-    // The buffer behind kMipTablePtr is allocated ONCE at boot (TextureInitialize) sized for a 32-bpp
-    // 0x400 x 0x400 mip chain (~5.59 MB), and every synchronous mip fill (CBLPFile_LockChain: atlas
-    // reload, self-heal, TGA) memcpys the texture's decoded chain into it. A 2048 DXT5 chain already
+    // The buffer behind kMipTablePtr is allocated ONCE at boot sized for a 32-bpp
+    // 0x400 x 0x400 mip chain (~5.59 MB), and every synchronous mip fill (atlas reload, self-heal, TGA)
+    // memcpys the texture's decoded chain into it. A 2048 DXT5 chain already
     // exceeds that capacity by a few bytes, so any texture wider than 1024 corrupts the heap the first
     // time it takes the sync path. The two addresses below are the width/height push imm32 operands of
     // the boot-time size computation; widening both to 0x800 (32-bpp 2048 chain, ~22.4 MB) makes every

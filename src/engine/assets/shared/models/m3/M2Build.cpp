@@ -428,8 +428,8 @@ namespace wxl::modern::assets::m3
 
         // particle rate: some emitters are burst-driven (e.g. footstep dust keyed to the
         // gait cycle) rather than a constant stream; the SD slot is empirically slot 5,
-        // stride 4 (plain scalar float) -- confirmed by clean values on bear_rank17's paw
-        // emitters (0 most of the cycle, spiking during the footfall window)
+        // stride 4 (plain scalar float) - verified against clean burst patterns (rate near
+        // zero most of the cycle, spiking during the footfall window)
         constexpr uint32_t kSdSlotScalar = 5;
         out.emitterRate.assign(model.particles.size(), {});
         for (size_t ei = 0; ei < model.particles.size(); ++ei)

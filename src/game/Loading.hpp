@@ -49,7 +49,7 @@ namespace wxl::game::world
     }
 
     /**
-     * @brief Changes the terrain source to another map directory at the current position (CMap::Enter).
+     * @brief Changes the terrain source to another map directory at the current position.
      *
      * Runs the engine's own map-change: repoints the dir/name/wdt-path globals to @p mapDir, purges all
      * tiles, loads that map's WDT + WDL, and re-streams around the current camera. The player is not moved.
@@ -62,8 +62,8 @@ namespace wxl::game::world
     }
 
     /**
-     * @brief Reads a tile's in-flight async-read object (CMapArea+0x70), null while idle.
-     * @param area  the tile (CMapArea), as held by the caller (opaque outside this binding).
+     * @brief Reads a tile's in-flight async-read object (TileArea+0x70), null while idle.
+     * @param area  the tile (TileArea), as held by the caller (opaque outside this binding).
      */
     inline void* TileAsyncRead(const void* area)
     {
@@ -71,9 +71,9 @@ namespace wxl::game::world
     }
 
     /**
-     * @brief Sets a tile's in-flight async-read object (CMapArea+0x70). Does not itself cancel or
+     * @brief Sets a tile's in-flight async-read object (TileArea+0x70). Does not itself cancel or
      *        start a read; a caller passing null here is only clearing the marker.
-     * @param area   the tile (CMapArea).
+     * @param area   the tile (TileArea).
      * @param value  the async-read object to record, or null.
      */
     inline void SetTileAsyncRead(void* area, void* value)
@@ -83,8 +83,8 @@ namespace wxl::game::world
     }
 
     /**
-     * @brief Reads a tile's open file handle (CMapArea+0x6C, SFile*), null when no file is open.
-     * @param area  the tile (CMapArea).
+     * @brief Reads a tile's open archive file handle (TileArea+0x6C), null when no file is open.
+     * @param area  the tile (TileArea).
      */
     inline void* TileFileHandle(const void* area)
     {
@@ -92,8 +92,8 @@ namespace wxl::game::world
     }
 
     /**
-     * @brief Sets a tile's open file handle (CMapArea+0x6C).
-     * @param area   the tile (CMapArea).
+     * @brief Sets a tile's open file handle (TileArea+0x6C).
+     * @param area   the tile (TileArea).
      * @param value  the file handle to record, or null.
      */
     inline void SetTileFileHandle(void* area, void* value)
@@ -103,8 +103,8 @@ namespace wxl::game::world
     }
 
     /**
-     * @brief Reads a tile's raw ADT file buffer (CMapArea+0x80), null before a read has allocated it.
-     * @param area  the tile (CMapArea).
+     * @brief Reads a tile's raw ADT file buffer (TileArea+0x80), null before a read has allocated it.
+     * @param area  the tile (TileArea).
      */
     inline void* TileFileBuffer(const void* area)
     {
@@ -112,8 +112,8 @@ namespace wxl::game::world
     }
 
     /**
-     * @brief Sets a tile's raw ADT file buffer (CMapArea+0x80).
-     * @param area   the tile (CMapArea).
+     * @brief Sets a tile's raw ADT file buffer (TileArea+0x80).
+     * @param area   the tile (TileArea).
      * @param value  the buffer to record, or null.
      */
     inline void SetTileFileBuffer(void* area, void* value)
@@ -123,8 +123,8 @@ namespace wxl::game::world
     }
 
     /**
-     * @brief Reads the byte size of a tile's raw file buffer (CMapArea+0x84).
-     * @param area  the tile (CMapArea).
+     * @brief Reads the byte size of a tile's raw file buffer (TileArea+0x84).
+     * @param area  the tile (TileArea).
      */
     inline uint32_t TileFileSize(const void* area)
     {
@@ -132,8 +132,8 @@ namespace wxl::game::world
     }
 
     /**
-     * @brief Sets the byte size of a tile's raw file buffer (CMapArea+0x84).
-     * @param area   the tile (CMapArea).
+     * @brief Sets the byte size of a tile's raw file buffer (TileArea+0x84).
+     * @param area   the tile (TileArea).
      * @param value  the byte size to record.
      */
     inline void SetTileFileSize(void* area, uint32_t value)

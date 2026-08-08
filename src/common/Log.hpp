@@ -24,7 +24,7 @@
  *
  * Each binary owns its own instance of this engine (static per module), so the DLL, the d3d9
  * proxy, and the patcher naturally write to separate sinks. A call below the runtime
- * threshold costs one relaxed atomic load — no formatting, no lock, no timestamp.
+ * threshold costs one relaxed atomic load - no formatting, no lock, no timestamp.
  *
  * Runtime threshold: WXL_LOG_LEVEL env var (trace|debug|info|warn|error|off, or 0-5); defaults
  * to Info. Compile-time floor: WXL_LOG_COMPILE_MIN (numeric Level value); Release strips Trace,

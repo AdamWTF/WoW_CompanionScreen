@@ -1,4 +1,4 @@
-// Lua/FrameScript landmarks for the 3.3.5a (12340) client.
+// Lua/FrameScript landmarks for the target client (335).
 // Copyright (C) 2026 WarcraftXL
 
 #pragma once

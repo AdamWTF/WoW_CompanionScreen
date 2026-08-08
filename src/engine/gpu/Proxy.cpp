@@ -36,7 +36,7 @@ namespace
      * @brief Writes one Info line to the proxy's own log sink, opening it on first use.
      *
      * The proxy is a distinct module from WarcraftXL.dll and owns a separate log instance. Lines are
-     * sparse boot/crash diagnostics and are flushed immediately — the DLL has no orderly close on exit.
+     * sparse boot/crash diagnostics and are flushed immediately -- the DLL has no orderly close on exit.
      * @param fmt  printf-style format string followed by its arguments.
      */
     void Log(const char* fmt, ...)

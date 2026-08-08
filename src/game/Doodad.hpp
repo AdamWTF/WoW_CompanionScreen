@@ -52,7 +52,7 @@ namespace wxl::game::doodad
          * @brief Per-thread cache of the last few committed regions VirtualQuery returned.
          *
          * The guarded walkers (ModelName, EnumerateChunk, ...) probe the same handful of regions
-         * hundreds of times per call — up to once per character or four times per list node — and
+         * hundreds of times per call - up to once per character or four times per list node - and
          * each probe was a kernel round-trip. Entries only live within a single GetTickCount64
          * millisecond, so a page freed by another thread is trusted no longer than roughly the
          * check-then-read window the uncached code already had.

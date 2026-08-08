@@ -1,4 +1,4 @@
-// CMapDoodad spawn detour: publish OnDoodadSpawn with the placement the native call built.
+// Doodad-placement spawn detour: publish OnDoodadSpawn with the placement the native call built.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify

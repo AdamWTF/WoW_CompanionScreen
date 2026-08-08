@@ -26,11 +26,6 @@ namespace wxl::offsets::engine::frame
     // stores, so it runs exactly once per frame by construction -- a second call would corrupt the
     // client's own timing before it corrupted ours. That makes it the OnUpdate anchor.
     //
-    // The previous address here (0x0047DCA0) was EventForceIdleProcessing, which is not a per-frame
-    // anything: it runs when the client is pumping idle work. OnUpdate had no subscribers until the
-    // sea state and the wave field wanted one, so an event that never fired looked exactly like an
-    // event nobody had used yet, and it stayed wrong for as long as nothing depended on it.
-    //
     // __cdecl, two stack args, verified at the prologue ([ebp+8] float, [ebp+0xc] int) and at the
     // bare `ret` that ends it.
     constexpr uintptr_t kFramePump = 0x0077ECB0;

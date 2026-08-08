@@ -134,7 +134,7 @@ namespace wxl::structure::m2
         M2Array  filename; // 0x08
     };
 
-    // Common texture.type values used by the 3.3.5 client.
+    // Common texture.type values used by the target client.
     constexpr uint32_t kTexTypeHardcoded = 0;
     constexpr uint32_t kTexTypeObjectSkin = 2;
     constexpr uint32_t kTexTypeWeaponBlade = 3;
@@ -202,8 +202,8 @@ namespace wxl::structure::m2
     };
 
     /**
-     * @brief One M2Track<T> animation block: interpolation/global-sequence header plus the pre-Legion,
-     *        per-sequence-indexed timestamp and value tables.
+     * @brief One M2Track<T> animation block: interpolation/global-sequence header plus the legacy,
+     *        per-sequence-indexed timestamp and value tables that predate the modern single-array layout.
      *
      * timestamps/values are each an array of arrays: outer entry i holds sequence i's own timestamp (or
      * value) list, so a track with no global sequence still needs one outer entry per animation sequence
