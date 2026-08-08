@@ -69,7 +69,7 @@ namespace wxl::offsets::game::world
     constexpr uintptr_t kTileGrid           = 0x00CE48D0;
     // Tile fields: async read-in-flight handle (0 = idle), open file handle, raw ADT file-buffer ptr
     // (0 = not loaded), and that buffer's byte size (kOffTileFileId is a historical misnomer -- it
-    // holds a byte count, not an id). Same CMapArea object as ADT.hpp's TileArea struct, which is the
+    // holds a byte count, not an id). Same tile-area object as ADT.hpp's TileArea struct, which is the
     // canonical typed (offset-checked) view of these fields -- use that from C++ code instead of these
     // raw constants when a named struct member will do.
     constexpr size_t kOffTileAsyncRead  = 0x70;
@@ -144,8 +144,9 @@ namespace wxl::offsets::game::world
 
     // --- scene draw ---
     // World scene render (viewerPos, flags): the terrain / WMO / doodad draw itself, a thin wrapper over
-    // CWorldScene::Render. viewerPos is a float[3]: the world frame passes the position field inside its
-    // active camera, not a scene handle, and CWorldScene reaches its own state through globals. So the
+    // the world-scene renderer. viewerPos is a float[3]: the world frame passes the position field inside
+    // its active camera, not a scene handle, and the world-scene renderer reaches its own state through
+    // globals. So the
     // draw needs neither a world frame nor a world session -- only a position and the camera matrices.
     // flags is the world frame's own render-flag dword; 0 is the neutral value.
     constexpr uintptr_t kRender = 0x0077EFF0;
@@ -222,7 +223,7 @@ namespace wxl::offsets::game::world
     constexpr uintptr_t kWorldIntersect = 0x0077F310;
     using WorldIntersectFn = char(__cdecl*)(const float* start, const float* end, void* outUnused,
                                             float* inOutDist, uint32_t mask, uint32_t flags);
-    // Scratch hit-test coordinates populated by CGWorldFrame::SetupDefaultAction.
+    // Scratch hit-test coordinates populated by the world frame's default-action setup.
     // Do not use these as a live cursor source; they can retain an older action point.
     constexpr size_t kWorldFrameCursorDdcX = 0x310;
     constexpr size_t kWorldFrameCursorDdcY = 0x314;
@@ -233,6 +234,10 @@ namespace wxl::offsets::game::world
     using IntersectFn = int(__cdecl*)(const void* rayStart, const void* rayEnd, uint32_t flags, void* result6);
 
     // --- async I/O queue primitives ---
+    // Blocks pumping until ONE specific object's read completes. Reentrancy-guarded by a single global
+    // counter.
+    constexpr uintptr_t kAsyncFileReadWait = 0x004BA060;
+    using AsyncFileReadWaitFn = void(__cdecl*)(void* asyncObj);
     // Wait-all: blocks pumping the async queues until no async file read is pending.
     constexpr uintptr_t kAsyncWaitAll = 0x004BAE10;
     // Pending predicate: nonzero while any async file request still has outstanding work.
@@ -244,18 +249,18 @@ namespace wxl::offsets::game::world
     // must forward them, else the original runs with garbage a/b read off the stack.
     using AsyncServiceQueuesFn = int(__cdecl*)(int a, int b);
 
-    // Cancel + recycle an in-flight async read object (AsyncFileReadDestroyObject): spin-waits an
+    // Cancel + recycle an in-flight async read object: spin-waits an
     // in-service read, unlinks a queued completion so it never runs, CLOSES the object's file handle
     // (+0x00), and recycles the node. Used to retire a tile's pending read before its buffer is freed.
     constexpr uintptr_t kAsyncDestroy = 0x004B9DE0;
     using AsyncDestroyFn = void(__cdecl*)(void* asyncObj);
 
-    // Allocate (or recycle) one zero-initialized 0x30-byte CAsyncObject. The caller fills
+    // Allocate (or recycle) one zero-initialized 0x30-byte async-read record. The caller fills
     // +0x00 file / +0x04 dest buffer / +0x08 size / +0x0C ctx / +0x10 completion (__cdecl, one arg =
     // ctx, invoked on the MAIN thread by the completion drain) and enqueues via kAsyncFileReadObject.
     constexpr uintptr_t kAsyncFileReadAllocObject = 0x004BA170;
     using AsyncFileReadAllocObjectFn = void*(__cdecl*)();
-    // CAsyncObject field offsets (verified against CMapArea::Load 0x007D7150 and the drain).
+    // Async-read record field offsets (verified against the tile-area load routine 0x007D7150 and the drain).
     constexpr size_t kOffAsyncFile     = 0x00;
     constexpr size_t kOffAsyncBuffer   = 0x04;
     constexpr size_t kOffAsyncSize     = 0x08;

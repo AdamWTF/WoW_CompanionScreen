@@ -26,8 +26,9 @@ namespace wxl::offsets::game::wmo
     // --- load (rewrite buffers before the native parse) ---
     // Root read-completion callback (root): fires once after the async read fills the root buffer and
     // before the chunk walker runs. It is only a shim: it clears the async handle and TAIL-JUMPS to
-    // CMapObj::CreateData (0x007D7EB0), whose single caller it is.
+    // the root finalizer (kRootCreateData below), whose single caller it is.
     constexpr uintptr_t kRootComplete = 0x007D8050;
+    constexpr size_t kOffRootAsyncHandle = 0x1DC;
     // Group reader (group): the join point of both the sync and async group-load paths, run before the
     // group sub-chunk walk. Also a shim around the real sub-chunk walkers below; it decodes the 0x44-byte
     // MOGP header inline, then hands `groupBuffer + kGroupWalkCursorOffset` to kGroupWalk.
@@ -57,27 +58,28 @@ namespace wxl::offsets::game::wmo
     constexpr uintptr_t kRootCreateData = 0x007D7EB0;
     // Group read-completion callback (group): the async-read mirror of kRootComplete -- fires once the
     // async read fills the group buffer, clears the group's async handle (group+0x194), and tail-jumps
-    // to kGroupParse. Not previously pinned; found (this session) by tracing CMapObj::ReadGroup's async
-    // request setup. Backgrounding kGroupWalk's CPU work means hooking HERE, not at kGroupParse: by the
+    // to kGroupParse. Found by tracing the group async-read setup. Backgrounding kGroupWalk's CPU work
+    // means hooking HERE, not at kGroupParse: by the
     // time kGroupParse runs, the native callback has already cleared group+0x194, so anything gating on
     // that field has to own the moment BEFORE this call, not after -- see wxl-wmo's WmoAsync.cpp.
     constexpr uintptr_t kGroupComplete = 0x007D8570;
     using Wmo_GroupCompleteFn = void(__cdecl*)(void* group);
+    constexpr size_t kOffGroupAsyncHandle = 0x194;
 
-    // CMap::FreeMapObj (root on the stack, cdecl)
+    // Frees a root object (root on the stack, cdecl)
     constexpr uintptr_t kFreeMapObj = 0x007BFF70;
     using Wmo_FreeMapObjFn = void(__cdecl*)(void* root);
-    // CMap::FreeMapObjGroup (group on the stack, cdecl): the group front door.
+    // Frees a group object (group on the stack, cdecl): the group front door.
     constexpr uintptr_t kFreeMapObjGroup = 0x007C0030;
     using Wmo_FreeMapObjGroupFn = void(__cdecl*)(void* group);
 
-    // CMapObj::WaitLoad (this = root, thiscall, no stack args)
+    // Blocks until a root is fully loaded (this = root, thiscall, no stack args)
     constexpr uintptr_t kWaitLoad = 0x007AE1C0;
     using Wmo_WaitLoadFn = void(__fastcall*)(void* root, void* edx);
-    // CMapObj::WaitLoadGroup (this = root, thiscall, one stack arg = group index)
+    // Blocks until one group is fully loaded (this = root, thiscall, one stack arg = group index)
     constexpr uintptr_t kWaitLoadGroup = 0x007AEAB0;
     using Wmo_WaitLoadGroupFn = void(__fastcall*)(void* root, void* edx, int groupIndex);
-    // CMapObj::UpdateMaterials (this = root, thiscall, no stack args):
+    // Per-frame material update (this = root, thiscall, no stack args):
     constexpr uintptr_t kUpdateMaterials = 0x007A8520;
     using Wmo_UpdateMaterialsFn = void(__fastcall*)(void* root, void* edx);
     // Zeroes MOMT[i]+0x38 / +0x3C for every material -- the two GPU texture handles live INSIDE the
@@ -93,7 +95,7 @@ namespace wxl::offsets::game::wmo
     using Wmo_FixColorVertexAlphaFn = void(__fastcall*)(void* group, void* edx);
 
     // --- MOMT material record (stride 0x40, based at kOffMaterialBase, INSIDE the root file buffer) ---
-    // texture_1 / texture_2 are byte offsets into MOTX on 3.3.5, and texture FileDataIDs on a modern
+    // texture_1 / texture_2 are byte offsets into MOTX on the client, and texture FileDataIDs on a modern
     // root (which ships no MOTX at all). The last 8 bytes are NOT file data: the client stores the two
     // live GPU texture handles there, which is why CreateMaterials zeroes them at load.
     constexpr size_t kMomtStride       = 0x40;
@@ -110,8 +112,8 @@ namespace wxl::offsets::game::wmo
     constexpr uint32_t kMomtFlagClampT = 0x80;
     constexpr size_t kOffMomtShader    = 0x04; // u32; CreateMaterial rewrites 3/5/6 -> 4 when tex2 is empty
     // Highest shader id this client has an effect for. The lookup behind it is UNCHECKED: a higher id
-    // selects past the effect table, CShaderEffect::SetCurrent stores a null current effect, and the
-    // next CShaderEffect::SetShaders faults on `DAT_00D43024 + 0x2C + index*4` near address 0.
+    // selects past the effect table, the shader-effect binder stores a null current effect, and the
+    // next shader bind then dereferences near address 0.
     constexpr uint32_t kMaxClientShaderId = 6;
     constexpr size_t kOffMomtBlend     = 0x08; // u32
     constexpr size_t kOffMomtTexture1  = 0x0C; // u32 MOTX offset | modern FileDataID
@@ -131,7 +133,7 @@ namespace wxl::offsets::game::wmo
     // Name CreateMaterial substitutes for an empty texture_1, and the global that disables the second
     // texture entirely when the shader pipeline is off.
     constexpr const char kFallbackTextureName[] = "createcrappygreentexture.blp";
-    constexpr uintptr_t kShaderEffectsEnabled = 0x00D43020; // CShaderEffect::s_enableShaders (u32)
+    constexpr uintptr_t kShaderEffectsEnabled = 0x00D43020; // global shader-effects-enabled flag (u32)
 
     // --- MOBA render batch (stride 0x18, based at group+0x0F8, INSIDE the group file buffer) ---
     // The client's own record. A modern file keeps every field EXCEPT the two below.
@@ -154,11 +156,12 @@ namespace wxl::offsets::game::wmo
     constexpr uintptr_t kCullBatch = 0x007A7630;
     using Wmo_CullBatchFn = char(__cdecl*)(void* mobaRecord);
 
-    // WMO batch-draw leaves (RE report: WMO Composite draw seam). Both are __thiscall(this=root, group,
-    // int flag) with a `ret 8` epilogue, invoked through a vtable (no direct E8 caller). Each iterates the
-    // group's MOBA batches and, per batch, activates the material's effect collection + binds VS/PS
-    // (kEffectBind) then issues an indexed draw that flushes GxState. When root->MOHD.flags & 0x2 (the
-    // modern "unified render path" bit -- set on 100% of the modern corpus) they tail-call the alternate
+    // WMO batch-draw leaves (source of the composite-shader draw seam documented in CompositeShader.hpp).
+    // Both are __thiscall(this=root, group, int flag) with a `ret 8` epilogue, invoked through a vtable
+    // (no direct E8 caller). Each iterates the group's MOBA batches and, per batch, activates the
+    // material's effect collection + binds VS/PS (kEffectBind) then issues an indexed draw that flushes
+    // GxState. When root->MOHD.flags & 0x2 (the modern "unified render path" bit -- set on every modern
+    // file observed) they tail-call the alternate
     // renderer, so hooking these two entries brackets ALL modern WMO batch rendering, including that
     // delegated path. Used only to stash the current root's modern verdict around the batch loop.
     constexpr uintptr_t kExtRender = 0x007AC6A0; // single exterior-batch loop
@@ -238,7 +241,7 @@ namespace wxl::offsets::game::wmo
         uint32_t stride;     ///< element size; 1 = the count is the raw byte size
     };
 
-    /// ROOT slots, exactly as `kRootWalk` fills them. Order here is the canonical 3.3.5 walk order,
+    /// ROOT slots, exactly as `kRootWalk` fills them. Order here is the canonical 335 walk order,
     /// which a tag-driven walker does not depend on -- it is kept so the two can be diffed.
     constexpr ChunkSlot kRootSlots[] = {
         { WmoTag("MOHD"), 0x120, 0,     0    },
@@ -315,12 +318,11 @@ namespace wxl::offsets::game::wmo
     // Group bbox (min xyz, max xyz), passed whole to kBspInit; kOffGroupBboxMinZ below is its 3rd float.
     constexpr size_t kOffGroupBbox = 0x34;
 
-    // Resolved LiquidType.dbc id (CMapObjGroup::Create, 0x007D82E0, via CMapObjGroup::GetLegacyLiquidId
-    // 0x007D7310): MOGP+0x48 verbatim for a modern-format root (already a real LiquidType id -- Legion
-    // WMOs write one directly, no legacy conversion needed), or MOGP+0x48 remapped through the small
-    // 1..20 legacy family table otherwise. Either way, by the time CMapObjGroup::Create returns this
-    // field holds the id Liquid::CMaterialBank::GetMaterial (0x008A1FA0) will be asked to resolve --
-    // same unchecked-MaterialID hazard as the ADT/MH2O path (see kLiquidTypeMaterialId in ADT.hpp).
+    // Resolved LiquidType.dbc id, filled during group finalize: MOGP+0x48 verbatim for a modern-format
+    // root (already a real LiquidType id -- modern WMOs write one directly, no legacy conversion needed),
+    // or MOGP+0x48 remapped through the small 1..20 legacy family table otherwise. Either way, by the time
+    // group finalize returns this field holds the id the liquid material lookup will be asked to resolve
+    // -- same unchecked-MaterialID hazard as the ADT/MH2O path (see kLiquidTypeMaterialId in ADT.hpp).
     constexpr size_t kOffGroupLiquidType = 0x144;
 
     // --- visibility-probe entries and globals (cull path) ---
@@ -347,7 +349,7 @@ namespace wxl::offsets::game::wmo
     constexpr size_t kOffModsCount       = 0x18;  // u32 MODD count in the set
     constexpr uintptr_t kPortalRect        = 0x00ADF58C; // float[5]: minX,minY,maxX,maxY,nearExtent
     constexpr uintptr_t kOutdoorEnabled    = 0x00ADF59C; // float; >= 0 when the outdoor pass runs
-    // Values the OUTDOOR branch of CWorldScene::Render writes into the five floats above: a full
+    // Values the OUTDOOR branch of the world-scene render writes into the five floats above: a full
     // 0..1 screen rect and a zero gate. Reproducing them is what "the exterior is fully visible" means
     // to this client -- the indoor branch instead seeds an EMPTY rect (+FLT_MAX / -FLT_MAX) and a gate
     // of -1, which portal traversal then unions into.
@@ -366,13 +368,13 @@ namespace wxl::offsets::game::wmo
 
     // Builds CPU occluders from a group whose name is literally "antiportal", then zeroes the group's
     // interior/exterior batch counts so it never draws. __fastcall(this = group).
-    // 3.3.5 feeds those occluders to its ANGULAR clip buffer (384 slots) -- a coarse solid-angle test
-    // with no depth. Legion instead rasterises the same meshes into a hi-Z SceneOcclusionBuffer, so a
-    // large slab only hides what is genuinely behind its silhouette. A modern antiportal (the bridge's
-    // is 173 x 48 units) therefore occludes far more on 3.3.5 than the artist ever intended.
+    // The client feeds those occluders to its ANGULAR clip buffer (384 slots) -- a coarse solid-angle test
+    // with no depth. A modern hi-Z occlusion buffer instead rasterises the same meshes, so a large slab
+    // only hides what is genuinely behind its silhouette. A modern antiportal (the bridge's is 173 x 48
+    // units) therefore occludes far more on the client than the artist ever intended.
     constexpr uintptr_t kCreateOccluders = 0x007D81C0;
     using Wmo_CreateOccludersFn = void(__fastcall*)(void* group, void* edx);
-    /// Group-flag bit Legion sets on an antiportal group; present in the files, unknown to 3.3.5.
+    /// Group-flag bit modern content sets on an antiportal group; present in the files, unknown to the client.
     constexpr uint32_t kGroupFlagAntiportal = 0x04000000;
     /// Pool allocator for one occluder record. The record holds TWO C3Vectors at +0x04 and +0x10 --
     /// the two vertices of a triangle that sit ABOVE its mean Z, i.e. the top edge. Nothing else.
@@ -424,17 +426,17 @@ namespace wxl::offsets::game::wmo
     constexpr size_t kOffGroupTransBatchCount = 0x5C; // u16, MOGP+0x28
     constexpr uint32_t kGroupFlagIndoor       = 0x2000;
     constexpr uint32_t kGroupFlagExterior     = 0x8;  // SMOGROUP_EXTERIOR: MOCV is a neutral placeholder, not baked light
-    // Legion re-enables the exterior from inside an interior group under three conditions that 12340
-    // has no equivalent for (FUN_00CB5FEC). Measured on the active corpus: A and C never occur, B holds
-    // for 37 of the 94 interior groups -- those are the groups where standing inside kills the terrain
-    // here but not in Legion.
+    // Modern content re-enables the exterior from inside an interior group under three conditions the
+    // client has no equivalent for. Measured across the sampled files: A and C never occur, B holds
+    // for roughly a third of interior groups -- those are the groups where standing inside kills the
+    // terrain on the client but not in the modern original.
     constexpr uint32_t kGroupFlagExteriorLit   = 0x40;       // condition A
     constexpr uint32_t kGroupFlagExteriorPortal = 0x20000000; // condition C
 
     // --- camera-in-group containment (cull path) ---
     constexpr uintptr_t kBspRaycastRefine = 0x007CB0C0;
     // Group collision fields (group object). MOVI = u16[3] indices per face; MOVT = C3Vector vertices.
-    constexpr size_t kOffGroupBsp       = 0x64;  // CAaBsp container (null when the group has no BSP)
+    constexpr size_t kOffGroupBsp       = 0x64;  // BSP container (null when the group has no BSP)
     constexpr size_t kOffGroupMovi      = 0xE0;  // triangle vertex indices (u16[3] per face, stride 6)
     constexpr size_t kOffGroupMovt      = 0xE8;  // vertices (C3Vector, stride 0x0C)
     // MOVI holds one u16 index per triangle CORNER, so +0x154 counts INDICES (MOVI_size / 2), not faces.
@@ -442,7 +444,7 @@ namespace wxl::offsets::game::wmo
     // the one and indices with the other. Reading +0x154 as a face count over-runs the array by 3x.
     constexpr size_t kOffGroupMoviCount = 0x154; // MOVI index count (MOVI_size / 2)
     constexpr size_t kOffGroupFaceCount = 0x150; // MOPY face count (MOPY_size / 2)
-    // CAaBsp fields (relative to kOffGroupBsp).
+    // BSP container fields (relative to kOffGroupBsp).
     constexpr size_t kOffBspNodes     = 0x00; // node array pointer (0 when the group has no BSP)
     constexpr size_t kOffBspMobr      = 0x08; // collision face-index array (u16 into MOVI)
     constexpr size_t kOffBspMobrCount = 0x10; // collision face-index count
@@ -472,7 +474,7 @@ namespace wxl::offsets::game::wmo
     // --- typed views over the objects above ---
     // The constants are the curated landmarks; these structs give named, typed access to the same fields,
     // with every member offset checked against a constant at compile time (a wrong padding fails the build).
-    // Only RE'd fields are named; the gaps are explicit padding. Pointers are 4 bytes on the 32-bit client.
+    // Only known fields are named; the gaps are explicit padding. Pointers are 4 bytes on the 32-bit client.
 #pragma pack(push, 1)
     /**
      * @brief Map-object root: the parsed root object that owns the material table and the group array.

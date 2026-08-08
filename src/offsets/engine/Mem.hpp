@@ -37,25 +37,27 @@ namespace wxl::offsets::engine::mem
     // Real, safe recovery levers, just bounded: they help most right after an unload-heavy moment
     // (zone change), not guaranteed to free anything under sustained pressure from live content.
 
-    // CM2Cache::GarbageCollect(this, forceAll): forceAll!=0 evicts every already-unreferenced cached
-    // model immediately (the routine per-tick call passes 0, which only evicts models idle >9999ms).
-    // No lock, no reentrancy guard -- main thread only, and never from inside CM2Cache/CM2Scene code.
+    // The model cache's garbage-collect entry (this, forceAll): forceAll!=0 evicts every
+    // already-unreferenced cached model immediately (the routine per-tick call passes 0, which only
+    // evicts models idle >9999ms). No lock, no reentrancy guard -- main thread only, and never from
+    // inside the model cache/scene's own code.
     constexpr uintptr_t kM2CacheGarbageCollect = 0x0081C290;
     using M2Cache_GarbageCollectFn = void(__thiscall*)(void* cache, uint32_t forceAll);
 
-    // The live CM2Cache* isn't reachable from a fixed global -- it lives at CM2Scene+kOffM2SceneCache.
-    // wxl-engine-reforged captures it opportunistically via a lightweight hook on CM2Scene::AdvanceTime
-    // (below), which runs every frame on the real scene instance; see OomLadder.cpp. __fastcall with a
-    // dummy edx param is this codebase's established shape for hooking a __thiscall target (matches
-    // e.g. AdtSplit's TileAreaLoadFn) -- the real ORIGINAL pointer is still called thiscall-correct
-    // through this same typedef, the dummy param only matters for the detour function's own signature.
+    // The live model-cache pointer isn't reachable from a fixed global -- it lives on the model
+    // scene's own instance, at kOffM2SceneCache. wxl-engine-reforged captures it opportunistically via
+    // a lightweight hook on the model scene's own per-frame update (below), which runs every frame on
+    // the real scene instance; see OomLadder.cpp. __fastcall with a dummy edx param is this codebase's
+    // established shape for hooking a __thiscall target (matches e.g. AdtSplit's TileAreaLoadFn) -- the
+    // real ORIGINAL pointer is still called thiscall-correct through this same typedef, the dummy param
+    // only matters for the detour function's own signature.
     constexpr uintptr_t kM2SceneAdvanceTime = 0x0081C9C0;
     using M2Scene_AdvanceTimeFn = void(__fastcall*)(void* scene, void* edx, uint32_t deltaMs);
     constexpr size_t    kOffM2SceneCache    = 0x04;
 
-    // TextureCacheUpdate(): already runs every frame (its own per-frame event registration, untouched
-    // here). Reentrant-safe by construction (only walks its own recycle-pool buckets) but calls
-    // GxTexDestroy directly -- main/render thread only, no args.
+    // The texture cache update: already runs every frame (its own per-frame event registration,
+    // untouched here). Reentrant-safe by construction (only walks its own recycle-pool buckets) but
+    // calls the renderer's texture-destroy routine directly -- main/render thread only, no args.
     constexpr uintptr_t kTextureCacheUpdate = 0x004B6AE0;
     using TextureCache_UpdateFn = void(__cdecl*)();
 }

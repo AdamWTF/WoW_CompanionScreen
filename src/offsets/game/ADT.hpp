@@ -27,9 +27,9 @@ namespace wxl::offsets::game::adt
     // Chunk lookup (pos) -> runtime chunk object, or null when that chunk is not parsed yet. A non-null
     // result means the chunk heightmap + collision are resident.
     constexpr uintptr_t kGetChunk = 0x007B49C0;
-    // CMapChunk::Build (this=CMapChunk in ECX): turns one raw MCNK into a live chunk (sub-chunk pointers,
-    // bbox, texture-layer units, ref spawn). The "a terrain chunk was built" point, distinct from the
-    // per-frame terrain draw.
+    // Chunk build (this = the chunk object, in ECX): turns one raw MCNK into a live chunk (sub-chunk
+    // pointers, bbox, texture-layer units, ref spawn). The "a terrain chunk was built" point, distinct
+    // from the per-frame terrain draw.
     constexpr uintptr_t kChunkBuild = 0x007C64B0;
 
     // Liquid-height query site that reads a LiquidType row's flag byte WITHOUT the null guard every other
@@ -45,25 +45,25 @@ namespace wxl::offsets::game::adt
     constexpr uintptr_t kLiquidTypeDbMinId = 0x00AD4074; // u32 inclusive lower bound
     constexpr uintptr_t kLiquidTypeDbMaxId = 0x00AD4070; // u32 inclusive upper bound
 
-    // LiquidTypeRec.MaterialID: Liquid::CMaterialBank::GetMaterial (0x008A1FA0) switches on this
+    // LiquidTypeRec.MaterialID: the liquid material lookup (0x008A1FA0) switches on this
     // column with no default case (1 water, 2 ooze, 3 magma) -- any other value caches a NULL
     // IMaterial* for the row, and the next liquid instance built from it null-derefs its material
     // pointer at draw time. The classic on-disk MCLQ path never reaches this with a bad id (it
-    // hardcodes LiquidType id = layer-bit-index + 1, always 1..4, per CMapChunk::CreateLiquids
-    // 0x007C5690); the native MH2O instance path (CMapChunk::CreateLiquids' second branch, fed by
+    // hardcodes LiquidType id = layer-bit-index + 1, always 1..4, per the legacy liquid builder
+    // 0x007C5690); the MH2O instance path (the same builder's second branch, fed by
     // FixupMh2o's normalized bytes) copies its `type` field straight through, so a row this column
     // doesn't cover is real: existence in the table is not the same as being usable.
     constexpr size_t kLiquidTypeMaterialId = 0x38; // u32, GetMaterial's usable range is {1, 2, 3}
 
-    // TILE-AREA teardown (CMapArea::destructor, __thiscall via ECX=area) -- NOT a chunk destructor.
-    // The historical name "ChunkDestroy" was a misnomer: this is the per-TILE object (CMapArea) whose
+    // TILE-AREA teardown (the tile object's destructor, __thiscall via ECX=area) -- NOT a chunk destructor.
+    // The historical name "ChunkDestroy" was a misnomer: this is the per-TILE object whose
     // raw ADT file buffer at area+0x80 is freed here while a queued async-read completion may still
     // target it; a cancel hook retires the async object at area+0x70 before the free.
     constexpr uintptr_t kTileAreaDestroy = 0x007D6E10;
     using TileAreaDestroyFn = void(__fastcall*)(void* area);
     // Deprecated aliases (same address/field, kept so no published offset is ever deleted): the old
-    // names wrongly said "chunk"; the object is the CMapArea tile. kOffChunkAsyncObj duplicates
-    // kOffTileAsyncRead below -- it is the SAME +0x70 field of the SAME CMapArea object.
+    // names wrongly said "chunk"; the object is the tile-area object. kOffChunkAsyncObj duplicates
+    // kOffTileAsyncRead below -- it is the SAME +0x70 field of the SAME tile-area object.
     constexpr uintptr_t kChunkDestroy = kTileAreaDestroy;    // deprecated: use kTileAreaDestroy
     using ChunkDestroyFn = TileAreaDestroyFn;                // deprecated: use TileAreaDestroyFn
     constexpr size_t kOffChunkAsyncObj = 0x70;               // deprecated: use kOffTileAsyncRead
@@ -83,41 +83,41 @@ namespace wxl::offsets::game::adt
     // Detailed/streaming-path selector (u32).
     constexpr uintptr_t kStreamingPathSelector = 0x00CE0494;
 
-    // --- tile-area (CMapArea) object fields ---
-    constexpr size_t kOffTileAsyncRead  = 0x70; // CAsyncObject*; non-zero while a tile read is in flight
+    // --- tile-area object fields ---
+    constexpr size_t kOffTileAsyncRead  = 0x70; // async-read handle; non-zero while a tile read is in flight
     constexpr size_t kOffTileFileBuffer = 0x80; // raw ADT byte buffer; freed by kTileAreaDestroy
-    constexpr size_t kOffTileFileHandle = 0x6C; // SFile* of the open tile file (closed by async destroy)
+    constexpr size_t kOffTileFileHandle = 0x6C; // archive file handle of the open tile file (closed by async destroy)
     constexpr size_t kOffTileFileSize   = 0x84; // byte size of the +0x80 buffer
     constexpr size_t kOffTileIdxFirst   = 0x48; // first  %d of "<Map>_%d_%d.adt"
     constexpr size_t kOffTileIdxSecond  = 0x4C; // second %d of "<Map>_%d_%d.adt"
 
     // --- tile-area load / parse seam (used by the native split-ADT reader) ---
-    // CMapArea::Load (__thiscall: ECX = area, one stack arg = tile filename): opens the tile file,
+    // Tile-area load (__thiscall: ECX = area, one stack arg = tile filename): opens the tile file,
     // allocates the raw buffer (+0x80/+0x84) and queues the whole-file async read (+0x70) whose
-    // main-thread completion is CMapArea::AsyncLoadCallback -> CMapArea::Create.
+    // main-thread completion is the async-load callback below, which then runs tile-area create.
     constexpr uintptr_t kTileAreaLoad = 0x007D7150;
     using TileAreaLoadFn = void(__fastcall*)(void* area, void* edx, const char* filename);
-    // CMapArea::Create (__thiscall via ECX, no args): the monolithic top-level parser. Reads ONLY
+    // Tile-area create (__thiscall via ECX, no args): the monolithic top-level parser. Reads ONLY
     // MVER + the 12 MHDR offsets of the buffer at area+0x80 and stores derived pointers/counts at
     // area+0x68..+0xB8 (MCIN/MTEX/MMDX/MMID/MWMO/MWID/MDDF/MODF/MFBO/MH2O/MTXF).
     constexpr uintptr_t kTileAreaCreate = 0x007D6EF0;
     using TileAreaCreateFn = void(__fastcall*)(void* area, void* edx);
     // Native async-read completion (__cdecl, ctx = area): Create + async destroy + zero +0x70/+0x6C.
     constexpr uintptr_t kTileAreaAsyncLoadCallback = 0x007D7020;
-    // CMapArea::PrepareChunk (__thiscall: ECX = area, two stack args = grid row/col 0..15):
+    // Prepare-chunk (__thiscall: ECX = area, two stack args = grid row/col 0..15):
     constexpr uintptr_t kPrepareChunk = 0x007D6B30;
     using Map_PrepareChunkFn = void(__fastcall*)(void* area, void* edx, int row, int col);
-    // CMapArea::Update (__thiscall: ECX = area, stack args = buildFlag, uint32_t bounds[4] = {colMin,
+    // Area update (__thiscall: ECX = area, stack args = buildFlag, uint32_t bounds[4] = {colMin,
     // rowMin, colMax, rowMax})
     constexpr uintptr_t kAreaUpdate = 0x007D6BF0;
     using Map_AreaUpdateFn = void(__fastcall*)(void* area, void* edx, int buildFlag, uint32_t* bounds);
-    // CMapChunk::ProcessIffChunks (__thiscall: ECX = chunk, one stack arg = firstBuild): the
-    // SEQUENTIAL sub-chunk walk over the raw MCNK at chunk+0x10C that assigns the sub-chunk data
-    // pointers at chunk+0x11C..+0x13C (3.3.5 never reads the MCNK-internal ofs* fields). Called only
-    // by CMapChunk::Create. firstBuild!=0 patches MCNR/MCAL/MCLQ size fields in place once.
+    // Sub-chunk walk (__thiscall: ECX = chunk, one stack arg = firstBuild): the
+    // SEQUENTIAL walk over the raw MCNK at chunk+0x10C that assigns the sub-chunk data
+    // pointers at chunk+0x11C..+0x13C (the client never reads the MCNK-internal ofs* fields). Called
+    // only by the chunk-create routine. firstBuild!=0 patches MCNR/MCAL/MCLQ size fields in place once.
     constexpr uintptr_t kChunkProcessIffChunks = 0x007C3A10;
     using ChunkProcessIffChunksFn = void(__fastcall*)(void* chunk, void* edx, int firstBuild);
-    // Raw tile-buffer allocator/free pair (plain SMemAlloc/SMemFree wrappers, MapMem.cpp). The free
+    // Raw tile-buffer allocator/free pair (plain client-allocator wrappers, MapMem.cpp). The free
     // takes (ptr, size) but ignores size. The tile destructor frees +0x80 through the free half.
     constexpr uintptr_t kAllocRawAreaData = 0x007BFE40;
     using AllocRawAreaDataFn = void*(__cdecl*)(uint32_t size);
@@ -128,33 +128,33 @@ namespace wxl::offsets::game::adt
     constexpr uintptr_t kMphdFlags = 0x00CF08D0;
 
     // --- map low-detail (WDL) seam ---
-    // CMap::LoadWdl (MapLowDetail.cpp): opens "<mapPath>\<mapName>.wdl", SMemAlloc's the whole file
+    // Load WDL (MapLowDetail.cpp): opens "<mapPath>\<mapName>.wdl", allocates the whole file
     // into wdlState[0], then parses MVER -> optional MWMO/MWID/MODF -> MAOF -> per-tile MARE(+MAHO).
-    // Convention BYTE-VERIFIED against the 3.3.5.12340 export: true __thiscall (prologue
+    // Convention verified against the client build directly: true __thiscall (prologue
     // 55 8B EC 81 EC 3C 01 00 00 .. 8B F9 = this out of ECX, epilogue C2 08 00 = two stack args),
-    // returns 1 on success / 0 when the .wdl does not open. Single caller: CMap__Load @ 0x007BFDD2
-    // with ECX = kWdlState and args (&CMap__mapPath, &CMap__mapName). Declared __fastcall with a
+    // returns 1 on success / 0 when the .wdl does not open. Single caller: the map load entry @ 0x007BFDD2
+    // with ECX = kWdlState and args (&mapPath, &mapName). Declared __fastcall with a
     // dummy EDX so the trampoline routes wdlState into the this-register.
     constexpr uintptr_t kLoadWdl = 0x007CC310;
     using LoadWdlFn = uint32_t(__fastcall*)(int* wdlState, void* edx,
                                             const char* mapPath, const char* mapName);
-    // The CMap WDL state block (the ECX of kLoadWdl), an int[0x100A] global:
-    //   [0]           raw .wdl file buffer (SMemAlloc; the unload SMemFree's it)
+    // The map's WDL state block (the ECX of kLoadWdl), an int[0x100A] global:
+    //   [0]           raw .wdl file buffer (allocated; the unload releases it)
     //   [1..3]        MWMO data / MWID data / MODF data pointers (WMO-only maps; else stale-zero)
     //   [4]           MODF entry count (MODF size >> 6)
     //   [5]           MAOF offset table = 64*64 u32 file offsets, 0 = no low-detail tile
-    //   [6..0x1005]   the 64x64 CMapAreaLow* tile-slot array (kWdlSlotCount entries)
+    //   [6..0x1005]   the 64x64 low-detail-tile pointer array (kWdlSlotCount entries)
     //   [0x1006..0x1009] the low-detail map-obj-def growable-array block
     // Zeroed whole at startup by the static ctor 0x007CC2C0, and on every map unload by
-    // CMap::UnloadWdl 0x007CC770 (frees+zeroes every slot, zeroes [1..5]/[0x1007], SMemFree's [0]).
-    // CMap__Load runs CMap__Purge (-> 0x007CC770 @ 0x007C3843) BEFORE kLoadWdl, so the block is
-    // always clean when kLoadWdl is entered.
+    // the unload-WDL routine 0x007CC770 (frees+zeroes every slot, zeroes [1..5]/[0x1007], releases [0]).
+    // The map load entry runs the map purge routine (-> 0x007CC770 @ 0x007C3843) BEFORE kLoadWdl, so
+    // the block is always clean when kLoadWdl is entered.
     constexpr uintptr_t kWdlState     = 0x00CF0900;
     constexpr uint32_t  kWdlSlotCount = 64 * 64; // dimension of the [6..] slot array (0x1000)
-    // CMap::AllocAreaLow: pool-allocates one CMapAreaLow (the per-tile low-detail object stored in
-    // the kWdlState [6..] slots). BYTE-VERIFIED __cdecl, no args, pointer in EAX (prologue
+    // Allocate low-detail tile: pool-allocates one low-detail tile object (the per-tile low-detail
+    // object stored in the kWdlState [6..] slots). Verified __cdecl, no args, pointer in EAX (prologue
     // 55 8B EC 83 EC 08 8B 15 18 54 D2 00 -- pool head at 0xD25418 -- plain C3 ret). Fields below are
-    // what the native kLoadWdl grid loop writes on the returned object; see AreaLow for the typed view.
+    // what the kLoadWdl grid loop writes on the returned object; see AreaLow for the typed view.
     constexpr size_t kOffAreaLowMinX         = 0x04;
     constexpr size_t kOffAreaLowMinY         = 0x08;
     constexpr size_t kOffAreaLowMinZ         = 0x0C;
@@ -174,14 +174,14 @@ namespace wxl::offsets::game::adt
     constexpr size_t kOffAreaLowMahoData     = 0x48; // -> 16 u16 hole mask, or 0
     constexpr uintptr_t kAllocAreaLow = 0x007C0A90;
     using AllocAreaLowFn = void*(__cdecl*)();
-    // CMap::FreeAreaLow (landmark, not called by the core): the unload 0x007CC770 releases every
+    // Free low-detail tile (landmark, not called by the core): the unload 0x007CC770 releases every
     // non-null kWdlState slot through it before zeroing the slot.
     constexpr uintptr_t kFreeAreaLow = 0x007C0C60;
 
     // --- runtime chunk object fields ---
-    constexpr size_t kOffChunkNodeLayerCount = 0x09; // draw-node (CMapRenderChunk) layer count
-    // CMapChunk -> MCNK 128-byte data header (= raw MCNK ptr + 8-byte tag). The authoritative texture-layer
-    // count (SMChunk.nLayers, 0..4) lives at header + 0x0C.
+    constexpr size_t kOffChunkNodeLayerCount = 0x09; // draw-node layer count
+    // Chunk object -> MCNK 128-byte data header (= raw MCNK ptr + 8-byte tag). The authoritative
+    // texture-layer count (SMChunk.nLayers, 0..4) lives at header + 0x0C.
     constexpr size_t kOffChunkMcnkHeader = 0x110;
     constexpr size_t kOffMcnkNLayers     = 0x0C;
     // Raw on-disk MCLY/MCAL base pointers (point into the resident MCNK block, all physical entries, not
@@ -189,7 +189,7 @@ namespace wxl::offsets::game::adt
     // size, so physical-layer-count = *(mclyBase - 4) / 0x10.
     constexpr size_t kOffChunkMcly       = 0x12C;
     constexpr size_t kOffChunkMcal       = 0x130;
-    // The full CMapChunk sub-chunk pointer block ProcessIffChunks fills (+0x11C..+0x13C). Every
+    // The full chunk-object sub-chunk pointer block the sub-chunk walk fills (+0x11C..+0x13C). Every
     // consumer (vertex/bounds/intersect/alpha/shadow/liquid/refs/sound builds) reads these LIVE, so
     // whatever they point at must stay resident for the whole tile lifetime.
     constexpr size_t kOffChunkRawMcnk    = 0x10C; // raw MCNK (tag+size header) inside the tile buffer
@@ -204,8 +204,8 @@ namespace wxl::offsets::game::adt
     constexpr size_t kOffChunkDrawBatch  = 0x90;
     // Source of the tile tex-owner object: (*(chunkObj+0x20) & ~1) + 8.
     constexpr size_t kOffChunkTexOwnerSrc = 0x20;
-    // Per-layer record array (4 slots, stride 0x14): +0x00 flags, +0x04 diffuse CGxTex*, +0x0C alpha
-    // CGxTex*, +0x10 back-ptr. Only the first nLayers (<=4) records exist.
+    // Per-layer record array (4 slots, stride 0x14): +0x00 flags, +0x04 diffuse GPU texture handle,
+    // +0x0C alpha GPU texture handle, +0x10 back-ptr. Only the first nLayers (<=4) records exist.
     constexpr size_t kOffChunkLayerRecords   = 0x34;
     constexpr size_t kChunkLayerRecordStride = 0x14;
 
@@ -227,10 +227,10 @@ namespace wxl::offsets::game::adt
     // It draws one chunk per call with a single DIP: diffuse layer i at stage 0x15+i, a 4-channel combined
     // alpha RT (chunkObj+0x84) at stage 0x15+nLayers, and a Terrain1/2/3 pixel shader indexed by nLayers.
     constexpr uintptr_t kSurfaceChunkDrawShader = 0x007D2D70;
-    // CGxDevice singleton; vtable + 0xA8 = the Draw (DrawIndexedPrimitive) method (batch ptr + flag).
+    // GPU device singleton; vtable + 0xA8 = the Draw (DrawIndexedPrimitive) method (batch ptr + flag).
     constexpr uintptr_t kGxDeviceSingleton = 0x00C5DF88;
     constexpr size_t    kGxDeviceDrawVtbl  = 0xA8;
-    // CGxTex -> GxTex GPU handle resolve.
+    // Texture object -> GPU handle resolve.
     constexpr uintptr_t kTexResolve        = 0x004B6CB0;
     // GxRsSet / SetTexture for a sampler slot (0x15 = diffuse stage, 0x16 = alpha stage).
     constexpr uintptr_t kSetSamplerTexture = 0x00685F50;
@@ -238,21 +238,21 @@ namespace wxl::offsets::game::adt
     constexpr uintptr_t kSetSamplerState   = 0x00681450;
     // Lazy texture loader for one tex-owner handle slot: slot[+4] = Load(slot[+0]).
     constexpr uintptr_t kLazyLoadTexSlot   = 0x007D6980;
-    // CMapArea::LoadTextures: builds the tile tex-owner handle array (area+0x60) from the MTEX name
-    // blob -- one {name, CGxTex*} slot per NUL-terminated name, indexed by MCLY.textureId, eager-
-    // loading each through kLazyLoadTexSlot unless SFile streaming mode defers it. Native this-in-ECX
-    // (the CMapArea) + (mtexData, mtexSize) on the stack; declared __fastcall with a dummy EDX.
+    // Load tile textures: builds the tile tex-owner handle array (area+0x60) from the MTEX name
+    // blob -- one {name, GPU texture handle} slot per NUL-terminated name, indexed by MCLY.textureId,
+    // eager-loading each through kLazyLoadTexSlot unless the archive streaming mode defers it. Native
+    // this-in-ECX (the tile area) + (mtexData, mtexSize) on the stack; declared __fastcall with a dummy EDX.
     // Detoured for split tiles to source the names from the real MDID (FileDataID) instead of MTEX.
     constexpr uintptr_t kAreaLoadTextures  = 0x007D6D20;
     using Map_AreaLoadTexturesFn = void(__fastcall*)(void* area, void* edx, const void* mtexData, uint32_t mtexSize);
-    // kLazyLoadTexSlot signature: __thiscall(area, slot, index); slot = { char* name; CGxTex* tex }.
+    // kLazyLoadTexSlot signature: __thiscall(area, slot, index); slot = { char* name; GPU texture handle tex }.
     using Map_LoadTerrainTextureFn = void(__fastcall*)(void* area, void* edx, void** slot, uint32_t index);
     // Builds the per-layer alpha texture from a layer record's MCAL into record + 0x0C.
     constexpr uintptr_t kBuildLayerAlpha   = 0x007B9DE0;
     constexpr uint32_t  kSamplerDiffuse    = 0x15;
     constexpr uint32_t  kSamplerAlpha      = 0x16;
     // Tile tex-owner: per-tile texture-handle array, indexed by MCLY.textureId, stride 8
-    // ([+0] = MTEX filename ptr, [+4] = loaded CGxTex*). Covers the whole tile MTEX set.
+    // ([+0] = MTEX filename ptr, [+4] = loaded GPU texture handle). Covers the whole tile MTEX set.
     constexpr size_t kOffTexOwnerHandleArray = 0x60;
     constexpr size_t kTexOwnerHandleStride   = 0x08;
 
@@ -260,14 +260,14 @@ namespace wxl::offsets::game::adt
     // Shader-path per-chunk draw signature: native this-in-ECX, no stack args. Declared __fastcall
     // with a dummy EDX so the trampoline routes the chunk into the this-register.
     using Map_SurfaceChunkDrawShaderFn = void(__fastcall*)(void* chunkObj, void* edx);
-    // ACTIVE terrain pixel-shader table: CGxShader*[4], one slot per layer count 1..4. Rewritten once
-    // per bucket per frame by CMapRenderChunk::SetShaders (0x007D3E10) and bound at GxRs 0x4E by the
-    // bucket loop BEFORE the per-chunk draw leaf runs -- so at kSurfaceChunkDrawShader time,
+    // ACTIVE terrain pixel-shader table: GPU shader handle[4], one slot per layer count 1..4. Rewritten
+    // once per bucket per frame by the draw-node shader setter (0x007D3E10) and bound at GxRs 0x4E by
+    // the bucket loop BEFORE the per-chunk draw leaf runs -- so at kSurfaceChunkDrawShader time,
     // slot[nLayers-1] is the stock wrapper the pending DIP will use. A detour that swaps GxRs 0x4E to
     // its own wrapper before the original leaf (and restores after) owns that one chunk's PS.
     constexpr uintptr_t kActiveTerrainPs = 0x00D1D080;
-    // CMap::enableTerrainShaderPixel byte gate: non-zero when the pixel-shader terrain path is
-    // active (the only path kSurfaceChunkDrawShader runs under). Same RE doc, section 1.2.
+    // Pixel-shader terrain-path byte gate: non-zero when the pixel-shader terrain path is
+    // active (the only path kSurfaceChunkDrawShader runs under).
     constexpr uintptr_t kEnableTerrainShaderPixel = 0x00CE049E;
     // GxRs state indices for the deferred shader binds (same setter as kSetSamplerTexture): the
     // bucket loop writes the terrain PS wrapper at 0x4E; the pre-draw GxState flush applies the
@@ -310,7 +310,7 @@ namespace wxl::offsets::game::adt
     // (kSurfaceChunkDrawShader) never writes the node, so a mutate/redraw/restore inside a detour on
     // it is safe; the leaf re-runs the VS pick and full constant upload each call.
     constexpr size_t kOffChunkNodeFlags   = 0x0A; // u16: bit0 = mask-family layer, bit2 = cube-env layer
-    constexpr size_t kOffChunkNodeChunk   = 0x10; // CMapChunk* backing the node
+    constexpr size_t kOffChunkNodeChunk   = 0x10; // chunk object backing the node
     constexpr size_t kOffChunkNodeAlphaRT = 0x84; // combined alpha texture handle bound at s(nLayers)
     // Layer record fields (record = node + kOffChunkLayerRecords + i*kChunkLayerRecordStride).
     constexpr size_t kOffLayerSlotFlags = 0x00;   // u16 MCLY flags low word (anim dir/speed/animate)
@@ -318,7 +318,7 @@ namespace wxl::offsets::game::adt
     constexpr size_t kOffLayerSlotTexId = 0x08;   // u32 MCLY textureId (dedup key only at draw time)
     constexpr size_t kOffLayerSlotAlpha = 0x0C;   // per-layer alpha handle; 0 on the shader path
     constexpr size_t kOffLayerSlotNode  = 0x10;   // back-pointer to the node
-    // CMapChunk identity fields (engine-written, not data-trusted).
+    // Chunk-object identity fields (engine-written, not data-trusted).
     constexpr size_t kOffMapChunkIndexX  = 0x24;  // local 0..15 (MCIN slot = y*16 + x)
     constexpr size_t kOffMapChunkIndexY  = 0x28;
     constexpr size_t kOffMapChunkGlobalX = 0x34;  // tileX*16 + localX (0..1023)
@@ -352,7 +352,7 @@ namespace wxl::offsets::game::adt
     // Builds the per-chunk terrain shader constant block (the 37 vec4s) and uploads it. c18..c21 are the
     // four per-layer UV-tiling vec4s. Post-hooked to divide each drawn layer's c18+i.xy by its texture's
     // modern scale (1<<exponent) and re-upload c18..c(18+layerCount-1). __cdecl, node = first arg; the node
-    // is the CMapChunk (layer count at kOffChunkNodeLayerCount, layer slots at kOffChunkLayerRecords).
+    // is the chunk object (layer count at kOffChunkNodeLayerCount, layer slots at kOffChunkLayerRecords).
     constexpr uintptr_t kBuildTerrainConstants = 0x007D0050;
     using Map_BuildTerrainConstantsFn = void(__cdecl*)(void* node, uint32_t a1, uint32_t a2);
     // c18 constant data in memory (4 floats per register); c18 is the first per-layer tiling vec4.
@@ -368,14 +368,14 @@ namespace wxl::offsets::game::adt
     using Map_GetChunkFn = void*(__cdecl*)(float* pos);
     // Near-object counter (chunk, progressOut, total) -> count.
     using Map_NearObjectCountFn = int(__cdecl*)(void* chunk, int* progressOut, int total);
-    // CMapChunk::Build: native this-in-ECX (__thiscall, ret 8). Declared __fastcall with a dummy EDX so the
+    // Chunk build: native this-in-ECX (__thiscall, ret 8). Declared __fastcall with a dummy EDX so the
     // trampoline routes the chunk into the this-register and keeps the two stack args.
     using Map_ChunkBuildFn = void(__fastcall*)(void* chunk, void* edx, void* rawMcnk, int param2);
 
     // --- typed views over the objects above ---
     // The constants are the curated landmarks; these structs give named, typed access to the same fields,
     // with every member offset checked against a constant at compile time (a wrong padding fails the build).
-    // Only RE'd fields are named; the gaps are explicit padding. Pointers are 4 bytes on the 32-bit client.
+    // Only known fields are named; the gaps are explicit padding. Pointers are 4 bytes on the 32-bit client.
 #pragma pack(push, 1)
     /**
      * @brief Tile-area object (one per resident map tile): filename index, file handle, async-read
@@ -391,7 +391,7 @@ namespace wxl::offsets::game::adt
         int32_t  tileFirst;        // kOffTileIdxFirst  (first  %d of "<Map>_%d_%d.adt")
         int32_t  tileSecond;       // kOffTileIdxSecond (second %d of "<Map>_%d_%d.adt")
         uint8_t  _pad50[kOffTileFileHandle - (kOffTileIdxSecond + sizeof(int32_t))];
-        uint32_t fileHandle;       // kOffTileFileHandle (SFile* of the open tile file)
+        uint32_t fileHandle;       // kOffTileFileHandle (archive file handle of the open tile file)
         uint32_t asyncRead;        // kOffTileAsyncRead  (non-zero while the root read is in flight)
         uint8_t  _pad74[kOffTileFileBuffer - (kOffTileAsyncRead + sizeof(uint32_t))];
         uint32_t fileBuffer;       // kOffTileFileBuffer (non-zero once the file buffer is allocated)
@@ -405,12 +405,12 @@ namespace wxl::offsets::game::adt
     static_assert(offsetof(TileArea, fileSize)   == kOffTileFileSize,   "TileArea.fileSize");
 
     /**
-     * @brief Runtime chunk object (CMapChunk): tex-owner link, local grid index, and the sub-chunk
-     *        pointer block ProcessIffChunks fills (raw MCNK, header, and each parsed sub-chunk).
+     * @brief Runtime chunk object: tex-owner link, local grid index, and the sub-chunk
+     *        pointer block the sub-chunk walk fills (raw MCNK, header, and each parsed sub-chunk).
      *
-     * The old single struct conflated two objects: nodeLayerCount @0x09 is a CMapRenderChunk (draw
-     * node) field, while everything here is a CMapChunk field. They are now two typed views --
-     * MapChunk for the CMapChunk, RenderNode for the CMapRenderChunk reached via chunk+0xA8.
+     * The old single struct conflated two objects: nodeLayerCount @0x09 is a draw-node field, while
+     * everything here is a chunk-object field. They are now two typed views --
+     * MapChunk for the chunk object, RenderNode for the draw node reached via chunk+0xA8.
      */
     struct MapChunk
     {
@@ -460,7 +460,7 @@ namespace wxl::offsets::game::adt
     static_assert(offsetof(LayerRecord, texId) == kOffLayerSlotTexId,   "LayerRecord.texId");
     static_assert(sizeof(LayerRecord)          == kChunkLayerRecordStride, "LayerRecord size/stride");
 
-    /** @brief Draw node (CMapRenderChunk, chunk+0xA8): layer count/flags, owning chunk, layer array. */
+    /** @brief Draw node (chunk+0xA8): layer count/flags, owning chunk, layer array. */
     struct RenderNode
     {
         uint8_t     _pad00[kOffChunkNodeLayerCount];
@@ -487,7 +487,7 @@ namespace wxl::offsets::game::adt
     static_assert(offsetof(McnkHeader, nLayers) == kOffMcnkNLayers, "McnkHeader.nLayers");
 
     /**
-     * @brief Low-detail tile object (CMapAreaLow, from CMap::AllocAreaLow): the WDL grid-loop bounds,
+     * @brief Low-detail tile object (from the low-detail-tile allocator): the WDL grid-loop bounds,
      *        column/row, render-index budget, and MARE/MAHO data.
      */
     struct AreaLow

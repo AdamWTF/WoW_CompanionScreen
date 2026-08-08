@@ -47,7 +47,7 @@ namespace wxl::events
         OnInput,         // window input message (swallowable)         (InputArgs)
         OnWorldClick,    // a world click resolved to a point/object   (WorldClickArgs)
         OnAdtChunkBuild, // an ADT map chunk is being built            (AdtChunkArgs)
-        OnAdtSplitTileLoad, // a split (Cata+) ADT tile finished its 3-file load (AdtSplitTileLoadArgs)
+        OnAdtSplitTileLoad, // a split ADT tile finished its 3-file load (AdtSplitTileLoadArgs)
         OnWmoRootLoad,   // a WMO root buffer is read, before the walk (WmoRootLoadArgs)
         OnWmoGroupLoad,  // a WMO group buffer is read, before the walk(WmoGroupLoadArgs)
         OnTextureUpload, // a texture is about to upload to the device (TextureUploadArgs)
@@ -174,7 +174,7 @@ namespace wxl::events
     /** @brief Args for OnAdtChunkBuild. */
     struct AdtChunkArgs      { void* chunk; uint32_t layerCount; };
     /**
-     * @brief Args for OnAdtSplitTileLoad, fired on the main thread after a split (Cata+) ADT tile's
+     * @brief Args for OnAdtSplitTileLoad, fired on the main thread after a split ADT tile's
      *        root/_tex0/_obj0 trio finished loading and the stock tile parser ran over the direct-fill
      *        state. tileFirst/tileSecond are the two %d of the "<Map>_%d_%d.adt" name; sizes are the
      *        resident raw file buffer sizes (0 when that split file was absent); chunkCount is the

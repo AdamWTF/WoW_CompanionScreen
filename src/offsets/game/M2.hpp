@@ -29,10 +29,10 @@ namespace wxl::offsets::game::m2
     // Skin-profile finalizer: runs once after the skin sub-arrays resolve and before the shader passes
     // size their batch blocks. The point to rebuild the material contract a modern skin omits.
     // CAUTION: calls kBuildBatchMaterial per batch. kBuildBatchMaterial crashes (EBX=0 null-deref at
-    // 0x836D11) when M2Batch::shaderId has bit 0x8000 set AND (shaderId & 0x7FFF) > 3 — a missing
+    // 0x836D11) when M2Batch::shaderId has bit 0x8000 set AND (shaderId & 0x7FFF) > 3 -- a missing
     // switch case patched by our hkBuildBatchMaterial hook. Calling kFinalizeSkin a second time
     // also leaks model+0x18C (submesh copy), model+0x188 (per-submesh objects), [model+0x150]+0x40
-    // (IB staging buffer) — no free-before-write; acceptable for infrequent equip cycles.
+    // (IB staging buffer) -- no free-before-write; acceptable for infrequent equip cycles.
     constexpr uintptr_t kFinalizeSkin = 0x00837A40;
     // Per-batch material-key builder: thiscall (ECX=model), 1 stack arg (batch ptr from skin->batches).
     // Called by kFinalizeSkin once per skin batch; result stored in model+0x188 array.
@@ -48,22 +48,20 @@ namespace wxl::offsets::game::m2
     constexpr uintptr_t kVersionGateAnim = 0x0083C745; // anim-parse version branch
 
     // --- native modern-M2 direct-fill entry points (features/m2native) ---
-    // CM2Shared::Initialize (0x83CC80): the half of kInit that runs AFTER the header offset->pointer
-    // walk. Chooses the skin profile from the device bone budget, calls kLoadSkinProfile (name-based
-    // "%s%02d.skin"), allocates the texture-handle array at model+0x174 and creates one handle per
-    // M2Texture (TextureCreate on the filename pointer; solid white when filename.count < 2), flags
-    // materials with blend > 4, and counts billboarded bones into model+0x198. thiscall, no args,
-    // called exactly once from kInit. Verified: prologue 55 8B EC 83 EC 08 53 56 8B F1 and the
-    // "f640 04 08" caps test at +0xD match the decompiled CM2Shared__Initialize (02_functions.csv
-    // row 0083cc80; byte-checked against Wow.exe .text).
+    // The half of kInit that runs AFTER the header offset->pointer walk. Chooses the skin profile
+    // from the device bone budget, calls kLoadSkinProfile (name-based "%s%02d.skin"), allocates the
+    // texture-handle array at model+0x174 and creates one handle per texture entry (creates the
+    // texture from the filename pointer; solid white when filename.count < 2), flags materials with
+    // blend > 4, and counts billboarded bones into model+0x198. thiscall, no args, called exactly
+    // once from kInit.
     constexpr uintptr_t kSharedInitialize = 0x0083CC80;
     using M2_SharedInitializeFn = int(__fastcall*)(void* model);
 
-    // Storm SMemAlloc (0x76E540, __stdcall(size, name, line, flags), ret 0x10 verified) -- the
-    // allocator kInit uses for the external-sequence bookkeeping array it stores at model+0x28
-    // (count at +0x24, cursor zeroed at +0x2C). A native reader replicating kInit's tail MUST use
-    // this exact allocator so the model destructor's matching SMemFree stays valid. Call-site
-    // constants replicated from kInit: name ".\\M2Shared.cpp", line 0x2DC, flags 8.
+    // The client allocator (__stdcall(size, name, line, flags), ret 0x10) kInit uses for the
+    // external-sequence bookkeeping array it stores at model+0x28 (count at +0x24, cursor zeroed at
+    // +0x2C). A native reader replicating kInit's tail MUST use this exact allocator so the model
+    // destructor's matching free call stays valid. Call-site constants replicated from kInit:
+    // name ".\\M2Shared.cpp", line 0x2DC, flags 8.
     constexpr uintptr_t kSMemAlloc = 0x0076E540;
     using SMemAllocFn = void*(__stdcall*)(uint32_t size, const char* name, uint32_t line, uint32_t flags);
     constexpr size_t   kOffModelExtSeqCount  = 0x24; // uint32: sequences whose data streams from .anim
@@ -127,50 +125,51 @@ namespace wxl::offsets::game::m2
     constexpr uint32_t  kSkinPathBufSize = 0x108;
 
     // --- ground-shadow pass (the "shadow swings with the camera" bug) -------------------------
-    // CM2Model::RenderModelBatchesForProjectedTexture. NOT a shadow function despite what
-    // it projects a DECAL onto M2 bodies (selection
-    // ring, pet ring, auto-track cursor, AoE spell reticle). M2s only enter its caster list when the
-    // 4th argument of ProjectTex2dDraw carries bit 0, and the shadow callback
-    // (World__ProjectTextureCallback 0x0077F500) passes 0 or 2 -- so this is unconditionally dead for
-    // shadows in every configuration. Kept because it IS the right hook for decal-on-model work.
+    // Projected-decal draw entry. NOT a shadow function despite the name it once carried elsewhere --
+    // it projects a DECAL onto M2 bodies (selection ring, pet ring, auto-track cursor, AoE spell
+    // reticle). M2s only enter its caster list when the 4th argument of the projected-texture draw
+    // call carries bit 0, and the shadow callback (0x0077F500) passes 0 or 2 -- so this is
+    // unconditionally dead for shadows in every configuration. Kept because it IS the right hook for
+    // decal-on-model work.
     constexpr uintptr_t kProjectedDecalDraw = 0x00829AA0;
     using M2_ProjectedDecalDrawFn = void(__fastcall*)(void* instance, void* edx);
 
     // The M2 ground shadow is drawn by kRenderBatchShadowMap (0x00829BA0), declared further down --
     // ALREADY HOOKED by features/m2compat/Bones.cpp (oversized-palette guard). Do not install a second
     // detour on it; MinHook returns MH_ERROR_ALREADY_CREATED and the loser silently observes nothing.
-    // Chain: CShadowQuery::Render (0x007BBC50) -> CM2Model::RenderModelBatchesShadowMap (0x0082DA40)
-    //     -> CM2Model::RenderModelBatchListShadowMap (0x00829E40) -> 0x00829BA0.
+    // Chain: the shadow query's render step (0x007BBC50) -> this batch-list dispatcher (0x0082DA40)
+    //     -> the per-batch shadow-map draw (0x00829E40) -> 0x00829BA0.
     //
-    // That path uploads c31 itself from CM2Model+0x98 AND its shader receives
+    // That path uploads c31 itself from the model's own state AND its shader receives
     // c14..c16 = inverse(cameraView) * lightView, which already cancels the camera view the palette
-    // carries. So the view/world inconsistency m2_shadow.md blames is NOT the residual-swing cause
+    // carries. So the view/world inconsistency documented elsewhere is NOT the residual-swing cause
     // here -- do not "fix" the palette space on this path without new evidence.
     //
-    // CM2Model::RenderModelBatchesShadowMap(opaqueList, alphaList) -- __cdecl, single caller
-    // 0x007BC3BA in CShadowQuery::Render. The coarse point for a global shadow on/off; carries no
+    // Batch-list shadow dispatcher(opaqueList, alphaList) -- __cdecl, single caller 0x007BC3BA in the
+    // shadow query's render step. The coarse point for a global shadow on/off; carries no
     // per-instance context (the instance only becomes a register down in 0x00829E40).
     constexpr uintptr_t kShadowMapBatches = 0x0082DA40;
 
-    // CGxDevice::ShaderConstantsUnlock(which, firstConst, constCount) -- __stdcall. For which==0 it
+    // Device shader-constant unlock(which, firstConst, constCount) -- __stdcall. For which==0 it
     // only WIDENS the vertex-constant dirty window (min/max); it copies nothing and flushes nothing,
     // so calling it twice over the same range is harmless.
     constexpr uintptr_t kShaderConstUnlock = 0x00683580;
     using Gx_ShaderConstUnlockFn = void(__stdcall*)(int which, unsigned firstConst, int constCount);
-    // Vertex-shader constant block base (CGxDevice::ShaderConstantsLock(0) is a pure address lookup
-    // returning this) and the bone-palette register c31 = base + 31*16.
+    // Vertex-shader constant block base (the device's constant-lock call for slot 0 is a pure address
+    // lookup returning this) and the bone-palette register c31 = base + 31*16.
     constexpr uintptr_t kVsConstBlock = 0x00C5EFE8;
     constexpr uintptr_t kVsConstC31   = kVsConstBlock + 0x1F0;
-    // CShaderEffect::s_enableShaders. Written once by InitShaderSystem from M2GetCacheFlags() & 8, so
+    // Global shader-enable flag. Written once at shader-system init from the model cache flags & 8, so
     // its value is 8 or 0 -- test for NON-ZERO, never == 1. Zero means the CPU pre-transform path,
     // where the shadow vertices carry no bone data and the palette fix does not apply.
     constexpr uintptr_t kEnableShaders = 0x00D43020;
-    // C44Matrix multiply: __cdecl mul(out, a, b) -> out = a*b, row-vector convention (v' = v*M).
+    // 4x4 matrix multiply: __cdecl mul(out, a, b) -> out = a*b, row-vector convention (v' = v*M).
     constexpr uintptr_t kMatrixMul = 0x004C1F00;
     using C44_MulFn = float*(__cdecl*)(void* out, const void* a, const void* b);
-    // C44Matrix::Inverse -- __thiscall(src in ECX, out on the stack), full general adjoint/determinant
-    // inverse. Deliberately NOT 0x004C2FC0 (AffineInverse): that one is rigid-body only (transpose +
-    // -t*R) and silently produces a wrong shadow for any placement carrying scale, which doodads do.
+    // 4x4 matrix inverse -- __thiscall(src in ECX, out on the stack), full general adjoint/determinant
+    // inverse. Deliberately NOT 0x004C2FC0 (the affine-only inverse): that one is rigid-body only
+    // (transpose + -t*R) and silently produces a wrong shadow for any placement carrying scale, which
+    // doodads do.
     constexpr uintptr_t kMatrixInverse = 0x006A43A0;
     using C44_InverseFn = float*(__thiscall*)(const void* src, void* out);
 
@@ -190,7 +189,7 @@ namespace wxl::offsets::game::m2
     // (each is followed by another flag-setting op before any conditional branch).
     //
     // The version gate for the wide form is `header[0x04] > 271`. It is NOT `globalFlags & 0x200`:
-    // not one of the 970 modern models in the corpus sets that bit.
+    // not one of the 970 modern models sampled sets that bit.
     struct ParticleStrideSite
     {
         uintptr_t va;        ///< instruction address
@@ -204,28 +203,28 @@ namespace wxl::offsets::game::m2
     // headerReg: 0=[ebp+disp] 1=ebx 2=esi 3=edx 4=ecx 5=edi
     // opKind:    0=imul esi,stride  1=add ecx,stride  2=add ebx,stride  3=add [ebp+disp],stride
     inline constexpr ParticleStrideSite kParticleStrideSites[] = {
-        // ReadParticleEmitters 0x0083AF90 -- the BOUNDS CHECK (count*stride + ofs <= fileSize).
+        // The particle-emitter reader's BOUNDS CHECK (count*stride + ofs <= fileSize), at 0x0083AF90.
         // Header is in memory only here and no register is free; the thunk saves what it uses.
         { 0x0083AFBA, 6, 0, 0,  0x10 },
-        // ReadParticleEmitters -- per-record de-relocation cursor. ebx reloaded every iteration.
+        // Same reader -- per-record de-relocation cursor. ebx reloaded every iteration.
         { 0x0083AFE7, 6, 1, 0,  0 },
-        // CM2Model::InitializeLoaded 0x00832EA0 -- sizing pre-pass. NOTE: this site is a merge point
+        // The model's post-load sizing pre-pass, at 0x00832EA0. NOTE: this site is a merge point
         // for three branches, so a patch must not assume fall-through reachability.
         { 0x00832F18, 6, 2, 1,  0 },
-        // CM2Model::InitializeLoaded -- main emitter-construction loop.
+        // Same pass -- main emitter-construction loop.
         { 0x00834124, 7, 3, 3, -0x1C },
-        // CM2Model::AnimateParticleST 0x008309C0 -- per-frame, single-threaded. x87 state is LIVE.
+        // Single-threaded per-frame particle animate, at 0x008309C0. x87 state is LIVE.
         { 0x008309EE, 6, 4, 0,  0 },
-        // CM2Model::AnimateParticlesMT 0x0082D2F0 -- per-frame, WORKER THREAD. x87 state is LIVE.
+        // Worker-thread per-frame particle animate, at 0x0082D2F0. x87 state is LIVE.
         { 0x0082D6BA, 7, 3, 3, -0x0C },
-        // CM2Scene::Animate 0x00821A20 -- the ONLY multi-model site: it walks a chain through
-        // model->+0x30. ebx holds the CURRENT model's header on every path into the emitter loop
-        // (reloaded at 0x00822AC6; the only intervening write is a 7-byte `lea ebx,[ebx]` nop), so
-        // deriving per-site is correct here where an entry-detour stride would not be. x87 LIVE.
+        // The scene's per-frame animate walk, at 0x00821A20 -- the ONLY multi-model site: it walks a
+        // chain through model->+0x30. ebx holds the CURRENT model's header on every path into the
+        // emitter loop (reloaded at 0x00822AC6; the only intervening write is a 7-byte `lea ebx,[ebx]`
+        // nop), so deriving per-site is correct here where an entry-detour stride would not be. x87 LIVE.
         { 0x00822CFB, 7, 1, 3, -0x0C },
-        // CM2Model::ReplaceTexture 0x00825260 -- on demand.
+        // Texture-replace entry, at 0x00825260 -- on demand.
         { 0x0082536E, 7, 1, 3, -0x04 },
-        // CM2Model::ReplaceParticleColor 0x00825410 -- on demand.
+        // Particle-color-replace entry, at 0x00825410 -- on demand.
         { 0x00825470, 6, 5, 2,  0 },
     };
 
@@ -253,7 +252,7 @@ namespace wxl::offsets::game::m2
     // this field -- each is ONE COMPLETE INSTRUCTION, which is what would make a read-site redirect
     // safe without a full disassembly.
     //
-    // id2/id3 drive multi-texture particle blending the 3.3.5 renderer has no path for, so id1 is the
+    // id2/id3 drive multi-texture particle blending the target renderer has no path for, so id1 is the
     // whole of what this client can consume.
     constexpr uintptr_t kParticleTexIdInitLoaded  = 0x00833ED9; // mov ecx,[eax+0x174]  (6 bytes)
     constexpr uint32_t  kParticleTexIdInitLen     = 6;
@@ -261,19 +260,20 @@ namespace wxl::offsets::game::m2
     constexpr uint32_t  kParticleTexIdReplaceLen  = 5;
     constexpr uint32_t  kParticleFlagMultiTex     = 0x10000000;
 
-    // CParticleEmitter2::SetZsource -- 39 bytes, exactly two callers (0x00830BFD in AnimateParticleST,
-    // 0x00833CF3 in InitializeLoaded). Modern content stores zSource = 255.0 as a DISABLED sentinel,
-    // but CPlaneParticleEmitter::CreateParticle (0x009815C0) tests `zSource == 0.0` and treats any
-    // other value as a real point source: it discards the verticalRange/horizontalRange emission cone
-    // and overwrites the spawn position with a normalized (pos - (0,0,zSource)) vector. That is why
-    // modern fire drifts sideways instead of rising. 1179 of 2528 emitters in the corpus carry 255.0.
+    // Z-source setter for a plane particle emitter -- 39 bytes, exactly two callers (0x00830BFD in the
+    // single-threaded particle animate, 0x00833CF3 in the post-load sizing pass). Modern content
+    // stores zSource = 255.0 as a DISABLED sentinel, but the emitter's particle-creation path
+    // (0x009815C0) tests `zSource == 0.0` and treats any other value as a real point source: it
+    // discards the verticalRange/horizontalRange emission cone and overwrites the spawn position with
+    // a normalized (pos - (0,0,zSource)) vector. That is why modern fire drifts sideways instead of
+    // rising. A large share of modern emitters carry 255.0.
     constexpr uintptr_t kSetZsource = 0x00978DA0;
     using M2_SetZsourceFn = void(__fastcall*)(void* emitter, void* edx, float zSource);
 
-    // --- CParticleEmitter2 instance layout ---------------------------------------------------
-    // Filled by CM2Model::InitializeLoaded from each emitter record's track key 0 (0x00833C00 rate via
-    // vtable+0x28, 0x00833C91 lifespan, 0x00833C9D lifespanVary) and re-fed every frame from the
-    // instance's sampled cells. CParticleEmitter2::SetTextureDimensions (0x00978C70) REQUIRES
+    // --- particle emitter instance layout -----------------------------------------------------
+    // Filled by the model's post-load sizing pass from each emitter record's track key 0 (0x00833C00
+    // rate via vtable+0x28, 0x00833C91 lifespan, 0x00833C9D lifespanVary) and re-fed every frame from
+    // the instance's sampled cells. The emitter's texture-dimensions setter (0x00978C70) REQUIRES
     // power-of-two dimensions and derives from them the shift + reciprocals a flipbook cell is decoded
     // with: column = cell & (columns - 1), row = cell >> shift.
     constexpr size_t kOffEmitterCellShift     = 0x0C;  // log2(columns)
@@ -286,9 +286,9 @@ namespace wxl::offsets::game::m2
     constexpr size_t kOffEmitterRateVary      = 0xA0;
     constexpr size_t kOffEmitterLifespan      = 0xA4;
     constexpr size_t kOffEmitterLifespanVary  = 0xA8;
-    // Material chosen by CM2Model::InitializeLoaded from the record's blend mode and handed over by
-    // CParticleEmitter2::SetMaterial (0x00978BF0): a blend-state index and the draw flags that go with
-    // it. Bit kEmitterMaterialAlphaTest stays set for the two alpha-TESTED modes (opaque, alpha key)
+    // Material chosen by the model's post-load sizing pass from the record's blend mode and handed
+    // over by the emitter's material setter (0x00978BF0): a blend-state index and the draw flags that
+    // go with it. Bit kEmitterMaterialAlphaTest stays set for the two alpha-TESTED modes (opaque, alpha key)
     // and is cleared for every blended one.
     constexpr size_t   kOffEmitterBlendState     = 0xD0;
     constexpr size_t   kOffEmitterMaterialFlags  = 0xD4;
@@ -303,18 +303,17 @@ namespace wxl::offsets::game::m2
     constexpr size_t kOffParticlePosition     = 0x04;
     constexpr size_t kOffParticleVelocity     = 0x10;
 
-    // CParticleEmitter2::EmitNewParticles -- per-frame, called from StepUpdate BEFORE the ageing pass,
-    // so a replacement particle is born while the one it replaces is still alive. Accumulates
-    // rate * dt and spawns round(accumulator + 0.5) particles, capped by the free list (the pool grows
-    // on demand, so it is not a fixed ceiling).
+    // New-particle emission: per-frame, called from the per-frame step BEFORE the ageing pass, so a
+    // replacement particle is born while the one it replaces is still alive. Accumulates rate * dt
+    // and spawns round(accumulator + 0.5) particles, capped by the free list (the pool grows on
+    // demand, so it is not a fixed ceiling).
     //
     // Unless kEmitterIgnoreDistance is set it first scales the rate by
     // 1 - (distance - 50) * 0.02 clamped to [kEmitterRateFloor, 1] -- distance being the camera
-    // distance CParticleEmitter2::Update (0x0097EB10) publishes just before. NOTHING in the model file
-    // maps onto that flag: CM2Model::InitializeLoaded translates the record flags bit by bit
-    // (0x00833D14-0x00833EAF) and never touches it. Its only setters are
-    // CMapObjDef::SetDoodadEmittersIgnoresDistance (0x007B69C0) and
-    // World::ObjectSetDoodadEmittersIgnoresDistance (0x0077FE80) -- it is a PLACEMENT property.
+    // distance the emitter's per-frame update (0x0097EB10) publishes just before. NOTHING in the
+    // model file maps onto that flag: the post-load sizing pass translates the record flags bit by
+    // bit (0x00833D14-0x00833EAF) and never touches it. Its only setters are two map-placement
+    // property setters (0x007B69C0, 0x0077FE80) -- it is a PLACEMENT property.
     //
     // The falloff assumes a dense emitter, where a quarter rate just thins the crowd. Source content
     // also authors single-billboard emitters (rate * lifespan near 1), for which the same cut stretches
@@ -324,10 +323,10 @@ namespace wxl::offsets::game::m2
     constexpr uint32_t kEmitterIgnoreDistance = 0x400000;
     constexpr float    kEmitterRateFloor      = 0.25f;
 
-    // CParticleEmitter2::Sync -- vtable SLOT 0 of every emitter kind, called once per frame per enabled
-    // emitter from StepUpdate before the emission pass. It sizes the particle pool as
+    // Emitter pool sync -- vtable SLOT 0 of every emitter kind, called once per frame per enabled
+    // emitter from the per-frame step before the emission pass. It sizes the particle pool as
     //   ROUND((rateVary + rate) * (lifespanVary + lifespan) * kEmitterPoolHeadroom)
-    // and grows the pool to it through SyncAllocation; each child emitter then gets
+    // and grows the pool to it through the pool-allocation call below; each child emitter then gets
     //   min(itsOwnSize * theParentSize, kEmitterPoolCeiling).
     // The 15% is headroom over the expected live count, so a particle's replacement can be born while
     // the particle it replaces is still fading. ROUND is round-to-nearest, so any emitter whose
@@ -341,9 +340,9 @@ namespace wxl::offsets::game::m2
     // current size already covers the request, so re-requesting a larger size is safe and idempotent.
     constexpr uintptr_t kEmitterSyncAllocation = 0x0097E480;
     using M2_EmitterSyncAllocationFn = void(__fastcall*)(void* emitter, void* edx, uint32_t count);
-    // CM2Model::InitializeLoaded -- builds every emitter of a loaded model, then wires each one's
-    // record pointers into it. Native this-in-ECX, no stack arguments. It maps the record's blend mode
-    // through a SEVEN-case jump table (0x008344DC, source modes 0..6) into a device blend state;
+    // The model's post-load sizing pass -- builds every emitter of a loaded model, then wires each
+    // one's record pointers into it. Native this-in-ECX, no stack arguments. It maps the record's
+    // blend mode through a SEVEN-case jump table (0x008344DC, source modes 0..6) into a device blend state;
     // anything past it takes the default arm and comes out as blend state 0 with the alpha-test flag
     // still set -- i.e. OPAQUE, which for a particle is a solid quad. Source mode 7 (added in 4.3.4)
     // lands there. The record's own field offsets are needed to tell that case apart afterwards,
@@ -357,7 +356,7 @@ namespace wxl::offsets::game::m2
     constexpr float    kEmitterPoolHeadroom = 1.15f;
     constexpr uint32_t kEmitterPoolCeiling  = 0x1000;
     constexpr size_t   kOffEmitterChildCount = 0x6C;
-    constexpr size_t   kOffEmitterChildArray = 0x70; // INLINE array of CParticleEmitter2*, not a pointer
+    constexpr size_t   kOffEmitterChildArray = 0x70; // INLINE array of particle emitter*, not a pointer
 
     // --- external animation ---
     // External-anim read-completion callback (node): runs once after the bytes are read and before the
@@ -410,7 +409,7 @@ namespace wxl::offsets::game::m2
     // Per-instance bone-palette build (instance, ...): fills the bone matrices for one instance from
     // the current pose, each frame, before the batch draw uploads the palette to the vertex shader.
     // Called from two sites per collection model per frame:
-    //   (a) sub_8309C0 (kUpdateAttachedModels, called from inside kM2PerFrameUpdate of the parent)
+    //   (a) 0x8309C0 (kUpdateAttachedModels, called from inside kM2PerFrameUpdate of the parent)
     //   (b) the outer scene-traversal loop at 0x821B4E (iterates the full scene linked list)
     // Site (b) fires AFTER the parent's kM2PerFrameUpdate completes (and therefore after the
     // OnM2PerFrameUpdate event). Hooking kBuildBonePalette and re-applying the CharSweep in the
@@ -425,29 +424,29 @@ namespace wxl::offsets::game::m2
     // sceneCtx is the scene's own per-frame camera-relative context matrix (kOffSceneAnimateCtx),
     // scale3/translate3 are always {1,1,1}/{0,0,0} at every native call site, the two trailing floats
     // always 1.0f -- verified across all six native call sites (both functions, all three drivers:
-    // CM2Scene::Animate's threaded and non-threaded loops, CM2Scene::AnimateThread).
+    // the scene's threaded and non-threaded animate loops, and its animate-thread entry point).
     using M2_AnimateMTFn = void(__thiscall*)(void* instance, void* sceneCtx, float* scale3,
                                              float* translate3, float unk1, float unk2);
     constexpr uintptr_t kRenderBatchShadowMap = 0x00829BA0;
 
-    // CM2Scene's per-frame animate walk: a flat singly-linked list of ROOT instances only
+    // The scene's per-frame animate walk: a flat singly-linked list of ROOT instances only
     // (kOffInstParent == 0 -- a non-root is animated via its parent's own attachment recursion, never
     // reached from this list directly). Distinct from kOffInstScene (instance -> its scene) and from
     // kOffInstAttachedNext (a SEPARATE sibling chain for attachment recursion) despite similar-sounding
     // names -- three different links on three different structs.
-    constexpr size_t kOffSceneAnimateHead = 0x28; // on CM2Scene: -> first root M2Instance in the walk
+    constexpr size_t kOffSceneAnimateHead = 0x28; // on the scene: -> first root M2Instance in the walk
     constexpr size_t kOffInstAnimateNext  = 0x44; // on M2Instance: -> next root instance in the walk
-    // The per-frame camera-relative context matrix (C44Matrix, 64 bytes) CM2Scene::Animate's preamble
+    // The per-frame camera-relative context matrix (64-byte 4x4 matrix) the scene's animate preamble
     // builds ONCE before either its threaded or non-threaded per-model loop runs, and every model's
-    // build that frame reads (read-only, never written by AnimateMT/AnimateMTSimple) -- safe for any
-    // number of concurrent readers with no extra synchronization.
+    // build that frame reads (read-only, never written by the palette-build entry points) -- safe for
+    // any number of concurrent readers with no extra synchronization.
     constexpr size_t kOffSceneAnimateCtx  = 0x84;
 
-    // CM2Cache's dedicated single-worker wake/join pair: the whole of TLK's native "second thread" for
+    // The dedicated single-worker wake/join pair: the whole of the client's native "second thread" for
     // animation. BeginThread stashes a job (fn, arg) and signals ONE persistent worker; WaitThread
     // blocks until that worker signals back. Not a parameterized pool -- there is no worker-count
-    // knob here, which is exactly why R2's wider pool is built separately (AnimatePool.cpp) rather
-    // than reusing this pair for more than the stock 2-way split.
+    // knob here, which is exactly why the wider pool this codebase adds is built separately
+    // (AnimatePool.cpp) rather than reusing this pair for more than the stock 2-way split.
     constexpr uintptr_t kCacheBeginThread = 0x0081BFA0;
     // __fastcall + dummy edx: this codebase's standard idiom for a HOOKED thiscall function (see
     // kIsDrawable) -- BeginThread is detoured by AnimatePool.cpp, so its original-trampoline pointer
@@ -457,7 +456,7 @@ namespace wxl::offsets::game::m2
     using M2_CacheWaitThreadFn = void(__thiscall*)(void* cache);
 
     // Compiler-generated function-local-static lazy-init a UV pivot constant (0.5, 0.5, 0.0) inside
-    // CM2Model::AnimateTextureTransformsMT (0x0082D6F0): the guard flag (bit 0 of the dword at
+    // the model's texture-transform animate entry (0x0082D6F0): the guard flag (bit 0 of the dword at
     // kTexPivotFlag) is written BEFORE the three payload floats, so two threads racing the very first
     // texture-animated model after boot can observe the flag set with stale/zero floats still behind
     // it -- a real (if narrow, cosmetic, one-frame) data race under >2-way concurrency that the stock
@@ -477,51 +476,53 @@ namespace wxl::offsets::game::m2
     constexpr uintptr_t kPaletteCallRetSceneB = 0x00821BDD; // frame driver walk, second branch
     constexpr uintptr_t kPaletteCallRetWorker = 0x0081CEFF; // worker thread's half of the interleaved walk
 
-    // CM2Model::IsDrawable(this, param2, param3): native thiscall, 2 stack args, ret 8. A streaming-
-    // readiness gate (model loaded, textures resident, attachments resident via bits at instance+0x10)
-    // -- NOT a distance/size cull. Shared by 21 unrelated callers (character creation, portraits,
-    // nameplates), so it must never be detoured unconditionally; see kDoodadDrainRetA/B below for the
-    // two call sites worth gating on. Declared __fastcall with a dummy edx (this codebase's standard
-    // idiom for a hooked thiscall function) since it IS hooked -- a call-only thiscall wouldn't need it.
+    // Instance drawable-readiness check(this, param2, param3): native thiscall, 2 stack args, ret 8. A
+    // streaming-readiness gate (model loaded, textures resident, attachments resident via bits at
+    // instance+0x10) -- NOT a distance/size cull. Shared by 21 unrelated callers (character creation,
+    // portraits, nameplates), so it must never be detoured unconditionally; see kDoodadDrainRetA/B
+    // below for the two call sites worth gating on. Declared __fastcall with a dummy edx (this
+    // codebase's standard idiom for a hooked thiscall function) since it IS hooked -- a call-only
+    // thiscall wouldn't need it.
     constexpr uintptr_t kIsDrawable = 0x00824FC0;
     using M2_IsDrawableFn = int(__fastcall*)(void* instance, void* edx, int param2, int param3);
 
-    // Return addresses of CM2Scene::Animate's (0x00821A20) two calls to IsDrawable(0,0), inside the
-    // per-frame element-build drain over the doodad/element queue (scene+0x2C). The world scene shares
-    // this queue between static doodads AND live units (players, NPCs, mounts, spell visuals) -- RE-
-    // confirmed, all funnel through CM2Scene::CreateModel on the same CWorldScene::s_m2Scene global --
-    // so a screen-size cull hooked here must ALSO gate on kOffInstOwnerFlags bit 0x20 (doodad-only,
-    // never set by any live-instance creation path) before ever downgrading a TRUE readiness result to
-    // FALSE. Confirmed by disasm: both sites are `call kIsDrawable`, 5 bytes, return address = call
-    // site + 5.
+    // Return addresses of the scene's per-frame animate entry's (0x00821A20) two calls to
+    // IsDrawable(0,0), inside the per-frame element-build drain over the doodad/element queue
+    // (scene+0x2C). The world scene shares this queue between static doodads AND live units (players,
+    // NPCs, mounts, spell visuals) -- confirmed: all instance creation funnels through the same scene
+    // creation entry point on the world scene's single M2-scene instance -- so a screen-size cull
+    // hooked here must ALSO gate on kOffInstOwnerFlags bit 0x20 (doodad-only, never set by any
+    // live-instance creation path) before ever downgrading a TRUE readiness result to FALSE. Confirmed
+    // by disassembly: both sites are `call kIsDrawable`, 5 bytes, return address = call site + 5.
     constexpr uintptr_t kDoodadDrainRetA = 0x00821C77;
     constexpr uintptr_t kDoodadDrainRetB = 0x00822AB5;
 
-    // CM2Model::IsBatchDoodadCompatible(this, submeshFlags): native thiscall, 1 stack arg (byte
+    // Batch-doodad-compatibility check(this, submeshFlags): native thiscall, 1 stack arg (byte
     // pointer), ret 4, returns bool in eax. Decides whether an instance can ride the hardware-instanced
-    // CM2SceneRender::DrawBatchDoodad path (shared alpha per whole batch) instead of a single non-
-    // instanced draw (its own CM2SceneRender::SetupMaterial call, hence its own alpha) -- the lever a
-    // screen-size fade needs to force a fading doodad onto the single-draw path so it can be given its
-    // own alpha independent of the rest of its batch. Two callers confirmed by disasm (CM2Scene::Animate
-    // ~0x0082204A, CM2Model::CountBatchDoodadCompatibleBatches ~0x00827F3B); both call sites verified to
+    // batch-doodad draw path (shared alpha per whole batch) instead of a single non-instanced draw
+    // (its own material-setup call, hence its own alpha) -- the lever a screen-size fade needs to
+    // force a fading doodad onto the single-draw path so it can be given its own alpha independent of
+    // the rest of its batch. Two callers confirmed by disassembly (the scene's per-frame animate entry
+    // ~0x0082204A, the batch-doodad-compatible-count pass ~0x00827F3B); both call sites verified to
     // enter at x87 depth 0, so this has no FPU hazard to worry about in a detour.
     constexpr uintptr_t kIsBatchDoodadCompatible = 0x00824550;
     using M2_IsBatchDoodadCompatibleFn = int(__fastcall*)(void* instance, void* edx, uint8_t* submeshFlags);
 
-    // CM2SceneRender::SetupMaterial(this): native thiscall, ZERO stack args, ret (bare, no pop). `this`
-    // is a CM2SceneRender-shaped draw-context object, forwarded unchanged from the caller's own `this`
-    // (DrawBatch/DrawBatchDoodad/DrawRibbon/etc.) -- NOT an M2Instance/M2Model. Reads the current draw
-    // element pointer at this+0x50 and the current M2 instance pointer at this+0x60 (both confirmed by
-    // disasm, read-only within this function), then hands {r,g,b,alpha} to CShaderEffect::SetDiffuse.
-    // The alpha it reads is at *(this+0x50) + 0xC (element+0xC): the model's own native alpha (instance
-    // global alpha x color-track x weight-track -- death/spawn/spell fades), computed independently of
-    // any visibility/distance test. Verified x87-depth-0 on entry and on all three return paths -- safe
-    // to call original from a detour with no FPU save/restore needed.
+    // Draw-context material setup(this): native thiscall, ZERO stack args, ret (bare, no pop). `this`
+    // is a scene-render-shaped draw-context object, forwarded unchanged from the caller's own `this`
+    // (the batch/batch-doodad/ribbon draw entries etc.) -- NOT an M2Instance/M2Model. Reads the current
+    // draw element pointer at this+0x50 and the current M2 instance pointer at this+0x60 (both
+    // confirmed by disassembly, read-only within this function), then hands {r,g,b,alpha} to the
+    // shader's diffuse setter. The alpha it reads is at *(this+0x50) + 0xC (element+0xC): the model's
+    // own native alpha (instance global alpha x color-track x weight-track -- death/spawn/spell
+    // fades), computed independently of any visibility/distance test. Verified x87-depth-0 on entry
+    // and on all three return paths -- safe to call original from a detour with no FPU save/restore
+    // needed.
     constexpr uintptr_t kSetupMaterial = 0x0081FE90;
     using M2_SetupMaterialFn = void(__fastcall*)(void* renderCtx, void* edx);
     constexpr size_t kOffRenderCtxElement  = 0x50; // -> current M2Element (see kOffElementAlpha)
     constexpr size_t kOffRenderCtxInstance = 0x60; // -> current M2Instance
-    constexpr size_t kOffElementAlpha      = 0x0C; // float, consumed by SetupMaterial/SetDiffuse
+    constexpr size_t kOffElementAlpha      = 0x0C; // float, consumed by kSetupMaterial's diffuse setup
 
     // --- track evaluators (sampled per bone / per light each frame from the bone-palette build) ---
     // Vec3 track evaluator (model, runtimeBone, track, out, baseValue): samples a translation/scale
@@ -609,25 +610,25 @@ namespace wxl::offsets::game::m2
     constexpr uintptr_t kCharModelSlotClear    = 0x004EE6D0;
 
     // --- runtime instance object fields ---
-    // Creation-time "kind" flags, forwarded verbatim from CM2Scene::CreateModel's flags argument by
-    // CM2Model::Initialize and never rewritten afterward -- stable for the instance's whole lifetime.
+    // Creation-time "kind" flags, forwarded verbatim from the scene's model-creation flags argument by
+    // the model's init entry and never rewritten afterward -- stable for the instance's whole lifetime.
     // Bit 0x1: set on a PARENT instance, its children derive their own view distance instead of
     //   inheriting the parent's (read by the palette build's distance step).
-    // Bit 0x20: native semantics are "defer InitializeLoaded to the first live pass" (a lazy-init
-    //   flag), but empirically it is set ONLY by CMap::CreateDoodadDef's family across all 50
-    //   CM2Scene::CreateModel call sites in the client -- never by unit/mount/missile/spell-visual/UI
-    //   creation paths. Used as the doodad-vs-live-instance discriminator for the screen-size cull
-    //   (see wxl-engine-reforged's DoodadCull.cpp) since TLK's world scene drains doodads and live
-    //   units through the same per-frame element-build queue.
+    // Bit 0x20: native semantics are "defer the post-load sizing pass to the first live pass" (a
+    //   lazy-init flag), but empirically it is set ONLY by the map's doodad-placement creation family
+    //   across all 50 scene model-creation call sites in the client -- never by unit/mount/missile/
+    //   spell-visual/UI creation paths. Used as the doodad-vs-live-instance discriminator for the
+    //   screen-size cull since the client's world scene drains doodads and live units through the
+    //   same per-frame element-build queue.
     constexpr size_t kOffInstOwnerFlags     = 0x04;
     constexpr size_t kOffInstInitFlags      = 0x10;  // init flags (bit 0 = anim init done; bit 6 = char-select present)
     constexpr size_t kOffInstModel          = 0x2C;  // -> runtime model
-    constexpr size_t kOffInstScene          = 0x28;  // -> the CM2Scene this instance belongs to
+    constexpr size_t kOffInstScene          = 0x28;  // -> the scene this instance belongs to
     constexpr size_t kOffInstCmdRingHead    = 0x34;  // deferred-command ring cursor; equal to the tail when idle
     constexpr size_t kOffInstCmdRingTail    = 0x38;
     constexpr size_t kOffInstLastAnimFrame  = 0x3C;  // uint32: scene frame this instance last animated on
     constexpr size_t kOffSceneClock         = 0x0C;  // uint32 on the scene: absolute animation clock (ms)
-    constexpr size_t kOffSceneFrame         = 0x14;  // uint32 on CM2Scene: the current frame counter
+    constexpr size_t kOffSceneFrame         = 0x14;  // uint32 on the scene: the current frame counter
     constexpr size_t kOffInstParent         = 0x48;  // -> parent M2 instance (null for root)
     constexpr size_t kOffInstAttachEnable   = 0x4C;  // -> per-attachment enable records (stride 0xC, u8 at +0x8)
     constexpr size_t kOffInstAttachSlot     = 0x54;  // uint32: attachment index this instance hangs on (0xFFFF = none)
@@ -656,29 +657,30 @@ namespace wxl::offsets::game::m2
     constexpr uint32_t kInstFlagFixedSpeed = 0x100000; // staged speed ignores the caller's multiplier
     constexpr size_t kOffInstBonePalette    = 0x98;  // -> bone matrices, row-major 4x4
     constexpr size_t kBonePaletteStride     = 0x40;  // one bone matrix
-    // Model->world placement, an INLINE 64-byte C44Matrix (the shadow loop reads &instance+0xb4).
+    // Model->world placement, an INLINE 64-byte matrix (the shadow loop reads &instance+0xb4).
     constexpr size_t kOffInstPlacement      = 0xB4;
-    // Instance root, an INLINE 64-byte C44Matrix written by CM2Model::AnimateMT (0x0082F0F0) as
-    // placement * viewRoot -- i.e. VIEW space. Every palette slot is B_bone * this, so the model-space
-    // factor of a bone is palette[b] * inverse(this) (palette FIRST: row-vector convention).
+    // Instance root, an INLINE 64-byte matrix written by the model's threaded animate entry
+    // (0x0082F0F0) as placement * viewRoot -- i.e. VIEW space. Every palette slot is B_bone * this, so
+    // the model-space factor of a bone is palette[b] * inverse(this) (palette FIRST: row-vector convention).
     constexpr size_t kOffInstViewRoot       = 0xF4;
-    // Array of render-object pointers (4 bytes each), indexed by M2SkinProfile batch index.
-    // Read by sub_828A00 to call sub_97f570 which controls per-batch draw visibility.
+    // Array of render-object pointers (4 bytes each), indexed by the skin profile's batch index.
+    // Read by the per-frame update (0x828A00) to call the visibility pass (0x97f570) that controls
+    // per-batch draw visibility.
     constexpr size_t kOffInstRenderObjArray = 0x2BC; // -> void*[] (one pointer per skin batch)
     // -> per-instance batch/section override arrays ([0] = batches, [2] = sections). When non-null,
-    // CM2Model::RenderModelBatchListShadowMap (0x00829E40) resolves the shadow draw's section from
-    // here INSTEAD of the CM2Shared+0x18C runtime copy -- so any fixup applied to that copy (notably
+    // the shadow-map batch-list draw (0x00829E40) resolves the shadow draw's section from here
+    // INSTEAD of the model's shared+0x18C runtime copy -- so any fixup applied to that copy (notably
     // the boneInfluences 0 -> 1 lift at skin finalize) is bypassed for such an instance.
     constexpr size_t kOffInstSectionOverride = 0x2D0;
-    // Visibility flags written by sub_97f570 into each render object.
-    // Bit 2 = 1 → batch visible; bit 2 = 0 → batch hidden (bit 0 also cleared when hiding).
+    // Visibility flags written by the visibility pass (0x97f570) into each render object.
+    // Bit 2 = 1 -> batch visible; bit 2 = 0 -> batch hidden (bit 0 also cleared when hiding).
     constexpr size_t kOffRenderObjFlags     = 0x160;
-    constexpr size_t kOffInstShared         = 0x2C;  // -> the CM2Shared this instance draws
-    // Per-emitter blocks, both sized by the header's emitter count and built by
-    // CM2Model::InitializeLoaded: the sampled track cells it feeds the emitters from each frame, then
-    // the CParticleEmitter2* array itself.
+    constexpr size_t kOffInstShared         = 0x2C;  // -> the shared model data this instance draws
+    // Per-emitter blocks, both sized by the header's emitter count and built by the model's post-load
+    // sizing pass: the sampled track cells it feeds the emitters from each frame, then the particle
+    // emitter pointer array itself.
     constexpr size_t kOffInstEmitterCells   = 0x2C0; // stride kEmitterCellStride
-    constexpr size_t kOffInstEmitterArray   = 0x2C4; // -> CParticleEmitter2*[]
+    constexpr size_t kOffInstEmitterArray   = 0x2C4; // -> particle emitter*[]
     constexpr size_t kEmitterCellStride     = 0x88;
     constexpr size_t kOffCellLifespan       = 0x44;
     constexpr size_t kOffCellRate           = 0x50;
@@ -694,21 +696,22 @@ namespace wxl::offsets::game::m2
     constexpr size_t kOffModelSubmeshBuf    = 0x18C; // -> submesh copy buffer ptr (written by kFinalizeSkin; not freed on re-call)
     constexpr size_t kOffModelFinalizeDone  = 0x190; // uint32: set to 1 by kFinalizeSkin after IB is built; scheduler checks before re-calling
     // uint16: count of bones carrying flags & 0x2F8 (0x200 "transformed" + the billboard bits 0xF8),
-    // tallied by CM2Shared::Initialize (0x0083CC80). Its ONLY reader is CM2Model::AnimateSM
-    // (0x00831990), the SHADOW-path animate, which rebuilds the bone palette at instance+0x98 only
-    // when `instance->parent != 0 || this != 0`; otherwise it takes a fast path that leaves the
-    // palette holding an OLDER frame's view matrix. CShadowQuery::Render meanwhile uploads
+    // tallied by the shared-data init entry (0x0083CC80). Its ONLY reader is the shadow-path animate
+    // (0x00831990), which rebuilds the bone palette at instance+0x98 only when
+    // `instance->parent != 0 || this != 0`; otherwise it takes a fast path that leaves the palette
+    // holding an OLDER frame's view matrix. The shadow query's render step meanwhile uploads
     // c14..c16 = inverse(CURRENT view) * lightView, so a stale palette no longer cancels and the
-    // shadow rotates by the camera's motion since that frame. WotLK exporters bake 0x200 into
-    // practically every bone, so stock content always takes the full path; Legion/Midnight ship all
-    // bone flags 0x0 and would take the fast path -- hence the swing.
+    // shadow rotates by the camera's motion since that frame. Older-format exporters bake 0x200 into
+    // practically every bone, so stock content always takes the full path; newer-format content ships
+    // all bone flags 0x0 and would take the fast path -- hence the swing.
     constexpr size_t kOffSharedAnimGateCount = 0x198;
     // uint32: MAX INSTANCES per batched draw, computed by kFinalizeSkin as
     //   min(65536 / skin->indices.count, min over submeshes of skin->boneCountMax / submesh.boneCount), floored at 1
     // i.e. how many copies of the model fit in one 16-bit index buffer AND in the bone-constant palette.
-    // Consumers: CM2Shared::AllocInstances (0x00836DF0) clamps its grow request to it, and
-    // CM2Model::InitializeLoaded (0x00832EA0) clears the "batchable doodad" flag 0x10 when it is < 2
-    // (cf. CVar M2BatchDoodads). NOTHING here is level-of-detail: 12340 has no per-frame M2 LOD at all.
+    // Consumers: the shared-data instance allocator (0x00836DF0) clamps its grow request to it, and
+    // the post-load sizing pass (0x00832EA0) clears the "batchable doodad" flag 0x10 when it is < 2
+    // (cf. the batch-doodads CVar). NOTHING here is level-of-detail: the target build has no per-frame
+    // M2 LOD at all.
     constexpr size_t kOffSharedMaxInstances = 0x194;
     // Deprecated spelling kept so no published name disappears; the "LodMultiplier" reading was wrong.
     constexpr size_t kOffModelLodMultiplier = kOffSharedMaxInstances;
@@ -796,7 +799,7 @@ namespace wxl::offsets::game::m2
     // --- typed views over the objects above ---
     // The constants are the curated landmarks; these structs give named, typed access to the same fields,
     // with every member offset checked against a constant at compile time (a wrong padding fails the build).
-    // Only RE'd fields are named; the gaps are explicit padding. Pointers are 4 bytes on the 32-bit client.
+    // Only documented fields are named; the gaps are explicit padding. Pointers are 4 bytes on the 32-bit client.
 #pragma pack(push, 1)
     /**
      * @brief I/O record read by the per-sequence rebase: the loaded buffer base and its byte size.
@@ -858,10 +861,11 @@ namespace wxl::offsets::game::m2
     struct M2Instance
     {
         uint8_t  _pad00[kOffInstOwnerFlags];
-        uint32_t ownerFlags;       // kOffInstOwnerFlags (bit 0x20 = created via CMap::CreateDoodadDef's
-                                    // family -- exclusive to ADT/WMO-placed static doodads, RE-confirmed
-                                    // across all 50 CM2Scene::CreateModel call sites in the client;
-                                    // never set by unit/mount/missile/spell-visual/UI creation paths)
+        uint32_t ownerFlags;       // kOffInstOwnerFlags (bit 0x20 = created via the map's doodad-
+                                    // placement creation family -- exclusive to ADT/WMO-placed static
+                                    // doodads, confirmed across all 50 scene model-creation call sites
+                                    // in the client; never set by unit/mount/missile/spell-visual/UI
+                                    // creation paths)
         uint8_t  _pad04[kOffInstInitFlags - (kOffInstOwnerFlags + sizeof(uint32_t))];
         uint32_t initFlags;        // kOffInstInitFlags (kInstFlag* bits)
         uint8_t  _pad14[kOffInstScene - (kOffInstInitFlags + sizeof(uint32_t))];

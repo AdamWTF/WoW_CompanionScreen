@@ -93,7 +93,7 @@ namespace wxl::offsets::game::db2
         constexpr uintptr_t kMaxId          = 0x00AD3DE8;
         constexpr uintptr_t kMinId          = 0x00AD3DEC;
         constexpr uintptr_t kIdTable        = 0x00AD3DFC;
-        // sub_4cfd90: thiscall(ecx=storageObj, displayId, outBuf); fills outBuf with the 256-byte
+        // kLookup: thiscall(ecx=storageObj, displayId, outBuf); fills outBuf with the 256-byte
         // record copy (field pointers point into the live DBC string block); returns non-zero if found.
         constexpr uintptr_t kLookup         = 0x004CFD90;
         using LookupFn = uint32_t (__fastcall*)(void* storageObj, void* edx, uint32_t displayId, void* outBuf);

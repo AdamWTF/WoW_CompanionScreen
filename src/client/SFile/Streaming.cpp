@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+#include "common/Log.hpp"
 #include "config.hpp"
 #include "engine/hook/Hook.hpp"
 #include "engine/hook/Registry.hpp"
@@ -22,6 +23,7 @@
 #include "offsets/game/World.hpp"
 
 #include <windows.h>
+#include <intrin.h>
 
 #include <cstdint>
 #include <cstring>
@@ -51,6 +53,7 @@ namespace
         constexpr uint32_t kAwaitedObj    = 0x00B4A204; // node a force-wait blocks on (0 = none)
         constexpr uint32_t kPendingCount  = 0x00B4A1F8; // outstanding-completion counter
         constexpr uint32_t kLinkOffset    = 0x28;       // node -> link byte offset
+        constexpr uint32_t kWaitGuard     = 0x00B4A26C; // the client's async-wait reentrancy counter
 
         inline uint32_t Rd(uint32_t a)             { return *reinterpret_cast<uint32_t*>(a); }
         inline void     Wr(uint32_t a, uint32_t v) { *reinterpret_cast<uint32_t*>(a) = v; }
@@ -179,6 +182,24 @@ namespace
         return r;
     }
 
+    wld::AsyncFileReadWaitFn g_origAsyncFileReadWait = nullptr;
+
+    void __cdecl hkAsyncFileReadWait(void* obj)
+    {
+        if (obj)
+        {
+            const uint32_t waiting = adrain::Rd(adrain::kWaitGuard);
+            const uint8_t  handled = adrain::RdB(reinterpret_cast<uint32_t>(obj) + 0x21);
+            if (waiting != 0)
+                WLOG_ERROR("async-wait-diag: about to fatal-assert -- s_waiting=%u obj=%p caller=%p",
+                           waiting, obj, _ReturnAddress());
+            else if (handled != 0)
+                WLOG_WARN("async-wait-diag: LEAK -- obj=%p already handled (+0x21=1), caller=%p takes the "
+                          "no-decrement early return", obj, _ReturnAddress());
+        }
+        g_origAsyncFileReadWait(obj);
+    }
+
     /**
      * @brief Normal-phase install: reentrant-drain serialization.
      */
@@ -186,6 +207,8 @@ namespace
     {
         wxl::hook::Install("AsyncDrain", wld::kAsyncServiceQueues,
                            &hkAsyncDrain, &g_origAsyncDrain);
+        wxl::hook::Install("AsyncFileReadWaitDiag", wld::kAsyncFileReadWait,
+                           &hkAsyncFileReadWait, &g_origAsyncFileReadWait);
         return true;
     }
 }
