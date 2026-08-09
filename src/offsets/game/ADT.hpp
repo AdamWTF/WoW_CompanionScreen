@@ -71,6 +71,29 @@ namespace wxl::offsets::game::adt
     // loading that overlap the chunk box.
     constexpr uintptr_t kNearObjectCount = 0x007B50B0;
 
+    // --- terrain draw-frustum cull ---
+    // CFrustum::Cull(this=frustum, bbox[6]): __thiscall, 1 stack arg (bbox min@+0/max@+0xC), returns
+    // nonzero when the box survives (visible), 0 when culled. CWorldScene::CullChunks (0x00799D40,
+    // called 64x/frame -- once per slot of a sort table, each call walking that slot's own chunk list to
+    // exhaustion, so this is NOT a one-call-per-chunk entry point to hook directly) calls this address
+    // twice per candidate chunk: once against the chunk's primary AABB (kOffChunkBboxPrimary), and --
+    // ONLY if that, an unrelated portal test, and a horizon/clip-buffer test all already passed -- a
+    // second time against a narrower box (kOffChunkBboxSecondary). A chunk that survives the second call
+    // is unconditionally linked into this frame's render-ready list next (a per-texture-layer-count
+    // bucket sort happens after, not a further visibility gate) -- so gating a call-through detour of
+    // this address on the SECOND call's own return address is the narrowest available hook that still
+    // sees every chunk the terrain pass will actually draw this frame, with none of the first call's
+    // false positives (chunks the second test still rejects). Declared __fastcall with a dummy edx, this
+    // codebase's standard idiom for a hooked thiscall function (see kIsDrawable's own doc comment).
+    constexpr uintptr_t kChunkFrustumCull = 0x009839E0;
+    using ChunkFrustumCullFn = int(__fastcall*)(void* frustum, void* edx, const float* bbox);
+    // Return address (call site + 5) of the second CFrustum::Cull call described above. At that instant
+    // the bbox argument still on the stack IS chunk+kOffChunkBboxSecondary, so chunk = bbox - that offset
+    // -- no separate chunk-identity lookup needed at the hook site.
+    constexpr uintptr_t kChunkFrustumCullRetB = 0x00799E65;
+    constexpr size_t    kOffChunkBboxPrimary   = 0x4C;
+    constexpr size_t    kOffChunkBboxSecondary = 0x8C;
+
     // --- tile-slot grid ---
     // Tile-slot grid base: a 64x64 array of tile-area pointers (stride 4). Slot index is
     // secondFilenameNumber * 64 + firstFilenameNumber, where the two numbers are the "%d_%d" of the

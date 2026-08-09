@@ -62,6 +62,7 @@ namespace wxl::runtime::hookpoints
             { "M2.BuildBatchMaterial",        m2::kBuildBatchMaterial },
             { "M2.AnimLoadComplete",          m2::kAnimLoadComplete },
             { "M2.DrawBatch",                 gxoff::kDrawTriangleBatch },
+            { "M2.DrawBatchDoodad",           gxoff::kDrawBatchDoodad },
             { "M2.RibbonDraw",                m2::kRibbonDraw },
             { "M2.SceneTriangleHitTest",      m2::kSceneTriangleHitTest },
             { "M2.SortOpaqueGeoBatches",      m2::kSortOpaqueGeoBatches },

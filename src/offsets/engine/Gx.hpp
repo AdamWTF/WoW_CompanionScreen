@@ -149,7 +149,24 @@ namespace wxl::offsets::engine::gx
     // can name which model is rendering.
     constexpr uintptr_t kDrawTriangleBatch      = 0x008203B0;
     constexpr size_t    kDrawBatchCtxModelField = 0x60; // draw context -> current model
-    constexpr size_t    kDrawBatchCtxSectionField = 0x90; // draw context -> copied M2SkinSection
+    // draw context -> copied M2SkinSection. TRAP: both kDrawTriangleBatch and kDrawBatchDoodad refresh
+    // this field from the current batch record's own section (kM2ElementSectionField below) as the
+    // VERY FIRST thing they do, so a hook hung on either function's entry still sees the PREVIOUS
+    // batch's section here -- the draw context object is reused across every batch in a pass, so this
+    // is stale on every single call, never just occasionally. A caller that needs the section for the
+    // batch about to run (not the one that already ran) must read it fresh off the batch record itself
+    // via kDrawBatchCtxElementField + kM2ElementSectionField instead of this field.
+    constexpr size_t    kDrawBatchCtxSectionField = 0x90;
+    // The batched-doodad sibling of kDrawTriangleBatch above -- __thiscall(this, elements, indices),
+    // ret 8, called from the same per-frame sorted batch walk. Shares the identical draw-context shape
+    // (kDrawBatchCtxElementField/kDrawBatchCtxSectionField are the same fields this draw entry itself
+    // reads before negotiating a co-instance batch), so DrawBatchContext below describes both entries.
+    constexpr uintptr_t kDrawBatchDoodad          = 0x00820AE0;
+    constexpr size_t    kDrawBatchCtxElementField = 0x50; // draw context -> current M2Element/batch record
+    // M2Element/batch-record (what kDrawBatchCtxElementField points at) -> its own, always-current
+    // M2SkinSection*. The value kDrawTriangleBatch/kDrawBatchDoodad copy into kDrawBatchCtxSectionField
+    // on entry -- read it from here directly to see the batch about to run instead of the stale copy.
+    constexpr size_t    kM2ElementSectionField = 0x2C;
 
     // --- typed views over the device objects ---
     // The constants above are the curated landmarks; these structs give named, typed access to the same
@@ -171,14 +188,17 @@ namespace wxl::offsets::engine::gx
     static_assert(offsetof(GxDevice, backBuffer)   == kBackBufferField,  "GxDevice.backBuffer");
     static_assert(offsetof(GxDevice, depthSurface) == kDepthSurfaceField, "GxDevice.depthSurface");
 
-    /** @brief M2 triangle-batch draw context (this-in-ECX at kDrawTriangleBatch). */
+    /** @brief M2 triangle-batch draw context (this-in-ECX at kDrawTriangleBatch or kDrawBatchDoodad). */
     struct DrawBatchContext
     {
-        uint8_t  _pad00[kDrawBatchCtxModelField];
+        uint8_t  _pad00[kDrawBatchCtxElementField];
+        void*    element;          // kDrawBatchCtxElementField -> current M2Element/batch record
+        uint8_t  _pad54[kDrawBatchCtxModelField - (kDrawBatchCtxElementField + sizeof(void*))];
         void*    model;            // kDrawBatchCtxModelField -> current model
         uint8_t  _pad64[kDrawBatchCtxSectionField - (kDrawBatchCtxModelField + sizeof(void*))];
         void*    section;          // kDrawBatchCtxSectionField -> copied M2SkinSection for this draw
     };
+    static_assert(offsetof(DrawBatchContext, element) == kDrawBatchCtxElementField, "DrawBatchContext.element");
     static_assert(offsetof(DrawBatchContext, model) == kDrawBatchCtxModelField, "DrawBatchContext.model");
     static_assert(offsetof(DrawBatchContext, section) == kDrawBatchCtxSectionField, "DrawBatchContext.section");
 #pragma pack(pop)
