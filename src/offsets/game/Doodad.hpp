@@ -31,6 +31,33 @@ namespace wxl::offsets::game::doodad
     // __cdecl, 3 stack args, returns the new placed-doodad object pointer.
     using SpawnFromMDDFFn = void*(__cdecl*)(const char* modelName, void* mddf, void* tileOrigin);
 
+    // The MDDF record kSpawnFromMDDF reads (0x24 bytes, standard MDDF layout, unchanged since
+    // Classic): nameId/uniqueId (u32 each) at +0x00/+0x04, position (3 floats, archived coordinate
+    // convention) at +0x08/+0x0C/+0x10, rotation at +0x14/+0x18/+0x1C, scale (u16, 1024 = 100%) at
+    // +0x20, flags (u16) at +0x22 -- the last two already load-bearing elsewhere in this codebase.
+    constexpr size_t kMddfPosX  = 0x08;
+    constexpr size_t kMddfPosY  = 0x0C;
+    constexpr size_t kMddfPosZ  = 0x10;
+    // World position from an MDDF record, confirmed at kSpawnFromMDDF's own call site:
+    // worldX = tileOrigin.x - mddf.posZ, worldY = tileOrigin.y - mddf.posX,
+    // worldZ = tileOrigin.z + mddf.posY -- the same axis-swap/negate every archived-coordinate
+    // consumer in this codebase applies. tileOrigin is the constant {17066.666, 17066.666, 0} for
+    // every MDDF-driven spawn (the per-chunk placement walk never passes anything else), so a caller
+    // that only cares about ordinary terrain placements can use that literal instead of threading the
+    // pointer through.
+    constexpr float kMddfTileOriginX = 17066.666f;
+    constexpr float kMddfTileOriginY = 17066.666f;
+
+    // Runtime teardown of one resident placed doodad -- releases its render context (clearing the
+    // event/sequence callbacks first, matching kSetEventCallback/kSetSequenceCallback's own wiring at
+    // spawn, see offsets/game/M2.hpp), unlinks it from its owning chunk's list and its own global
+    // list, and returns it to the doodad pool. __cdecl, 1 stack arg (the doodad). No-op (does not
+    // free) when the doodad's own refcount (+0xA) is still nonzero -- a caller must have already
+    // dropped every link referencing it first, which this codebase does not yet do directly; only
+    // observe this hook, never call it to force a premature free.
+    constexpr uintptr_t kDoodadPurge = 0x007C3020;
+    using DoodadPurgeFn = void(__cdecl*)(void* doodad);
+
     // --- placed-doodad object fields ---
     constexpr size_t kFlags = 0x0C; // 1 = normal placement
 

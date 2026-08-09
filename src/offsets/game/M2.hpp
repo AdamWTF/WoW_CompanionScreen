@@ -118,11 +118,21 @@ namespace wxl::offsets::game::m2
     // .skin filename builder (pathStem, profileIndex, outBuf): copies the path, strips the extension,
     // appends the two-digit skin suffix. outBuf is a fixed-size engine buffer.
     constexpr uintptr_t kBuildSkinPath = 0x00835A80;
-    // Skin-profile loader (model, profileIndex): builds the path, opens+maps the file, parses it,
-    // attaches the profile synchronously, and schedules an idempotent async finalize.
+    // Skin-profile loader (model, profileIndex): builds the "%s%02d.skin" path, opens the file,
+    // allocates the raw buffer (kBufferAlloc) at model+0x170, and submits an async whole-file read
+    // whose completion runs kFinishLoadingSkinProfile below. Named-profile only; a caller with an
+    // already-open buffer of its own (any filename) calls kFinishLoadingSkinProfile directly instead.
     constexpr uintptr_t kLoadSkinProfile = 0x0083CB40;
     // Size of the engine sibling-file path buffer the builders write into.
     constexpr uint32_t  kSkinPathBufSize = 0x108;
+    // Parses the raw skin buffer already sitting at model+0x170 (fileSize bytes) in place -- the five
+    // M2Array pairs at +4/+0xc/+0x14/+0x1c/+0x24 (vertexLookup/indices/bones/submeshes/batches,
+    // strides 2/2/4/0x30/0x18) rewritten from file offsets to absolute pointers -- then calls
+    // kFinalizeSkin and walks the model's own loaded-callback list. This is the synchronous half of
+    // kLoadSkinProfile's async completion; callable directly for a buffer sourced any other way (a
+    // sibling LOD skin, a name that doesn't fit "%s%02d.skin"). thiscall(model, fileSize) -> bool.
+    constexpr uintptr_t kFinishLoadingSkinProfile = 0x00838490;
+    using M2_FinishLoadingSkinProfileFn = int(__fastcall*)(void* model, void* edx, uint32_t fileSize);
 
     // --- ground-shadow pass (the "shadow swings with the camera" bug) -------------------------
     // Projected-decal draw entry. NOT a shadow function despite the name it once carried elsewhere --
@@ -589,8 +599,27 @@ namespace wxl::offsets::game::m2
     constexpr uintptr_t kAttachToScene      = 0x00831630;
     // DetachSlot(subObj, slot): detaches the M2 bound to a scene slot, releasing its render context.
     constexpr uintptr_t kDetachSlot         = 0x00827560;
-    // ReleaseRenderCtx(renderCtx): releases a render context obtained from GetRenderCtx.
+    // ReleaseRenderCtx(renderCtx): releases a render context obtained from GetRenderCtx. thiscall,
+    // no stack args (ECX only): decrements a refcount at renderCtx+0 and tears the model down once it
+    // reaches zero.
     constexpr uintptr_t kReleaseRenderCtx   = 0x00824ED0;
+    using M2_ReleaseRenderCtxFn = void(__fastcall*)(void* renderCtx, void* edx);
+    // SetSequenceCallback(renderCtx, fn, userData, extra) / SetEventCallback(renderCtx, fn, userData,
+    // extra): thiscall (ECX=renderCtx) + 3 stack args. The doodad spawn path (kSpawnFromMDDF, see
+    // offsets/game/Doodad.hpp) wires the event callback at spawn (userData=the doodad, extra=0); the
+    // doodad teardown path (kDoodadPurge) clears both (fn=userData=extra=0) before releasing the
+    // render context. A caller that swaps a live doodad's render context between models should
+    // replay the clearing half of that wiring at minimum.
+    constexpr uintptr_t kSetSequenceCallback = 0x00823FE0;
+    constexpr uintptr_t kSetEventCallback    = 0x00824060;
+    using M2_SetCallbackFn = void(__fastcall*)(void* renderCtx, void* edx, void* fn, void* userData, uint32_t extra);
+    // SetBoneSequence(seqId, subSeqId, prevSeqId, prevSubSeqId, blendTime, loop, reset): starts the
+    // default animation on a freshly created render context; the doodad spawn path's own spawn-time
+    // call is SetBoneSequence(-1, 0, -1, 0, 1.0f, 1, 1). Calling convention not fully pinned (thiscall
+    // vs cdecl ambiguous from the call site alone -- ECX's source wasn't chased); treat as optional
+    // polish for a respawned doodad rather than load-bearing, and verify by disassembly before relying
+    // on it for anything else.
+    constexpr uintptr_t kSetBoneSequence = 0x00832AB0;
     // BindTexSlot(renderCtx, modelPtr): binds the M2 model resource to texture slot key 2 (main texture).
     constexpr uintptr_t kBindTexSlot        = 0x00825260;
     // LoadResource(path, flags): loads a texture/resource by virtual path through the texture-create path.
@@ -667,6 +696,18 @@ namespace wxl::offsets::game::m2
     // Read by the per-frame update (0x828A00) to call the visibility pass (0x97f570) that controls
     // per-batch draw visibility.
     constexpr size_t kOffInstRenderObjArray = 0x2BC; // -> void*[] (one pointer per skin batch)
+    // Per-instance lighting-callback pair: +0x2AC a function pointer, +0x2B0 its userData. Wired at
+    // spawn (CMap::CreateDoodadDef, 0x007BECD0) to CMapStaticEntity::ModelLightingCallback
+    // (kModelLightingCallback below) with userData = the owning doodad, and invoked every frame by
+    // CM2Model::SetupLighting (0x00831af0) as (*fn)(instance, instance+0x1D4, userData) whenever
+    // non-null. CMapDoodadDef::Purge (0x007C3020) nulls both fields before releasing an instance's
+    // render context -- a caller that tears an instance down outside that path must do the same.
+    constexpr size_t kOffInstLightingCallbackFn = 0x2AC;
+    constexpr size_t kOffInstLightingUserData   = 0x2B0;
+    // CMapStaticEntity::ModelLightingCallback -- the value CreateDoodadDef writes into
+    // kOffInstLightingCallbackFn. Stored/compared as a raw pointer only; never called directly here,
+    // so no calling-convention typedef is declared for it.
+    constexpr uintptr_t kModelLightingCallback  = 0x00780CD0;
     // -> per-instance batch/section override arrays ([0] = batches, [2] = sections). When non-null,
     // the shadow-map batch-list draw (0x00829E40) resolves the shadow draw's section from here
     // INSTEAD of the model's shared+0x18C runtime copy -- so any fixup applied to that copy (notably
