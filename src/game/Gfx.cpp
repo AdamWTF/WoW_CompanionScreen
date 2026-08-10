@@ -375,7 +375,7 @@ namespace wxl::game::gfx
         // to be moved to that origin, or it is turned correctly and projected thousands of units off
         // screen -- a draw the device accepts and nothing shows for.
         float eye[3];
-        camera::Position(eye);
+        camera::GetPosition(eye);
         const float toCameraOrigin[16] = {
             1.0f,    0.0f,    0.0f,    0.0f,
             0.0f,    1.0f,    0.0f,    0.0f,

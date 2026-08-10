@@ -34,26 +34,48 @@ namespace wxl::game::camera
      * @brief Reads the world-to-view matrix.
      * @return Pointer to a row-major float[16] (D3D row-vector).
      */
-    inline const float* View()       { return reinterpret_cast<const float*>(off::kView); }
+    inline const float* GetView()       { return reinterpret_cast<const float*>(off::kView); }
     /**
      * @brief Reads the projection matrix.
      * @return Pointer to a row-major float[16].
      */
-    inline const float* Projection() { return reinterpret_cast<const float*>(off::kProjection); }
+    inline const float* GetProjection() { return reinterpret_cast<const float*>(off::kProjection); }
     /**
      * @brief Reads the combined view-projection matrix (View * Projection).
      * @return Pointer to a row-major float[16].
      */
-    inline const float* ViewProj()   { return reinterpret_cast<const float*>(off::kViewProj); }
+    inline const float* GetViewProj()   { return reinterpret_cast<const float*>(off::kViewProj); }
 
     /**
      * @brief Reads the camera world position.
      * @param out  Receives the position in out[0..2].
      */
-    inline void Position(float out[3])
+    inline void GetPosition(float out[3])
     {
         const float* p = reinterpret_cast<const float*>(off::kCameraPos);
         out[0] = p[0]; out[1] = p[1]; out[2] = p[2];
+    }
+
+    /**
+     * @brief Returns the engine's active-camera object (a distinct object from the view/projection
+     *        globals above -- the source the world render reads its field of view from).
+     * @return the active camera, or null if none is set.
+     */
+    inline void* GetActiveCamera()
+    {
+        return Native<off::GetActiveCameraFn>(off::kGetActiveCamera)();
+    }
+
+    /**
+     * @brief Reads the field of view off an active-camera object.
+     * @param camera  an object from GetActiveCamera(), possibly null.
+     * @return the camera's field of view in radians, or a ~70 degree fallback when camera is null.
+     */
+    inline float GetFov(void* camera)
+    {
+        return camera
+            ? *reinterpret_cast<const float*>(static_cast<const uint8_t*>(camera) + off::kCameraFov)
+            : 1.2217f; // ~70 degrees; fallback for the no-camera case
     }
 
     // The setters below drive the world renderer from a camera the engine does not own. In-world the

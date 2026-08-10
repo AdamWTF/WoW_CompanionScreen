@@ -63,43 +63,6 @@ namespace wxl::game::m2
         Native<off::M2_PushAlphaRefFn>(off::kPushAlphaRef)(ref);
     }
 
-    // --- raw .m2 file buffer (valid at parse time) ---
-    // The whole .m2 file is read into a heap buffer at model+0x150. The byte size is at model+0x16c.
-
-    /**
-     * @brief Returns the raw .m2 file buffer attached to a model.
-     * @param model  the model object.
-     * @return pointer to the in-memory .m2 file buffer.
-     */
-    inline void*    FileBuffer(void* model) { return static_cast<off::M2Model*>(model)->header; }
-
-    /**
-     * @brief Returns the byte size of a model's raw .m2 file buffer.
-     * @param model  the model object.
-     * @return the buffer size in bytes.
-     */
-    inline uint32_t FileSize  (void* model) { return static_cast<off::M2Model*>(model)->fileSize; }
-
-    /**
-     * @brief Returns the model path stem stored by the native loader.
-     * @param model  the model object.
-     * @return Inline path stem without extension.
-     */
-    inline const char* PathStem(void* model) { return static_cast<off::M2Model*>(model)->pathStem; }
-
-    /**
-     * @brief Returns the parsed model header.
-     * @param model  the model object.
-     * @return the header; the .m2 buffer is parsed in place so the buffer base is the header.
-     *
-     * Valid once the model is parsed. Header M2Arrays hold raw pointers by this point, not file
-     * offsets.
-     */
-    inline wxl::structure::m2::M2Header* Header(void* model)
-    {
-        return reinterpret_cast<wxl::structure::m2::M2Header*>(FileBuffer(model));
-    }
-
     /**
      * @brief The engine's live parsed skin profile, hung off the model object.
      *
@@ -129,14 +92,96 @@ namespace wxl::game::m2
     static_assert(offsetof(M2SkinProfile, batches) == 0x28, "M2SkinProfile.batches");
 
     /**
-     * @brief Returns the live parsed skin profile for a model.
-     * @param model  the model object.
-     * @return the skin profile at model+0x170, or null before it is attached.
+     * @brief Thin typed facade over one M2 model object: the raw .m2 file buffer, its parsed
+     *        header, live skin profile, and the two mutating operations that replace/rebuild them.
+     *
+     * Each method is a zero-overhead inline read/call; method names mirror the Get/Set convention
+     * `wxl::game::gx::Device9` already established for this SDK layer.
      */
-    inline M2SkinProfile* Skin(void* model)
+    class M2Model
     {
-        return *reinterpret_cast<M2SkinProfile**>(reinterpret_cast<char*>(model) + off::kOffModelSkin);
-    }
+    public:
+        /**
+         * @brief Wraps a raw M2 model pointer.
+         * @param model  the raw model pointer, possibly null.
+         */
+        explicit M2Model(void* model) : model_(model) {}
+
+        /** @brief Returns the wrapped raw model pointer. */
+        void* raw() const { return model_; }
+
+        /** @brief Returns true if a model is wrapped. */
+        explicit operator bool() const { return model_ != nullptr; }
+
+        // --- raw .m2 file buffer (valid at parse time) ---
+        // The whole .m2 file is read into a heap buffer at model+0x150. The byte size is at model+0x16c.
+
+        /** @brief Returns the raw .m2 file buffer attached to this model. */
+        void* GetFileBuffer() const { return static_cast<off::M2Model*>(model_)->header; }
+
+        /** @brief Returns the byte size of this model's raw .m2 file buffer. */
+        uint32_t GetFileSize() const { return static_cast<off::M2Model*>(model_)->fileSize; }
+
+        /** @brief Returns the model path stem stored by the native loader. */
+        const char* GetPathStem() const { return static_cast<off::M2Model*>(model_)->pathStem; }
+
+        /**
+         * @brief Returns the parsed model header.
+         * @return the header; the .m2 buffer is parsed in place so the buffer base is the header.
+         *
+         * Valid once the model is parsed. Header M2Arrays hold raw pointers by this point, not
+         * file offsets.
+         */
+        wxl::structure::m2::M2Header* GetHeader() const
+        {
+            return reinterpret_cast<wxl::structure::m2::M2Header*>(GetFileBuffer());
+        }
+
+        /** @brief This model's bounding sphere radius (standard MD20 field). */
+        float GetBoundingSphereRadius() const { return GetHeader()->boundingSphereRadius; }
+
+        /** @brief This model's particle emitter count. */
+        uint32_t GetParticleEmitterCount() const { return GetHeader()->particleEmitters.count; }
+
+        /**
+         * @brief Returns the live parsed skin profile for this model.
+         * @return the skin profile at model+0x170, or null before it is attached.
+         */
+        M2SkinProfile* GetSkin() const
+        {
+            return *reinterpret_cast<M2SkinProfile**>(reinterpret_cast<char*>(model_) + off::kOffModelSkin);
+        }
+
+        /**
+         * @brief Points this model at a different .m2 image (buffer plus byte size).
+         * @param buffer  the new .m2 image buffer.
+         * @param size    the new buffer size in bytes.
+         *
+         * The parser reads these on the next call.
+         */
+        void SetBuffer(void* buffer, uint32_t size)
+        {
+            auto* m = static_cast<off::M2Model*>(model_);
+            m->header   = buffer;
+            m->fileSize = size;
+        }
+
+        /**
+         * @brief Rebuilds the GPU index buffer for this model from its current rawTri (skin->indices).
+         *
+         * Called directly when the skin profile is already present and the GPU IB needs to be
+         * rebuilt with an updated geoset filter. Accepts small per-call leaks of internal buffers
+         * (old model+0x18c, model+0x188, [model+0x150]+0x40) as the cost of forcing a re-bake.
+         * Always resets rawTri to identity after building the IB; apply filter immediately before.
+         */
+        void FinalizeSkin()
+        {
+            Native<off::M2_FinalizeSkinFn>(off::kFinalizeSkin)(model_);
+        }
+
+    private:
+        void* model_;
+    };
 
     /**
      * @brief Allocates a buffer with the same allocator the .m2 load buffer uses.
@@ -159,35 +204,6 @@ namespace wxl::game::m2
     inline void FreeBuffer(void* ptr)
     {
         Native<off::M2_BufferFreeFn>(off::kBufferFree)(ptr);
-    }
-
-    /**
-     * @brief Points the model at a different .m2 image (buffer plus byte size).
-     * @param model   the model object.
-     * @param buffer  the new .m2 image buffer.
-     * @param size    the new buffer size in bytes.
-     *
-     * The parser reads these on the next call.
-     */
-    inline void ReplaceBuffer(void* model, void* buffer, uint32_t size)
-    {
-        auto* m = static_cast<off::M2Model*>(model);
-        m->header   = buffer;
-        m->fileSize = size;
-    }
-
-    /**
-     * @brief Rebuilds the GPU index buffer for a model from its current rawTri (skin->indices).
-     * @param model  the model object (ECX for the thiscall).
-     *
-     * Called directly when the skin profile is already present and the GPU IB needs to be
-     * rebuilt with an updated geoset filter. Accepts small per-call leaks of internal buffers
-     * (old model+0x18c, model+0x188, [model+0x150]+0x40) as the cost of forcing a re-bake.
-     * Always resets rawTri to identity after building the IB; apply filter immediately before.
-     */
-    inline void FinalizeSkin(void* model)
-    {
-        Native<off::M2_FinalizeSkinFn>(off::kFinalizeSkin)(model);
     }
 
     // --- attachment / render-context bindings ---

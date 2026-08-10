@@ -1,4 +1,4 @@
-// WMO game bindings: typed inline wrappers over the client's map-object functions.
+// WMO game bindings: typed wrappers over the client's map-object functions.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -17,133 +17,144 @@
 #pragma once
 
 #include <cstdint>
+#include <cstring>
 
 #include "game/Binding.hpp"
 #include "offsets/game/WMO.hpp"
 
 /**
- * @brief Typed inline wrappers over the client map-object functions, exposed as the WMO binding catalog.
+ * @brief Typed wrappers over the client map-object functions, exposed as the WMO binding catalog.
  */
 namespace wxl::game::wmo
 {
     namespace off = wxl::offsets::game::wmo;
 
     /**
-     * @brief Resolves a material's texture-name offsets. The native does not bounds-check materialIndex.
-     * @param model          Map-object model.
-     * @param materialIndex  Material index to resolve.
+     * @brief Thin typed facade over one map-object root: its raw chunk buffer and group array.
+     *
+     * Each method is a zero-overhead inline read/call; method names mirror the Get/Set convention
+     * `wxl::game::gx::Device9` and `wxl::game::m2::M2Model` already established for this SDK layer.
      */
-    inline void ResolveMaterialTexture(void* model, int materialIndex)
+    class WmoRoot
     {
-        Native<off::Wmo_ResolveMaterialTextureFn>(off::kResolveMaterialTexture)(model, nullptr, materialIndex);
-    }
+    public:
+        /**
+         * @brief Wraps a raw map-object root pointer.
+         * @param root  the raw root pointer, possibly null.
+         */
+        explicit WmoRoot(void* root) : root_(root) {}
+
+        /** @brief Returns the wrapped raw root pointer. */
+        void* raw() const { return root_; }
+
+        /** @brief Returns true if a root is wrapped. */
+        explicit operator bool() const { return root_ != nullptr; }
+
+        /** @brief Reads the root buffer pointer, or null on a null root. */
+        void* GetBuffer() const
+        {
+            return root_ ? reinterpret_cast<void*>(static_cast<off::Root*>(root_)->rootBuffer) : nullptr;
+        }
+
+        /** @brief Reads the root buffer byte size (the bound the native chunk walk reads to), or 0 on a null root. */
+        uint32_t GetSize() const
+        {
+            return root_ ? static_cast<off::Root*>(root_)->rootSize : 0;
+        }
+
+        /**
+         * @brief Sets the root buffer byte size after reshaping the buffer in place.
+         * @param size  new byte size the native chunk walk should read to.
+         */
+        void SetSize(uint32_t size)
+        {
+            if (root_) static_cast<off::Root*>(root_)->rootSize = size;
+        }
+
+        /** @brief Reads the group count (the group-array bound), or 0 on a null root. */
+        uint32_t GetGroupCount() const
+        {
+            return root_ ? static_cast<off::Root*>(root_)->groupCount : 0;
+        }
+
+        /**
+         * @brief Reads the group runtime object at an index.
+         * @param i  group index.
+         * @return the group object, or null when out of range or on a null root.
+         */
+        void* GetGroupAt(uint32_t i) const
+        {
+            if (!root_ || i >= GetGroupCount())
+                return nullptr;
+            return static_cast<off::Root*>(root_)->groupArray[i];
+        }
+
+        /**
+         * @brief Queries the resident state of a group, optionally forcing residency.
+         * @param groupIndex  group index to query.
+         * @param force       nonzero forces the group resident.
+         * @return the group's resident state.
+         */
+        unsigned GetGroupResident(unsigned groupIndex, unsigned force) const
+        {
+            return Native<off::Wmo_GroupResidentFn>(off::kGroupResidentAccessor)(root_, nullptr, groupIndex, force);
+        }
+
+        /**
+         * @brief Resolves a material's texture-name offsets. The native does not bounds-check materialIndex.
+         * @param materialIndex  material index to resolve.
+         */
+        void ResolveMaterialTexture(int materialIndex)
+        {
+            Native<off::Wmo_ResolveMaterialTextureFn>(off::kResolveMaterialTexture)(root_, nullptr, materialIndex);
+        }
+
+    private:
+        void* root_;
+    };
 
     /**
-     * @brief Queries the resident state of a group, optionally forcing residency.
-     * @param model       Map-object model.
-     * @param groupIndex  Group index to query.
-     * @param force       Nonzero forces the group resident.
-     * @return The group's resident state.
+     * @brief Thin typed facade over one map-object group: its raw sub-chunk buffer.
      */
-    inline unsigned int GroupResident(void* model, unsigned int groupIndex, unsigned int force)
+    class WmoGroup
     {
-        return Native<off::Wmo_GroupResidentFn>(off::kGroupResidentAccessor)(model, nullptr, groupIndex, force);
-    }
+    public:
+        /**
+         * @brief Wraps a raw map-object group pointer.
+         * @param group  the raw group pointer, possibly null.
+         */
+        explicit WmoGroup(void* group) : group_(group) {}
 
-    /**
-     * @brief Reads the root buffer pointer.
-     * @param root  Map-object root.
-     * @return The root buffer pointer, or null on a null root.
-     */
-    inline void* RootBuffer(void* root)
-    {
-        if (!root)
-            return nullptr;
-        return static_cast<off::Root*>(root)->rootBuffer;
-    }
+        /** @brief Returns the wrapped raw group pointer. */
+        void* raw() const { return group_; }
 
-    /**
-     * @brief Reads the root buffer byte size (the bound the native chunk walk reads to).
-     * @param root  Map-object root.
-     * @return The root buffer byte size, or 0 on a null root.
-     */
-    inline uint32_t RootSize(void* root)
-    {
-        if (!root)
-            return 0;
-        return static_cast<off::Root*>(root)->rootSize;
-    }
+        /** @brief Returns true if a group is wrapped. */
+        explicit operator bool() const { return group_ != nullptr; }
 
-    /**
-     * @brief Sets the root buffer byte size after reshaping the buffer in place.
-     * @param root  Map-object root.
-     * @param size  New byte size the native chunk walk should read to.
-     */
-    inline void SetRootSize(void* root, uint32_t size)
-    {
-        if (root)
-            static_cast<off::Root*>(root)->rootSize = size;
-    }
+        /** @brief Reads the group buffer pointer, or null on a null group. */
+        void* GetBuffer() const
+        {
+            return group_ ? reinterpret_cast<void*>(static_cast<off::Group*>(group_)->groupBuffer) : nullptr;
+        }
 
-    /**
-     * @brief Reads the group buffer pointer.
-     * @param group  Map-object group.
-     * @return The group buffer pointer, or null on a null group.
-     */
-    inline void* GroupBuffer(void* group)
-    {
-        if (!group)
-            return nullptr;
-        return static_cast<off::Group*>(group)->groupBuffer;
-    }
+        /** @brief Reads the group buffer byte size (the bound the native sub-chunk walk reads to), or 0 on a null group. */
+        uint32_t GetSize() const
+        {
+            return group_ ? static_cast<off::Group*>(group_)->groupSize : 0;
+        }
 
-    /**
-     * @brief Reads the group buffer byte size (the bound the native sub-chunk walk reads to).
-     * @param group  Map-object group.
-     * @return The group buffer byte size, or 0 on a null group.
-     */
-    inline uint32_t GroupSize(void* group)
-    {
-        if (!group)
-            return 0;
-        return static_cast<off::Group*>(group)->groupSize;
-    }
+        /**
+         * @brief Sets the group buffer byte size after reshaping the buffer in place.
+         * @param size  new byte size the native sub-chunk walk should read to.
+         */
+        void SetSize(uint32_t size)
+        {
+            if (group_) static_cast<off::Group*>(group_)->groupSize = size;
+        }
 
-    /**
-     * @brief Sets the group buffer byte size after reshaping the buffer in place.
-     * @param group  Map-object group.
-     * @param size   New byte size the native sub-chunk walk should read to.
-     */
-    inline void SetGroupSize(void* group, uint32_t size)
-    {
-        if (group)
-            static_cast<off::Group*>(group)->groupSize = size;
-    }
-
-    /**
-     * @brief Reads the group count (the group-array bound).
-     * @param root  Map-object root.
-     * @return The group count, or 0 on a null root.
-     */
-    inline uint32_t GroupCount(void* root)
-    {
-        if (!root)
-            return 0;
-        return static_cast<off::Root*>(root)->groupCount;
-    }
-
-    /**
-     * @brief Reads the group runtime object at an index.
-     * @param root  Map-object root.
-     * @param i     Group index.
-     * @return The group object, or null when out of range or on a null root.
-     */
-    inline void* GroupAt(void* root, uint32_t i)
-    {
-        if (!root || i >= GroupCount(root))
-            return nullptr;
-        return static_cast<off::Root*>(root)->groupArray[i];
-    }
+    private:
+        void* group_;
+    };
 
     /**
      * @brief Returns the inline file path of the map-object the camera is currently inside.
@@ -151,9 +162,9 @@ namespace wxl::game::wmo
      * The client keeps a pointer to the interior instance the camera is in (null when outdoors). That
      * instance points to its root, which carries an inline NUL-terminated path. Reads both hops with
      * null checks so an outdoor camera or a half-built instance yields null rather than a fault.
-     * @return The root path, or null when the camera is not inside any map-object.
+     * @return the root path, or null when the camera is not inside any map-object.
      */
-    inline const char* CurrentInteriorPath()
+    inline const char* GetCurrentInteriorPath()
     {
         void* instance = *reinterpret_cast<void**>(off::kCurrentInteriorInstance);
         if (!instance)
@@ -162,5 +173,34 @@ namespace wxl::game::wmo
         if (!root)
             return nullptr;
         return static_cast<char*>(root) + off::kOffNameInline;
+    }
+
+    /**
+     * @brief Reads the live outdoor-render gate value (a WMO/world global, not a per-root/group field).
+     *
+     * A negative value means the exterior pass is suppressed; the client checks this before drawing
+     * outdoor-visible geometry while the camera is inside a map-object.
+     * @return the current gate value.
+     */
+    inline float GetOutdoorGateValue()
+    {
+        return *reinterpret_cast<const float*>(off::kOutdoorEnabled);
+    }
+
+    /**
+     * @brief Resolves a MOBA batch record's material index, handling the legacy/modern layout split.
+     * @param mobaRecord  the raw MOBA batch record.
+     * @return the resolved material index.
+     */
+    inline uint32_t GetBatchMaterialIndex(const void* mobaRecord)
+    {
+        const auto* rec = static_cast<const uint8_t*>(mobaRecord);
+        if (rec[off::kOffMobaFlags] & off::kMobaFlagMaterialModern)
+        {
+            uint16_t m;
+            std::memcpy(&m, rec + off::kOffMobaMaterialModern, 2);
+            return m;
+        }
+        return rec[off::kOffMobaMaterial];
     }
 }
