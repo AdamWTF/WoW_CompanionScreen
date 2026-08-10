@@ -167,6 +167,15 @@ namespace wxl::offsets::engine::gx
     // M2SkinSection*. The value kDrawTriangleBatch/kDrawBatchDoodad copy into kDrawBatchCtxSectionField
     // on entry -- read it from here directly to see the batch about to run instead of the stale copy.
     constexpr size_t    kM2ElementSectionField = 0x2C;
+    // M2Element/batch-record -> total requested co-instance count for this run. Read once by
+    // kDrawBatchDoodad's own entry (its total-work bound) and read AGAIN by CM2SceneRender::Draw's
+    // per-batch dispatch loop right after the call returns, to advance its sorted-index cursor past the
+    // whole run -- a caller that shrinks this field to issue several smaller native calls (each within
+    // the c31-based VS-constant budget) MUST restore it to the original value before returning, or
+    // Draw's cursor undershoots and re-visits the run's tail as a bogus second batch. Only the head
+    // M2Element of a run of >=2 same-batch-key elements carries a meaningful value here; every other
+    // element in the run has it unset, which is exactly why the restore is mandatory, not optional.
+    constexpr size_t    kM2ElementRunLengthField = 0x1C;
 
     // --- typed views over the device objects ---
     // The constants above are the curated landmarks; these structs give named, typed access to the same
