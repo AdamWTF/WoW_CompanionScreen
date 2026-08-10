@@ -311,4 +311,173 @@ namespace wxl::offsets::game::world
     using World_AsyncPendingFn = int(__cdecl*)();
     // Async service one pump (two args on stack).
     using World_AsyncServiceQueuesFn = void(__cdecl*)(int a, int b);
+
+    // Area / zone resolution
+    /// The indoor/outdoor verdict that gates fog, sky and outdoor lighting - overriding it is the
+    /// cheapest way to force a lighting regime. __cdecl, caller-cleaned.
+    constexpr uintptr_t kOutdoorsQuery                     = 0x0077FBF0;
+    /// The top-level "which area am I in" resolver - a hook here can inject areas that do not exist in
+    /// the client's AreaTable. __cdecl, caller-cleaned.
+    constexpr uintptr_t kMapAreaIdQuery                    = 0x00782560;
+
+    // Async file-read queues
+    /// Registers a completion/status observer on the engine's own queue, which is cheaper and safer
+    /// than detouring the poll handler. __cdecl, caller-cleaned.
+    constexpr uintptr_t kAsyncStatusHandlerAdd             = 0x004B9D20;
+    /// Cancellation is the one async path an extension must mirror or it will service a request whose
+    /// owner is already gone - the missing piece next to the already-known submit/wait entries.
+    /// __cdecl, caller-cleaned.
+    constexpr uintptr_t kAsyncRequestCancel                = 0x004B9EA0;
+    /// The point at which the IO threads go away - an extension holding outstanding requests must drain
+    /// here or crash on exit. __cdecl, caller-cleaned.
+    constexpr uintptr_t kAsyncShutdown                     = 0x004BAC50;
+
+    // Camera and view
+    /// The accessor six subsystems use for camera position - hooking it lets an extension present a
+    /// virtual camera consistently everywhere at once. __cdecl, caller-cleaned.
+    constexpr uintptr_t kFrameCameraPositionGet            = 0x004F6650;
+    /// Retargets the camera at a world entity - the entry point for extension camera modes. __thiscall,
+    /// 2 stack args.
+    constexpr uintptr_t kFrameCameraTargetSet              = 0x004F6F50;
+
+    // Cursor picking, ray intersection and collision queries
+    /// The per-frame cursor-over-terrain resolution, giving an extension the world position under the
+    /// mouse every frame without doing its own raycast. __thiscall, 1 stack arg.
+    constexpr uintptr_t kFrameTerrainTrack                 = 0x004F66C0;
+    /// Raw world-frame mouse input before any selection logic, so an extension can claim clicks for its
+    /// own tools. __thiscall, 2 stack args.
+    constexpr uintptr_t kFrameMouseDown                    = 0x004F6C10;
+    /// The filter that decides whether a picked object is selectable - the hook for extensions that add
+    /// selectable object classes. __stdcall, 2 stack args.
+    constexpr uintptr_t kFrameSelectionLegalTest           = 0x004F7530;
+    /// The click-to-interact dispatcher - an extension can add or veto default world-click actions.
+    /// __thiscall, 1 stack arg.
+    constexpr uintptr_t kFrameDefaultActionPerform         = 0x004F7880;
+    /// The model-level resolution step of cursor picking - a hook here changes what the cursor can pick
+    /// without replacing the whole hit test. __thiscall, 4 stack args.
+    constexpr uintptr_t kFrameClosestModelFind             = 0x004F9550;
+    /// The per-object callback of the hit-test enumeration - the finest-grained place to include or
+    /// exclude candidates during picking. __cdecl, caller-cleaned.
+    constexpr uintptr_t kFrameHitTestEnumProc              = 0x004F9F70;
+    /// Maps a liquid volume to its ambient sound - needed to give a new liquid type audio without a
+    /// LiquidType row. __cdecl, caller-cleaned.
+    constexpr uintptr_t kMapLiquidSoundQuery               = 0x0079D2B0;
+    /// Sits directly under the already-known World.Intersect, so an extension can change intersection
+    /// behaviour without re-implementing the public wrapper's argument marshalling. __cdecl, caller-
+    /// cleaned.
+    constexpr uintptr_t kMapRayIntersect                   = 0x007A3B70;
+    /// The collision-facet gather that backs the public facet API - the right level for an extension to
+    /// add or filter collision surfaces. __cdecl, caller-cleaned.
+    constexpr uintptr_t kMapFacetQuery                     = 0x007A5DD0;
+
+    // Loading gate and loading screen
+    /// The highest-fanout loading-gate release in the client (12 call sites) - the definitive "world is
+    /// now visible" moment for an extension to resume work. __cdecl, caller-cleaned.
+    constexpr uintptr_t kLoadingScreenDisable              = 0x00409550;
+    /// The loading-screen raise, keyed by map - lets an extension supply its own screen art or hold the
+    /// gate open while it streams. __cdecl, caller-cleaned.
+    constexpr uintptr_t kLoadingScreenEnable               = 0x0040AB70;
+    /// An extension can install its own load-progress sink (or wrap the engine's) to drive a custom
+    /// loading UI or to know how far a map load has got. __cdecl, caller-cleaned.
+    constexpr uintptr_t kLoadProgressCallbackSet           = 0x0077EC90;
+
+    // Map lifecycle: load / unload / enter / leave
+    /// The world subsystem's construction point - the earliest safe place to install world-scoped
+    /// state, after the GX device exists but before any map is touched. __cdecl, caller-cleaned.
+    constexpr uintptr_t kInitialize                        = 0x00780F50;
+    /// Single choke point where a map id/name enters the engine - an extension can rewrite the target
+    /// map, stage per-map assets, or fire a "map loading" event before any tile work starts. __cdecl,
+    /// caller-cleaned.
+    constexpr uintptr_t kMapLoadBegin                      = 0x00781430;
+    /// The exact moment the current map is torn down, so an extension can flush its own per-map caches
+    /// in lockstep with the engine. __cdecl, caller-cleaned.
+    constexpr uintptr_t kMapUnload                         = 0x00783180;
+    /// Symmetric teardown hook for anything installed at World.Initialize. __cdecl, caller-cleaned.
+    constexpr uintptr_t kShutdown                          = 0x007837F0;
+    /// Where the tile heaps and the tile grid are sized and built - the place to widen or instrument
+    /// the map allocator pools. __cdecl, caller-cleaned.
+    constexpr uintptr_t kMapInitialize                     = 0x0079E7C0;
+    /// Pairs with Map.Initialize for heap teardown ordering. __cdecl, caller-cleaned.
+    constexpr uintptr_t kMapDestroy                        = 0x0079F320;
+    /// The pre-warm pass before the first frame of a map, so an extension can prime its own streaming
+    /// ahead of the loading screen dropping. __cdecl, caller-cleaned.
+    constexpr uintptr_t kMapPreload                        = 0x007BD9F0;
+    /// The whole-map descriptor parse - where MPHD flags, the tile-present bitmap and global WMO
+    /// records are decided, so a modern-format extension can substitute its own map table. __cdecl,
+    /// caller-cleaned.
+    constexpr uintptr_t kMapWdtParse                       = 0x007BF8B0;
+    /// The map-scoped purge that runs between two maps - the correct place to drop per-map extension
+    /// data without leaking across a zone change. __cdecl, caller-cleaned.
+    constexpr uintptr_t kMapUnloadTiles                    = 0x007C3830;
+
+    // Terrain tile streaming and the tile grid
+    /// The map subsystem's own guarded file open - a modern-asset extension can redirect ADT/WMO paths
+    /// here without touching the general IO layer used by everything else. __cdecl, caller-cleaned.
+    constexpr uintptr_t kMapFileOpen                       = 0x007BD480;
+    /// Pairs with Map.FileOpen so a substituted map file can be served entirely from extension memory.
+    /// __cdecl, caller-cleaned.
+    constexpr uintptr_t kMapFileRead                       = 0x007BD4D0;
+    /// The tile-record allocator - the single place to enlarge, pool or instrument per-tile storage,
+    /// and the natural counterpart to the already-known free at 0x007C00A0. __cdecl, caller-cleaned.
+    constexpr uintptr_t kMapTileAlloc                      = 0x007C07C0;
+
+    // World frame update chain
+    /// The UI-side driver that decides what game time is handed to the day-night system - the place to
+    /// override time of day without touching DayNight itself. __thiscall, 1 stack arg.
+    constexpr uintptr_t kFrameDayNightUpdate               = 0x004F8410;
+    /// A per-frame world-frame callback that already has the active player resolved - a cheap, safe
+    /// attach point that does not sit inside a hot loop. __cdecl, caller-cleaned.
+    constexpr uintptr_t kFramePerFrameTick                 = 0x004F8730;
+    /// Per-object refresh from the world frame's side (nameplate/track/hit-test bookkeeping) -
+    /// complements the known object update handler on the game-object side. __thiscall, 2 stack args.
+    constexpr uintptr_t kFrameObjectUpdate                 = 0x004F8D10;
+    /// The frame delta arrives here and fans out to camera update, day-night and terrain tracking - one
+    /// detour to observe or rescale world time. __thiscall, 1 stack arg.
+    constexpr uintptr_t kFrameLayerUpdate                  = 0x004FA040;
+    /// The world frame's own update pass, sitting between UI frame time and world simulation - the
+    /// natural attach point for extension logic that must run once per world frame with the frame's
+    /// state already resolved. __thiscall, caller-cleaned.
+    constexpr uintptr_t kFrameWorldUpdate                  = 0x004FA5F0;
+    /// A very small wrapper that calls world update then world render - the cheapest single place to
+    /// bracket the entire world frame from an extension. __thiscall, 2 stack args.
+    constexpr uintptr_t kFrameFrameRender                  = 0x004FB080;
+
+    // World object residency
+    /// Guaranteed object-removal notification, so extension-side per-object state cannot outlive the
+    /// object. __cdecl, caller-cleaned.
+    constexpr uintptr_t kObjectDestroy                     = 0x00782680;
+
+    // World render parameters and screen effects
+    /// Selects the full-screen post effect (death/underwater grading) - the hook for an extension that
+    /// wants to own screen grading. __cdecl, caller-cleaned.
+    constexpr uintptr_t kFrameScreenEffectSet              = 0x004F7020;
+    /// The per-frame publish of screen-effect parameters, 7 call sites deep in the render path - the
+    /// place to blend in extension grading each frame. __cdecl, caller-cleaned.
+    constexpr uintptr_t kFrameScreenEffectUpdate           = 0x004F88B0;
+    /// Grass/detail draw distance with the engine's own clamp and squared-distance bookkeeping done for
+    /// you - safer than writing the two globals directly. __cdecl, caller-cleaned.
+    constexpr uintptr_t kDetailDoodadDistSet               = 0x00780730;
+    /// The graphics-preset application - hooking it lets an extension define its own quality tiers
+    /// rather than fighting the client's. __cdecl, caller-cleaned.
+    constexpr uintptr_t kParamDefaultsApply                = 0x0078E1A0;
+    /// Where every world-quality CVar and its change callback are registered - an extension can add its
+    /// own world CVars into the same table, or capture the callback pointers. __cdecl, caller-cleaned.
+    constexpr uintptr_t kParamInitialize                   = 0x0078E400;
+
+    // World scene and view setup
+    /// The engine's own NDC polygon clipper - reusable by an extension that needs the client's exact
+    /// clip semantics for occlusion or picking work. __cdecl, caller-cleaned.
+    constexpr uintptr_t kNdcClip                           = 0x00791380;
+
+    // World tick and per-frame update
+    /// The function that decides which region of the world is considered "interesting" this frame -
+    /// detouring it lets an extension widen or bias residency without touching the tile loader.
+    /// __cdecl, caller-cleaned.
+    constexpr uintptr_t kAreaOfInterestPrepare             = 0x00780860;
+    /// The world's own per-frame entry with the frame delta in hand - the natural place to drive
+    /// extension simulation at world rate rather than at render rate. __cdecl, caller-cleaned.
+    constexpr uintptr_t kUpdate                            = 0x007815C0;
+    /// Per-entity re-link into the map's spatial grid - the place to observe or override where a world
+    /// entity is considered to live. __cdecl, caller-cleaned.
+    constexpr uintptr_t kMapEntityUpdate                   = 0x007A1BC0;
 }

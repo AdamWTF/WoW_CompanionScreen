@@ -589,4 +589,405 @@ namespace wxl::offsets::game::wmo
     static_assert(offsetof(MogiEntry, bboxMin) + 0xC == kOffMogiBbox + 0x10 - sizeof(float), "MogiEntry.bbox.layout");
     static_assert(sizeof(MogiEntry) <= kMogiStride, "MogiEntry fits stride");
 #pragma pack(pop)
+
+    // Allocators
+    /// Hands back every root object the client will ever build, so an extension can over-allocate to
+    /// append its own trailing per-root record. __cdecl, caller-cleaned.
+    constexpr uintptr_t kAllocRoot                         = 0x007BFF20;
+    /// The group-object allocator, the group twin of Wmo.AllocRoot. __cdecl, caller-cleaned.
+    constexpr uintptr_t kAllocGroup                        = 0x007BFFE0;
+    /// Paired release for Wmo.AllocInstanceGroup. __cdecl, caller-cleaned.
+    constexpr uintptr_t kFreeInstanceGroup                 = 0x007C0370;
+    /// Every placed WMO instance is born here, giving a single point to tag instances for later per-
+    /// instance behaviour (scale, doodad-set override, culling policy). __cdecl, caller-cleaned.
+    constexpr uintptr_t kAllocInstance                     = 0x007C03E0;
+    /// The release edge that pairs with Wmo.AllocInstance, so instance-keyed tables never leak or alias
+    /// a recycled pointer. __cdecl, caller-cleaned.
+    constexpr uintptr_t kFreeInstance                      = 0x007C0430;
+    /// Allocates the per-instance-per-group runtime record, the object interior/exterior visibility
+    /// state actually hangs off. __cdecl, caller-cleaned.
+    constexpr uintptr_t kAllocInstanceGroup                = 0x007C0910;
+
+    // Area, zone and minimap queries
+    /// Resolves a world position to the exact map object and group containing it, the primitive behind
+    /// every WMO-aware area/zone/lighting decision. __thiscall, 5 stack args.
+    constexpr uintptr_t kEntityResolveGroup                = 0x007A13E0;
+    /// The interior zone name shown to the player, overridable per group for content the client's
+    /// WMOAreaTable does not describe. __thiscall, 1 stack arg.
+    constexpr uintptr_t kQueryZoneName                     = 0x007A1500;
+    /// Maps a position inside a WMO to its WMOAreaTable row, so an extension can define new interior
+    /// areas (and their zone text, music and lighting) for modern buildings. __thiscall, 3 stack args.
+    constexpr uintptr_t kQueryAreaTable                    = 0x007A1640;
+    /// Returns the WMO path the player is standing in -- the cheapest identification hook for an
+    /// extension driving per-building behaviour from Lua. __thiscall, 1 stack arg.
+    constexpr uintptr_t kQueryFileName                     = 0x007A1730;
+    /// Supplies the interior minimap/floor descriptor for the current WMO, the hook for multi-level
+    /// interior maps the client cannot express. __thiscall, 5 stack args.
+    constexpr uintptr_t kQueryMinimapInfo                  = 0x007A17E0;
+    /// Returns the (root id, group id, name-set id) triple identifying the current interior, the key an
+    /// extension needs to look anything up per group. __thiscall, 3 stack args.
+    constexpr uintptr_t kQueryIds                          = 0x007A18D0;
+    /// Hands out the containing instance's world transform, which an extension needs to convert between
+    /// building-local and world space (attachments, interior UI anchors). __thiscall, 2 stack args.
+    constexpr uintptr_t kQueryMatrix                       = 0x007A1980;
+    /// The per-group minimap resolution that decides which interior floor is shown, the level at which
+    /// multi-storey interiors can be corrected. __thiscall, 8 stack args.
+    constexpr uintptr_t kGroupMinimapQuery                 = 0x007AFC70;
+    /// The root-level minimap descriptor, one level below Wmo.QueryMinimapInfo and independent of the
+    /// entity. __thiscall, 6 stack args.
+    constexpr uintptr_t kRootMinimapQuery                  = 0x007B00A0;
+    /// Publishes the WMO world/view matrices used by the map-object draw, the seam for injecting a per-
+    /// instance scale or a shadow-pass matrix override. __cdecl, caller-cleaned.
+    constexpr uintptr_t kSetupInstanceMatrices             = 0x007F3E00;
+    /// Parses one WMOAreaTable.dbc row, the place to rewrite or extend interior area records as they
+    /// load instead of shipping a patched DBC. __thiscall, 2 stack args.
+    constexpr uintptr_t kAreaTableRecordRead               = 0x008BD8C0;
+    /// The WMOAreaTable.dbc lookup itself -- one detour lets an extension serve rows for modern WMOs
+    /// that have no DBC entry, without touching the DBC. __cdecl, caller-cleaned.
+    constexpr uintptr_t kAreaTableLookup                   = 0x00990560;
+
+    // BSP and collision
+    /// The BSP container's construction, the point to attach an extension-owned acceleration structure
+    /// alongside the stock one. __thiscall, caller-cleaned.
+    constexpr uintptr_t kBspConstruct                      = 0x0079B070;
+    /// Releases the BSP nodes (and touches the global BSP digest cache at 0xCDD7A0), the release edge
+    /// for a replacement BSP. __thiscall, caller-cleaned.
+    constexpr uintptr_t kBspFree                           = 0x0079B0D0;
+    /// Flushes the 0x1000-entry BSP digest cache, which an extension must do whenever it rebuilds or
+    /// replaces group collision geometry at runtime. __thiscall, caller-cleaned.
+    constexpr uintptr_t kBspDigestCacheReset               = 0x0079B1C0;
+    /// Resets a group's BSP to empty, the seam at which an extension can install a rebuilt tree for a
+    /// modern MOBN/MOBR pair. __thiscall, caller-cleaned.
+    constexpr uintptr_t kBspClear                          = 0x0079B2C0;
+    /// Extracts a placed instance's collision facets in world space, the form a navmesh or physics
+    /// extension actually wants. __cdecl, caller-cleaned.
+    constexpr uintptr_t kInstanceGetFacets                 = 0x007A4EE0;
+    /// The map-wide WMO triangle query, the single entry an extension needs to snapshot all map-object
+    /// collision geometry near a point. __cdecl, caller-cleaned.
+    constexpr uintptr_t kQueryTrisForInstances             = 0x007A6940;
+    /// The segment/ray-versus-WMO intersection used by picking and movement, so an extension can add
+    /// per-material hit filtering or report a modern collision mesh. __thiscall, 9 stack args.
+    constexpr uintptr_t kRootVectorIntersect               = 0x007AECB0;
+    /// Root-level triangle collection across all groups, one call instead of iterating groups by hand.
+    /// __thiscall, 4 stack args.
+    constexpr uintptr_t kRootCollectTris                   = 0x007AEF00;
+    /// The second root-level collector; covering both keeps an extension's geometry export complete.
+    /// __thiscall, 4 stack args.
+    constexpr uintptr_t kRootCollectTrisAlt                = 0x007AF0F0;
+    /// The higher-level intersection dispatcher, cheaper to detour than Wmo.RootVectorIntersect when
+    /// only the yes/no answer matters. __thiscall, 7 stack args.
+    constexpr uintptr_t kRootIntersect                     = 0x007AF200;
+    /// The per-node frustum predicate the BSP walk calls, so an extension can add an occlusion or LOD
+    /// test at node granularity. __thiscall, 1 stack arg.
+    constexpr uintptr_t kBspFrustumVolumeTest              = 0x007C7660;
+    /// Converts a BSP query result into world-space triangles, the function to replace when a modern
+    /// group's MOVI/MOVT layout differs from the client's assumed stride. __thiscall, 4 stack args.
+    constexpr uintptr_t kGroupTrisFromQuery                = 0x007C7AE0;
+    /// The BSP's box/frustum face-gathering traversal -- hooking it lets an extension answer collision
+    /// and visibility face queries from a modern acceleration structure. __thiscall, 3 stack args.
+    constexpr uintptr_t kBspQueryFaceIndices               = 0x007CA440;
+    /// The box-query triangle collector for one group, the entry a physics or navmesh extension needs
+    /// to pull WMO collision geometry. __thiscall, 5 stack args.
+    constexpr uintptr_t kGroupCollectTris                  = 0x007CB180;
+    /// Supplies the faces used to decide which world objects a group contains, i.e. the geometry behind
+    /// "am I inside this building". __thiscall, 5 stack args.
+    constexpr uintptr_t kGroupFacesForLinking              = 0x007CB260;
+    /// Per-group intersection, the level at which an extension can exclude a group (a modern antiportal
+    /// or a decorative shell) from collision. __thiscall, 5 stack args.
+    constexpr uintptr_t kGroupIntersect                    = 0x007CB2F0;
+    /// The second triangle-collection variant, needed alongside Wmo.GroupCollectTris to cover both
+    /// query shapes without missing geometry. __thiscall, 5 stack args.
+    constexpr uintptr_t kGroupCollectTrisAlt               = 0x007CB7B0;
+
+    // Instance placement (MODF) and per-instance state
+    /// Resolves a MODS doodad-set index to its record, so an extension can remap or synthesise a doodad
+    /// set (including sets a modern root defines beyond the placed instance's selection). __thiscall, 1
+    /// stack arg.
+    constexpr uintptr_t kResolveDoodadSet                  = 0x007AEC30;
+    /// Decides the footstep/material ground type under a point inside a map object, so an extension can
+    /// supply modern material-driven surface types. __thiscall, 2 stack args.
+    constexpr uintptr_t kInstanceGetGroundType             = 0x007B39B0;
+    /// Rebuilds the MOLT-derived light set attached to one placed group, the hook for injecting modern
+    /// interior lighting without touching the render path. __thiscall, caller-cleaned.
+    constexpr uintptr_t kInstanceGroupUpdateLights         = 0x007B4090;
+    /// The per-frame update of one instance's group record, the finest-grained per-group tick available
+    /// on the instance side. __thiscall, 1 stack arg.
+    constexpr uintptr_t kInstanceGroupUpdate               = 0x007B40F0;
+    /// The per-group version of Wmo.InstanceSetSequence, letting an extension animate one wing of a
+    /// building independently. __thiscall, 3 stack args.
+    constexpr uintptr_t kInstanceGroupSetSequence          = 0x007B4170;
+    /// Per-group event channel, the group-scoped twin of Wmo.InstanceSetEventCallback. __thiscall, 4
+    /// stack args.
+    constexpr uintptr_t kInstanceGroupSetEventCallback     = 0x007B4270;
+    /// The instance object's own constructor, where its vtable is installed -- the point to swap in an
+    /// extension-owned vtable for per-instance virtual behaviour. __thiscall, caller-cleaned.
+    constexpr uintptr_t kInstanceConstruct                 = 0x007B4350;
+    /// Drives the animation sequence of a WMO instance's doodads, the entry an extension needs to
+    /// script building animations from Lua. __thiscall, 3 stack args.
+    constexpr uintptr_t kInstanceSetSequence               = 0x007B45F0;
+    /// Installs the client's own per-instance event callback, i.e. an existing, supported notification
+    /// channel an extension can claim instead of detouring the event dispatcher. __thiscall, 4 stack
+    /// args.
+    constexpr uintptr_t kInstanceSetEventCallback          = 0x007B46A0;
+    /// The per-instance streaming-readiness step, where an extension can force a WMO resident, defer
+    /// it, or attach a load priority. __cdecl, caller-cleaned.
+    constexpr uintptr_t kPrepareInstance                   = 0x007B5D00;
+    /// The per-tick sweep over all placed WMO instances, the natural place to install a
+    /// distance/priority policy for WMO streaming as a whole. __cdecl, caller-cleaned.
+    constexpr uintptr_t kPrepareInstances                  = 0x007B6110;
+    /// Fires whenever a placed WMO's transform changes (transports, moving platforms), the correct seam
+    /// for keeping extension-side collision or shader state in sync. __cdecl, caller-cleaned.
+    constexpr uintptr_t kInstanceUpdateMoved               = 0x007B64F0;
+    /// The public "move this WMO instance" entry, so an extension can reposition map objects or veto a
+    /// reposition. __cdecl, caller-cleaned.
+    constexpr uintptr_t kInstanceUpdatePos                 = 0x007B66E0;
+    /// Rebuilds the instance's render and collision bases, which is exactly where a per-instance scale
+    /// (MODF+0x3E, ignored by the client) can be injected into both matrices at once. __cdecl, caller-
+    /// cleaned.
+    constexpr uintptr_t kInstanceUpdateMatrix              = 0x007B67B0;
+    /// Binds one M2 doodad to a WMO instance, the seam for adding extension-spawned doodads that
+    /// inherit the building's transform and lighting. __cdecl, caller-cleaned.
+    constexpr uintptr_t kLinkDoodadToInstance              = 0x007B6800;
+    /// Re-transforms every doodad of a moving WMO, the place to keep extension-spawned attachments
+    /// riding a transport correctly. __cdecl, caller-cleaned.
+    constexpr uintptr_t kMoveInstanceDoodads               = 0x007B68A0;
+    /// Forces a WMO's doodad particle emitters to ignore the distance cutoff, the exact control needed
+    /// to keep interior effects alive at range. __cdecl, caller-cleaned.
+    constexpr uintptr_t kSetDoodadEmitterDistanceIgnore    = 0x007B69C0;
+    /// The reverse binding -- given a doodad, find and attach the WMO instances containing it, so an
+    /// extension can make an ADT-placed M2 inherit interior lighting. __cdecl, caller-cleaned.
+    constexpr uintptr_t kLinkDoodadToInstances             = 0x007B6ED0;
+    /// A supported per-instance doodad on/off switch an extension can drive from Lua for performance
+    /// modes or cinematic staging. __cdecl, caller-cleaned.
+    constexpr uintptr_t kSetDoodadsEnabled                 = 0x007B6F60;
+    /// Builds the per-instance group records from the root's MOGI table, so an extension can add, drop
+    /// or reorder the groups a placed instance exposes. __cdecl, caller-cleaned.
+    constexpr uintptr_t kCreateInstanceGroups              = 0x007BDE50;
+    /// Places a WMO instance from explicit position/rotation/flags rather than a MODF record, which is
+    /// the entry an extension needs to spawn map objects at runtime (editor, dynamic set dressing)
+    /// without forging a MODF blob. __cdecl, caller-cleaned.
+    constexpr uintptr_t kSpawnInstanceExplicit             = 0x007BF120;
+    /// The per-group doodad spawn loop -- the one place to filter, add or retarget the M2 doodads a WMO
+    /// group instantiates, including honouring a modern doodad set the client would ignore. __cdecl,
+    /// caller-cleaned.
+    constexpr uintptr_t kSpawnGroupDoodads                 = 0x007BF740;
+    /// The per-group spatial-link pass that decides which world objects a WMO group claims, the hook
+    /// for changing interior/exterior object membership rules. __cdecl, caller-cleaned.
+    constexpr uintptr_t kLinkIntersectInstanceGroup        = 0x007C1DC0;
+    /// The moment a world object is bound to the WMO group it is standing in, i.e. the "who is inside
+    /// this building" edge an extension can observe or override. __cdecl, caller-cleaned.
+    constexpr uintptr_t kLinkObjectToInstanceGroup         = 0x007C1FF0;
+    /// The per-instance level of the same spatial-link pass, one level above
+    /// Wmo.LinkIntersectInstanceGroup. __cdecl, caller-cleaned.
+    constexpr uintptr_t kLinkIntersectInstance             = 0x007C25D0;
+    /// The top of the WMO spatial-link cascade, one call that covers every instance a query touches.
+    /// __cdecl, caller-cleaned.
+    constexpr uintptr_t kLinkIntersectInstances            = 0x007C2700;
+    /// Per-group unload, finer-grained than Wmo.PurgeInstance. __cdecl, caller-cleaned.
+    constexpr uintptr_t kPurgeInstanceGroup                = 0x007C3150;
+    /// The instance unload path used by tile purge and map exit -- the reliable place to drop extension
+    /// state without racing the allocator's recycling. __cdecl, caller-cleaned.
+    constexpr uintptr_t kPurgeInstance                     = 0x007C3250;
+
+    // Interior lighting and fog
+    /// The positional lighting query used when linking objects to interiors, the hook that makes units
+    /// and doodads inside a building pick up an extension's lighting. __thiscall, 5 stack args.
+    constexpr uintptr_t kRootQueryLightingAt               = 0x007AEB40;
+    /// The root-level lighting query that dispatches into the group query, cheaper to hook when a whole
+    /// building should share one light override. __thiscall, 4 stack args.
+    constexpr uintptr_t kRootQueryLighting                 = 0x007AF780;
+    /// The function that evaluates a WMO group's interior lighting for a point (MOLT lights plus baked
+    /// MOCV), the single place to replace stock interior lighting with a modern model. __thiscall, 4
+    /// stack args.
+    constexpr uintptr_t kGroupQueryLighting                = 0x007C7FE0;
+    /// Binds a world light to every WMO instance it reaches, so an extension can inject dynamic lights
+    /// that correctly affect building interiors. __cdecl, caller-cleaned.
+    constexpr uintptr_t kLinkLightToInstances              = 0x007D9F90;
+
+    // Load, parse and lifecycle
+    /// Nulls every root chunk-slot pointer, so a post-hook here is the last quiet moment before the
+    /// chunk walker starts filling them. __thiscall, caller-cleaned.
+    constexpr uintptr_t kRootInitPointers                  = 0x007AE070;
+    /// Fires on a freshly allocated root before any field is meaningful, the correct place to attach
+    /// extension-owned per-root storage. __thiscall, caller-cleaned.
+    constexpr uintptr_t kRootInitFields                    = 0x007AE300;
+    /// The single point where a root's parsed state is torn down, so side-tables an extension keyed on
+    /// the root pointer can be released exactly in step with the client's. __thiscall, caller-cleaned.
+    constexpr uintptr_t kRootClear                         = 0x007AE3B0;
+    /// The WMO subsystem's own bring-up, the earliest safe point to install pools, replacement tables
+    /// or a render callback with the heaps already reachable. __cdecl, caller-cleaned.
+    constexpr uintptr_t kSubsystemInit                     = 0x007AFEE0;
+    /// The WMO root cache flush, so an extension holding root-keyed data can invalidate it at exactly
+    /// the same instant the client does. __cdecl, caller-cleaned.
+    constexpr uintptr_t kCachePurge                        = 0x007B0040;
+    /// Paired shutdown for Wmo.SubsystemInit -- releases extension state before the client frees the
+    /// WMO heaps out from under it. __cdecl, caller-cleaned.
+    constexpr uintptr_t kSubsystemDestroy                  = 0x007B01C0;
+    /// The root factory and cache-lookup front door -- every WMO root the map asks for by name passes
+    /// here, so an extension can dedupe, substitute or refuse a root before it is ever allocated.
+    /// __cdecl, caller-cleaned.
+    constexpr uintptr_t kRootCreate                        = 0x007B0CC0;
+    /// Clears every group sub-chunk slot, the reliable "group table is empty" edge for a replacement
+    /// group walker. __thiscall, caller-cleaned.
+    constexpr uintptr_t kGroupInitPointers                 = 0x007C7F10;
+    /// The group's counterpart to Wmo.RootInitFields, and it is where the group format flags (including
+    /// the two-UV bit at group+0x198) are seeded. __thiscall, caller-cleaned.
+    constexpr uintptr_t kGroupInitFields                   = 0x007C9BC0;
+    /// Per-group teardown, the release point for anything an extension allocated per group (replacement
+    /// buffers, cached batch descriptors). __thiscall, caller-cleaned.
+    constexpr uintptr_t kGroupClear                        = 0x007CBE80;
+    /// Owns the moment the root file request is issued, so an extension can substitute the path,
+    /// redirect to a modern root, or pre-stage its own buffer before any client parsing happens.
+    /// __thiscall, 1 stack arg.
+    constexpr uintptr_t kRootRead                          = 0x007D80C0;
+    /// The per-group file request, giving a per-group substitution seam that `Wmo.RootRead` cannot
+    /// reach because it fires once per root. __thiscall, 2 stack args.
+    constexpr uintptr_t kGroupRead                         = 0x007D85E0;
+
+    // Portals, bounds and visibility
+    /// Builds the mask that tells collision and trace queries which WMO parts to skip, so an extension
+    /// can define its own ignore categories for raycasts and pathing. __cdecl, caller-cleaned.
+    constexpr uintptr_t kCreateIgnoreFlags                 = 0x007AE140;
+    /// The residency predicate the render and cull paths gate on, so a background group loader can
+    /// report "ready" on its own terms instead of the client's field. __thiscall, 1 stack arg.
+    constexpr uintptr_t kIsGroupLoaded                     = 0x007AE4C0;
+    /// The in-flight predicate that pairs with Wmo.IsGroupLoaded, needed to keep an async group
+    /// loader's state machine consistent with the client's. __thiscall, 1 stack arg.
+    constexpr uintptr_t kIsGroupLoading                    = 0x007AE4F0;
+    /// The root AABB every visibility and streaming decision reads, so an extension can widen or
+    /// tighten a WMO's effective bounds without touching the file. __thiscall, 1 stack arg.
+    constexpr uintptr_t kGetRootBounds                     = 0x007AE5E0;
+    /// The per-group AABB used by the group cull, the fix point for a modern group whose stored MOGI
+    /// bbox is wrong or degenerate. __thiscall, 2 stack args.
+    constexpr uintptr_t kGetGroupBounds                    = 0x007AE720;
+    /// The single accessor 14 call sites use to read a group's MOGP flags, so one detour can synthesise
+    /// the modern flag bits (exterior-lit, exterior-portal, antiportal) the client never sees.
+    /// __thiscall, 1 stack arg.
+    constexpr uintptr_t kGetGroupFlags                     = 0x007AE7B0;
+    /// Tests a root against an arbitrary convex volume (the MCVP clip volumes), giving an extension a
+    /// ready spatial predicate for custom queries or triggers. __thiscall, 1 stack arg.
+    constexpr uintptr_t kTestConvexVolume                  = 0x007AEA10;
+    /// Resolves a group's MOGN name, which is how antiportal groups are identified ("antiportal") -- an
+    /// extension can rename or classify groups without editing MOGN. __thiscall, 1 stack arg.
+    constexpr uintptr_t kGetGroupName                      = 0x007AEAE0;
+    /// Returns a group's MOGI entry, the single indirection through which an extension can substitute a
+    /// whole synthesised group-info record. __thiscall, 1 stack arg.
+    constexpr uintptr_t kGetGroupInfo                      = 0x007AEB10;
+    /// The whole-root readiness gate; a background loader must own it to avoid the client concluding a
+    /// WMO is complete while groups are still in flight. __thiscall, caller-cleaned.
+    constexpr uintptr_t kIsRootLoaded                      = 0x007AF740;
+    /// The render-eligibility gate (materials and textures resident, not just parsed), the correct
+    /// place to hold a WMO back until an extension's replacement textures land. __thiscall, caller-
+    /// cleaned.
+    constexpr uintptr_t kIsRootDrawable                    = 0x007AF850;
+    /// Computes how far the camera is from the nearest exterior portal -- the scalar that drives
+    /// interior/exterior blending, so an extension can retune the transition band. __thiscall, 6 stack
+    /// args.
+    constexpr uintptr_t kDistanceToExteriorPortal          = 0x007D77C0;
+    /// The public-shaped wrapper for the same query, cheap to detour when only the final scalar
+    /// matters. __stdcall, 3 stack args.
+    constexpr uintptr_t kExteriorPortalDistanceQuery       = 0x007D8010;
+
+    // Rendering
+    /// Brackets the entire WMO render pass in one detour -- the natural place to set up or restore a
+    /// whole-pass render state (depth prepass, custom shader collection, a scene-depth bind) for map
+    /// objects only. __cdecl, caller-cleaned.
+    constexpr uintptr_t kSceneRenderInstanceGroups         = 0x007964A0;
+    /// The WMO half of the world cull, the point to add a modern occlusion test or to force instances
+    /// visible without touching the terrain cull. __cdecl, caller-cleaned.
+    constexpr uintptr_t kSceneCullInstanceGroups           = 0x0079A160;
+    /// Draws only the collidable subset of a group's faces, giving an extension a per-face collision
+    /// overlay it does not have to build itself. __stdcall, 1 stack arg.
+    constexpr uintptr_t kRenderCollidableFaces             = 0x007A76C0;
+    /// Draws the portal polygons themselves -- an extension gets a ready-made portal visualiser, and a
+    /// place to render portal-space effects (interior fog volumes, door masks). __thiscall, 1 stack
+    /// arg.
+    constexpr uintptr_t kRenderPortalGeometry              = 0x007A9ED0;
+    /// The WMO contribution to the shadow map, the hook for making buildings cast shadows under a
+    /// replacement shadow technique (or excluding them cheaply). __cdecl, caller-cleaned.
+    constexpr uintptr_t kRenderShadowMapGroups             = 0x007AB760;
+    /// One call per rendered WMO group, sitting above the already-known exterior/interior batch leaves
+    /// -- the right granularity for per-group state (a custom effect, a stencil mask, a per-group
+    /// shader constant). __thiscall, 3 stack args.
+    constexpr uintptr_t kRenderGroup                       = 0x007ABF50;
+    /// The recursive portal-driven interior render itself, so an extension can bound recursion depth,
+    /// widen a portal rect, or take over interior visibility wholesale. __thiscall, 5 stack args.
+    constexpr uintptr_t kRenderThroughPortals              = 0x007AC060;
+    /// The per-frame WMO pass setup, and the function that publishes the group-render function pointers
+    /// -- hooking it lets an extension install its own group renderer through the client's own
+    /// indirection instead of patching code. __cdecl, caller-cleaned.
+    constexpr uintptr_t kPrepareUpdate                     = 0x007AD020;
+    /// The single function that writes a WMO group's whole vertex buffer, so an extension can emit a
+    /// modern vertex layout (second UV set, tangents, extra colour) instead of the stock one.
+    /// __thiscall, 2 stack args.
+    constexpr uintptr_t kGroupFillVertexBuffer             = 0x007C8560;
+    /// Binds the group's vertex buffer for a draw -- the wrapper around Wmo.GroupFillVertexBuffer and
+    /// the place to redirect a group onto an extension-owned buffer. __thiscall, caller-cleaned.
+    constexpr uintptr_t kGroupSetVertexBuffer              = 0x007C9CB0;
+    /// The index-buffer bind, the companion to Wmo.GroupSetVertexBuffer for substituting group
+    /// geometry. __thiscall, caller-cleaned.
+    constexpr uintptr_t kGroupSetIndexBuffer               = 0x007C9D80;
+    /// The CPU-side vertex array allocation from the shared pool at 0xAEEEB0, where a modern group's
+    /// larger vertex count must be accounted for. __cdecl, caller-cleaned.
+    constexpr uintptr_t kGroupAllocVertexArray             = 0x007CB520;
+    /// Allocates the group's GPU vertex buffer, so an extension can size it for a wider modern vertex
+    /// format before anything is written into it. __thiscall, caller-cleaned.
+    constexpr uintptr_t kGroupAllocVertexBuffer            = 0x007CBCB0;
+    /// The paired release for Wmo.GroupAllocVertexBuffer, preventing an extension-owned buffer from
+    /// outliving the group. __thiscall, caller-cleaned.
+    constexpr uintptr_t kGroupFreeVertexBuffer             = 0x007CBD70;
+    /// Allocates the WMO group's liquid vertex buffer, the sizing hook for modern (MLIQ-extended) water
+    /// inside buildings. __thiscall, 4 stack args.
+    constexpr uintptr_t kGroupAllocLiquidBuffer            = 0x007CBDC0;
+    /// Paired release for Wmo.GroupAllocLiquidBuffer. __thiscall, caller-cleaned.
+    constexpr uintptr_t kGroupFreeLiquidBuffer             = 0x007CBE30;
+    /// The interior/exterior vertex-colour blend at portal transitions, the exact function to replace
+    /// when a modern group's MOCV semantics differ from the client's assumption. __thiscall, 1 stack
+    /// arg.
+    constexpr uintptr_t kAttenuateTransitionVerts          = 0x007D78C0;
+
+    // WMO liquids
+    /// The per-group liquid-sound resolution beneath the root query, the finer point for per-group
+    /// audio overrides. __thiscall, 2 stack args.
+    constexpr uintptr_t kGroupQueryLiquidSounds            = 0x0079B760;
+    /// Selects the ambient liquid sound for a WMO's water, so an extension can map a modern LiquidType
+    /// to the right audio instead of falling back to silence. __thiscall, 6 stack args.
+    constexpr uintptr_t kRootQueryLiquidSounds             = 0x0079BBF0;
+    /// The map-wide "is this point in any WMO's liquid" query, one hook covering every placed instance.
+    /// __cdecl, caller-cleaned.
+    constexpr uintptr_t kMapQueryLiquidStatusInstances     = 0x007A09D0;
+    /// Refreshes an entity's cached WMO-liquid state each tick, the seam for making a replaced interior
+    /// water surface affect gameplay state. __thiscall, caller-cleaned.
+    constexpr uintptr_t kEntityUpdateLiquid                = 0x007A1A30;
+    /// Reports whether a point is in WMO liquid and which kind, the predicate that drives swimming and
+    /// breath inside buildings. __thiscall, 4 stack args.
+    constexpr uintptr_t kRootQueryLiquidStatus             = 0x007AEB90;
+    /// The point query that reports the liquid surface inside a WMO group, so an extension can supply a
+    /// modern liquid type or height where the stock MLIQ says nothing. __thiscall, 3 stack args.
+    constexpr uintptr_t kGroupQueryLiquid                  = 0x007C8360;
+    /// Counts the liquid tiles a group shares with terrain, the number that decides where WMO water is
+    /// suppressed in favour of ADT water. __thiscall, caller-cleaned.
+    constexpr uintptr_t kGroupSharedTileCount              = 0x007C8BF0;
+    /// Generates the liquid vertex data at group load time -- the earliest place to rewrite interior
+    /// water for a modern file, before any renderer sees it. __thiscall, caller-cleaned.
+    constexpr uintptr_t kGroupGenLiquidVerts               = 0x007C8C60;
+    /// Infers a liquid family from the MLIQ tile flags, the exact function that misclassifies a modern
+    /// group's water and can be corrected in one detour. __thiscall, caller-cleaned.
+    constexpr uintptr_t kIdentifyLegacyLiquidType          = 0x007C8D80;
+    /// The per-liquid-tile refinement under Wmo.GroupLiquidVectorIntersect, the level at which an
+    /// extension can honour modern per-tile liquid flags. __thiscall, 7 stack args.
+    constexpr uintptr_t kGroupLiquidTileIntersect          = 0x007C8DD0;
+    /// Builds the liquid surface triangles for a WMO group, the replacement point for a modern MLIQ
+    /// layout or a higher-resolution water mesh. __thiscall, 4 stack args.
+    constexpr uintptr_t kGroupLiquidTris                   = 0x007C94B0;
+    /// Ray-versus-interior-water intersection, what an extension needs to make swim/submerge detection
+    /// agree with a replaced water surface. __thiscall, 5 stack args.
+    constexpr uintptr_t kGroupLiquidVectorIntersect        = 0x007C9DD0;
+    /// The second liquid-triangle path; both must be covered for consistent interior-water geometry.
+    /// __thiscall, 4 stack args.
+    constexpr uintptr_t kGroupLiquidTrisAlt                = 0x007CAB70;
+    /// The 1..20 legacy-family remap that produces the group's resolved LiquidType id, so an extension
+    /// can pass a modern LiquidType through untouched instead of having it folded into a legacy family.
+    /// __thiscall, 1 stack arg.
+    constexpr uintptr_t kMapLegacyLiquidId                 = 0x007D7310;
 }

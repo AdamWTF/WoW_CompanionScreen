@@ -38,6 +38,11 @@ namespace wxl::offsets::game::doodad
     constexpr size_t kMddfPosX  = 0x08;
     constexpr size_t kMddfPosY  = 0x0C;
     constexpr size_t kMddfPosZ  = 0x10;
+    // Uniform scale, u16 with 1024 = 100%. The spawn path's own conversion, byte-verified at the call
+    // site that fills kScale: doodad.scale = (float)mddf.scaleU16 * kMddfScaleToFloat. Reading it here
+    // is what lets a caller size a placement BEFORE the model exists to be measured.
+    constexpr size_t kMddfScale = 0x20;
+    constexpr float  kMddfScaleToFloat = 0.0009765625f; // 1/1024
     // World position from an MDDF record, confirmed at kSpawnFromMDDF's own call site:
     // worldX = tileOrigin.x - mddf.posZ, worldY = tileOrigin.y - mddf.posX,
     // worldZ = tileOrigin.z + mddf.posY -- the same axis-swap/negate every archived-coordinate

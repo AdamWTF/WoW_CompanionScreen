@@ -39,4 +39,18 @@ namespace wxl::offsets::game::weather
     constexpr size_t kRainCount = 0x13C;
     constexpr size_t kSnowCount = 0x140;
     constexpr size_t kSandCount = 0x144;
+
+    // Weather
+    /// Direct control of storm strength, the parameter that scales precipitation counts and sound - the
+    /// single knob an extension needs for weather intensity. __thiscall, 2 stack args.
+    constexpr uintptr_t kStormIntensitySet                 = 0x00784850;
+    /// A small, cheap gate around all weather drawing - ideal for suppressing or replacing
+    /// precipitation rendering without touching the simulation. __thiscall, caller-cleaned.
+    constexpr uintptr_t kRender                            = 0x0078CA50;
+    /// The reset that runs on weather change and on map unload - the notification an extension needs to
+    /// drop its own precipitation state. __thiscall, caller-cleaned.
+    constexpr uintptr_t kClear                             = 0x0078D0B0;
+    /// The weather simulation step - lets an extension drive precipitation/particle state directly
+    /// instead of racing the server-driven state. __thiscall, caller-cleaned.
+    constexpr uintptr_t kUpdate                            = 0x0078D170;
 }

@@ -84,4 +84,34 @@ namespace wxl::offsets::engine::sky
     constexpr uintptr_t kCloudsScroll      = 0x88; ///< u16, integer scroll derived from the phase
     constexpr uintptr_t kCloudsPhase       = 0x8C; ///< f32, accumulated animation phase
     constexpr uintptr_t kCloudsTexturePair = 0x90; ///< HTEXTURE[2], picked by (parity - 1) & 1
+
+    // Day-night, fog and outdoor light
+    /// The whole day-night advance in one call - the coarse-grained hook for a custom time-of-day or
+    /// lighting model. __cdecl, caller-cleaned.
+    constexpr uintptr_t kUpdate                            = 0x007816F0;
+    /// The fog density/blend rate helper shared by the override setters - hooking it changes fog
+    /// falloff without touching color. __cdecl, caller-cleaned.
+    constexpr uintptr_t kFogRateCompute                    = 0x007ECD00;
+    /// The exact producer of the fog color/near/far the terrain and sky then consume - the correct
+    /// override point for a retail-style fog model, and it sits above the two already-known override
+    /// setters. __cdecl, caller-cleaned.
+    constexpr uintptr_t kFogUpdate                         = 0x007F16F0;
+    /// Per-map sky/light table construction - the place to add sky records before anything queries
+    /// them. __cdecl, caller-cleaned.
+    constexpr uintptr_t kInitialize                        = 0x007F2790;
+    /// The lookup that decides whether a custom sky replaces the default - an extension can answer it
+    /// from its own data and get modern sky records honoured everywhere at once. __cdecl, caller-
+    /// cleaned.
+    constexpr uintptr_t kSkyOverrideResolve                = 0x007F30C0;
+    /// Where every day-night band color is interpolated and published - the single place to inject a
+    /// modern LightData color set. __cdecl, caller-cleaned.
+    constexpr uintptr_t kColorsResolve                     = 0x007F3230;
+    /// The outdoor light resolve (sun direction, ambient, planets) - one detour replaces the entire
+    /// outdoor lighting input. __cdecl, caller-cleaned.
+    constexpr uintptr_t kLightingUpdate                    = 0x007F3920;
+
+    // Map lifecycle: load / unload / enter / leave
+    /// Lets a sky/lighting extension release its per-map sky overrides exactly when the engine does.
+    /// __cdecl, caller-cleaned.
+    constexpr uintptr_t kMapUnload                         = 0x007F1D30;
 }

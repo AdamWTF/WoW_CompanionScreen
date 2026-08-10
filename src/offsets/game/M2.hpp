@@ -564,6 +564,12 @@ namespace wxl::offsets::game::m2
     constexpr size_t kOffRenderCtxElement  = 0x50; // -> current M2Element (see kOffElementAlpha)
     constexpr size_t kOffRenderCtxInstance = 0x60; // -> current M2Instance
     constexpr size_t kOffElementAlpha      = 0x0C; // float, consumed by kSetupMaterial's diffuse setup
+    // The element's own position within its skin's batch array -- confirmed by the draw dispatcher's
+    // own (disabled) diagnostic log call, which formats this exact field as "index=%d" right before
+    // the batch draws. Stable for the batch's lifetime; matches the index a skin-finalize pass used
+    // when it built any of its own per-batch-index side tables, so a finalize-time batch tag can be
+    // looked up again here at draw time with no extra bookkeeping.
+    constexpr size_t kOffElementBatchIndex = 0x18;
 
     // --- track evaluators (sampled per bone / per light each frame from the bone-palette build) ---
     // Vec3 track evaluator (model, runtimeBone, track, out, baseValue): samples a translation/scale
@@ -897,16 +903,19 @@ namespace wxl::offsets::game::m2
     };
     static_assert(offsetof(LoadNode, record) == kOffNodeRecord, "LoadNode.record");
 
-    /** @brief SetupBatchAlpha draw context: the instance being drawn and the live material. */
+    /** @brief SetupBatchAlpha draw context: the current element, the instance, and the live material. */
     struct DrawContext
     {
-        uint8_t  _pad00[kOffDrawCtxInstance];
+        uint8_t  _pad00[kOffRenderCtxElement];
+        void*    element;          // kOffRenderCtxElement -> current M2Element (see kOffElementAlpha/BatchIndex)
+        uint8_t  _pad54[kOffDrawCtxInstance - (kOffRenderCtxElement + sizeof(void*))];
         void*    instance;         // kOffDrawCtxInstance -> M2Instance
         uint8_t  _pad64[kOffDrawCtxMaterial - (kOffDrawCtxInstance + sizeof(void*))];
         void*    material;         // kOffDrawCtxMaterial -> Material
     };
-    static_assert(offsetof(DrawContext, instance) == kOffDrawCtxInstance, "DrawContext.instance");
-    static_assert(offsetof(DrawContext, material) == kOffDrawCtxMaterial, "DrawContext.material");
+    static_assert(offsetof(DrawContext, element)   == kOffRenderCtxElement, "DrawContext.element");
+    static_assert(offsetof(DrawContext, instance)  == kOffDrawCtxInstance,  "DrawContext.instance");
+    static_assert(offsetof(DrawContext, material)  == kOffDrawCtxMaterial, "DrawContext.material");
 
     /** @brief Live material record: the blend mode the draw uses to pick the alpha-test reference. */
     struct Material
@@ -1276,4 +1285,483 @@ namespace wxl::offsets::game::m2
     using M2_SlotDispatchFn     = void (__fastcall*)(void* cmo, void* edx, uint32_t modelSlot, void* itemDataPtr, uint32_t postFlag);
     // SlotClear(cmo, edx, equipSlotWow): clears a WoW equipment slot on the CMO.
     using M2_SlotClearFn        = void (__fastcall*)(void* cmo, void* edx, uint32_t equipSlotWow);
+
+    // character component: geosets, item slots, baked textures
+    /// The gate that rejects character customization data, which must be widened for values beyond the
+    /// stock ranges. __cdecl, caller-cleaned.
+    constexpr uintptr_t kCharValidateComponentData         = 0x004E9D50;
+    /// Resolve the base skin and face texture set for a character, where modern texture paths must be
+    /// substituted. __thiscall, 6 stack args.
+    constexpr uintptr_t kCharLoadBaseVariation             = 0x004EA1F0;
+    /// Intercept the skin variation selection, the customization axis with the widest downstream
+    /// effect. __thiscall, 4 stack args.
+    constexpr uintptr_t kCharSetSkinColor                  = 0x004EA6B0;
+    /// The shared routine that binds any visual to a character attachment point, one hook covering
+    /// every equipped model. __cdecl, caller-cleaned.
+    constexpr uintptr_t kCharAddAttachmentLink             = 0x004EAA70;
+    /// Take over weapon and off-hand model placement, including its sheathe behaviour. __cdecl, caller-
+    /// cleaned.
+    constexpr uintptr_t kCharAddHandItem                   = 0x004EACD0;
+    /// Control tabard composition and its colour channels, the most complex baked-texture path on a
+    /// character. __thiscall, 5 stack args.
+    constexpr uintptr_t kCharApplyGuildColor               = 0x004EC1C0;
+    /// Own the geoset selection that turns equipment and customization choices into visible character
+    /// geometry. __thiscall, caller-cleaned.
+    constexpr uintptr_t kCharGeosetRenderPrep              = 0x004ED900;
+    /// Intercept unequip so extension-added visual slots are torn down with the stock ones. __thiscall,
+    /// 1 stack arg.
+    constexpr uintptr_t kCharRemoveItem                    = 0x004EE460;
+    /// Allocate the composited character skin texture, where format and resolution are decided.
+    /// __thiscall, caller-cleaned.
+    constexpr uintptr_t kCharCreateBaseTexture             = 0x004EFF10;
+    /// The component allocator behind character composition, hookable to enlarge or pool differently.
+    /// __cdecl, caller-cleaned.
+    constexpr uintptr_t kCharAllocComponent                = 0x004F0980;
+    /// The per-frame entry that rebuilds a character's composited appearance, the right place to force
+    /// or suppress a rebuild. __thiscall, 1 stack arg.
+    constexpr uintptr_t kCharRenderPrep                    = 0x004F1520;
+    /// The matching free, needed to keep an extension's component tracking exact. __cdecl, caller-
+    /// cleaned.
+    constexpr uintptr_t kCharFreeComponent                 = 0x004F16C0;
+    /// Override creature skin substitution, the mechanism behind displayid-driven recolours. __cdecl,
+    /// caller-cleaned.
+    constexpr uintptr_t kCharReplaceMonsterSkin            = 0x004F20C0;
+    /// Bind extension state to a character component as it attaches to its model. __thiscall, 2 stack
+    /// args.
+    constexpr uintptr_t kCharInit                          = 0x004F24D0;
+    /// The dispatcher every equipped item goes through, hookable to add slots or redirect item display
+    /// data. __stdcall, 3 stack args.
+    constexpr uintptr_t kCharAddItemBySlot                 = 0x004F2880;
+
+    // header array de-relocation
+    /// De-relocate the skin profile's texture-unit array, the one skin sub-array not yet covered, so
+    /// modern skin layouts can be remapped. __cdecl, caller-cleaned.
+    constexpr uintptr_t kReadSkinTextureUnits              = 0x00835B30;
+
+    // model cache and its worker thread
+    /// Run extension setup at the exact moment the model cache and its worker thread come up, before
+    /// any model can be requested. __thiscall, 1 stack arg.
+    constexpr uintptr_t kCacheInitialize                   = 0x0081C0D0;
+    /// Intercept every shared-model creation and cache lookup by path, so an extension can substitute
+    /// or redirect a model file before any parsing happens. __thiscall, 2 stack args.
+    constexpr uintptr_t kCacheCreateShared                 = 0x0081C390;
+    /// Observe the per-tick sweep of the shared-model update list, the natural place to drive streaming
+    /// or deferred work on loaded models. __thiscall, caller-cleaned.
+    constexpr uintptr_t kCacheUpdateShared                 = 0x0081C790;
+
+    // other model entries
+    /// Watch model lights being linked into the active light list, so extensions can cap or prioritise
+    /// them. __thiscall, caller-cleaned.
+    constexpr uintptr_t kLinkLight                         = 0x00834C70;
+    /// Change how a single light accumulates into the model's diffuse term, the hook for a different
+    /// falloff or attenuation curve. __thiscall, 2 stack args.
+    constexpr uintptr_t kAddDiffuseLight                   = 0x00834DC0;
+    /// Inject extension-owned dynamic lights into the model lighting solve, or reject stock ones.
+    /// __stdcall, 1 stack arg.
+    constexpr uintptr_t kAddLight                          = 0x00834F60;
+    /// Intercept the transform of light positions into camera space, the last stage before constants
+    /// are uploaded. __thiscall, caller-cleaned.
+    constexpr uintptr_t kLightingToCameraSpace             = 0x008350A0;
+    /// Replace the directional sun term used on models, letting an extension drive it from its own sky
+    /// or time-of-day data. __thiscall, caller-cleaned.
+    constexpr uintptr_t kSetupSunlight                     = 0x00835280;
+    /// Rewrite the fixed-function and shader light state models are rendered with, the core of any
+    /// modern lighting replacement. __thiscall, 1 stack arg.
+    constexpr uintptr_t kSetupGxLights                     = 0x008353D0;
+    /// Read back the resolved sun light, which other systems query to match their own shading to
+    /// models. __thiscall, 4 stack args.
+    constexpr uintptr_t kGetSunLight                       = 0x008355D0;
+    /// Override the fog parameters applied to models specifically, independent of terrain fog.
+    /// __thiscall, caller-cleaned.
+    constexpr uintptr_t kSetupGxFog                        = 0x00835750;
+    /// Catch the global particle system flush, where extension-owned emitters must also be released.
+    /// __thiscall, caller-cleaned.
+    constexpr uintptr_t kParticleSystemFlush               = 0x00981000;
+
+    // particle emitters
+    /// Integrate one particle's motion, the finest hook for adding gravity fields, wind or bounces.
+    /// __thiscall, 2 stack args.
+    constexpr uintptr_t kParticleMoveOne                   = 0x00979BB0;
+    /// Replace evaluation of every emitter parameter track at once, needed for modern emitter track
+    /// encodings. __thiscall, 5 stack args.
+    constexpr uintptr_t kParticleInterpolateTracks         = 0x00979E90;
+    /// Set up the shared render state for an emitter before its particles are emitted into the buffer.
+    /// __thiscall, 2 stack args.
+    constexpr uintptr_t kParticleRenderPrep                = 0x0097A390;
+    /// The buffer-level vertex emit shared by the batched and unbatched particle paths, one hook
+    /// covering both. __stdcall, 4 stack args.
+    constexpr uintptr_t kParticleEmitVertices              = 0x0097A580;
+    /// Per-particle emission of geometry, fine enough to add per-particle culling or custom quad
+    /// shapes. __thiscall, 2 stack args.
+    constexpr uintptr_t kParticleRenderSingle              = 0x0097A670;
+    /// Drive per-emitter colour replacement, the mechanism behind tinted and recoloured spell effects.
+    /// __thiscall, 3 stack args.
+    constexpr uintptr_t kParticleSetColors                 = 0x0097A990;
+    /// The emitter update that runs beneath the public one, hookable to change emission timing without
+    /// touching draw code. __thiscall, 2 stack args.
+    constexpr uintptr_t kParticleInternalUpdate            = 0x0097ACB0;
+    /// Adjust how live particles follow a moving parent, the behaviour behind world-space versus local-
+    /// space trails. __thiscall, 1 stack arg.
+    constexpr uintptr_t kParticleChangeFrameOfReference    = 0x0097AEF0;
+    /// The full per-particle vertex construction, covering every emitter style, and thus where modern
+    /// emitter features are implemented. __thiscall, 2 stack args.
+    constexpr uintptr_t kParticleBuildVertex               = 0x0097BE80;
+    /// Control the fast-path classification of an emitter, which decides whether the cheap or full
+    /// simulation runs. __thiscall, caller-cleaned.
+    constexpr uintptr_t kParticleDetermineIfSimple         = 0x0097D370;
+    /// Own one fixed simulation step, where extension forces or collision can be added to particle
+    /// motion. __thiscall, 2 stack args.
+    constexpr uintptr_t kParticleStepUpdate                = 0x0097DD20;
+    /// Own the emitter's vertex buffer fill, the place to change particle vertex format or capacity.
+    /// __thiscall, 3 stack args.
+    constexpr uintptr_t kParticleBuildVertexBuffer         = 0x0097E580;
+    /// Take over the emitter's draw submission, including its material and blend selection. __thiscall,
+    /// 2 stack args.
+    constexpr uintptr_t kParticleRenderBatch               = 0x0097E730;
+    /// Position the sub-models spawned by a model-emitting particle system, which stock code offers no
+    /// control over. __thiscall, 1 stack arg.
+    constexpr uintptr_t kParticlePlaceModels               = 0x0097E8D0;
+    /// Wrap a whole emitter's per-frame simulation, the single place to rate-limit or retime particle
+    /// systems. __thiscall, 4 stack args.
+    constexpr uintptr_t kParticleEmitterUpdate             = 0x0097EB10;
+
+    // per-instance model state
+    /// Supply a model's static bounding box, the value culling and selection both trust. __thiscall, 1
+    /// stack arg.
+    constexpr uintptr_t kGetBoundingBox                    = 0x004F5E20;
+    /// Decide whether a model may render before its textures finish loading, which controls pop-in
+    /// behaviour. __thiscall, caller-cleaned.
+    constexpr uintptr_t kCanUpdateNonReadyTextures         = 0x00823E40;
+    /// The blocking wait a model load funnels through, which must be diverted before any asynchronous
+    /// model loading is safe. __thiscall, 1 stack arg.
+    constexpr uintptr_t kWaitForLoad                       = 0x00823ED0;
+    /// Intercept animation enable/disable per model, the cheapest lever for culling animation cost at
+    /// distance. __thiscall, 1 stack arg.
+    constexpr uintptr_t kSetAnimating                      = 0x00823F10;
+    /// Reach a model's embedded cameras, which cinematics and portrait framing drive from. __thiscall,
+    /// 1 stack arg.
+    constexpr uintptr_t kGetCameraByIndex                  = 0x00824170;
+    /// Per-model ribbon toggle, an obvious quality knob and a way to force trails on for specific
+    /// models. __thiscall, 1 stack arg.
+    constexpr uintptr_t kSetRibbonsEnabled                 = 0x00824230;
+    /// Propagate a coordinate-space change to a model and everything attached to it, including its
+    /// emitters. __thiscall, 1 stack arg.
+    constexpr uintptr_t kChangeFrameOfReference            = 0x00824460;
+    /// Report load progress including extension-managed assets, so loading screens do not finish early.
+    /// __thiscall, 2 stack args.
+    constexpr uintptr_t kComputeLoadProgress               = 0x008245B0;
+    /// Catch release of a model's textures and attached objects, distinct from its own destruction.
+    /// __thiscall, caller-cleaned.
+    constexpr uintptr_t kFreeExternalResources             = 0x00824D30;
+    /// The readiness predicate the entire client gates on, so an extension-managed load can report
+    /// completion on its own terms. __thiscall, 2 stack args.
+    constexpr uintptr_t kIsLoaded                          = 0x00824F00;
+    /// The transition into the loaded state, the precise moment extension-side post-load work should
+    /// run. __thiscall, caller-cleaned.
+    constexpr uintptr_t kUpdateLoadedState                 = 0x00825170;
+    /// The lighter placement entry used by UI and preview models, hookable independently of the full
+    /// one. __thiscall, 3 stack args.
+    constexpr uintptr_t kSetWorldTransformSimple           = 0x008251D0;
+    /// Recolour a model's emitters from outside, the model-level counterpart to the emitter colour
+    /// call. __thiscall, 4 stack args.
+    constexpr uintptr_t kReplaceParticleColor              = 0x00825410;
+    /// Override the animated bounding box, which is what makes an extension-deformed model cull
+    /// correctly. __thiscall, 1 stack arg.
+    constexpr uintptr_t kGetCurrentBoundingBox             = 0x00825750;
+    /// Per-body-part bounds, used for partial visibility and for aiming effects at a region of a
+    /// character. __thiscall, 2 stack args.
+    constexpr uintptr_t kGetSplitBodyBoundingBox           = 0x00825A60;
+    /// Catch the teardown of that compacted list so extension-side batch metadata is invalidated in
+    /// step. __thiscall, caller-cleaned.
+    constexpr uintptr_t kUnoptimizeVisibleGeometry         = 0x00825D70;
+    /// Declare sequences present that the stock file does not contain, so callers take the path an
+    /// extension wants. __thiscall, 1 stack arg.
+    constexpr uintptr_t kHasSequence                       = 0x00825EE0;
+    /// Change which animation the client falls back to when a requested sequence is absent, so new
+    /// sequence IDs degrade sensibly. __thiscall, 2 stack args.
+    constexpr uintptr_t kResolveSequenceFallback           = 0x00826350;
+    /// Toggle per-bone behaviour such as billboarding or external control from an extension.
+    /// __thiscall, 3 stack args.
+    constexpr uintptr_t kSetBoneFlags                      = 0x008265E0;
+    /// Expose or fake the currently playing sequence state, which gameplay and UI code reads
+    /// constantly. __thiscall, 2 stack args.
+    constexpr uintptr_t kGetBoneSequenceInfo               = 0x008266B0;
+    /// The cheapest query for what a model is playing right now, the natural anchor for an animation-
+    /// state event. __thiscall, 1 stack arg.
+    constexpr uintptr_t kGetBoneSequenceId                 = 0x008267E0;
+    /// React when an animation is cut short rather than ending naturally, which stock code gives no
+    /// notification for. __thiscall, 2 stack args.
+    constexpr uintptr_t kOnSequenceInterrupted             = 0x008269C0;
+    /// The shared preparation both sequence slots run through, so one hook covers blend times and
+    /// looping for both. __thiscall, 5 stack args.
+    constexpr uintptr_t kSetupBoneSequence                 = 0x00826B00;
+    /// Intercept every primary animation start on a model, the main lever for animation remapping or
+    /// blending policy. __thiscall, 6 stack args.
+    constexpr uintptr_t kSetPrimaryBoneSequence            = 0x00826C40;
+    /// Same for the secondary (upper-body) slot, which is what drives layered animation. __thiscall, 5
+    /// stack args.
+    constexpr uintptr_t kSetSecondaryBoneSequence          = 0x00826DD0;
+    /// Scrub or freeze a running sequence, giving extensions frame-accurate control for cinematics and
+    /// tools. __thiscall, 2 stack args.
+    constexpr uintptr_t kSetBoneSequenceTime               = 0x00826ED0;
+    /// Trigger point for streaming an external animation file, where a modern .anim can be fetched
+    /// instead of the stock one. __thiscall, 1 stack arg.
+    constexpr uintptr_t kLoadSequenceOnDemand              = 0x00827190;
+    /// The sanctioned way to drive a bone from outside the animation system, hookable to validate or
+    /// extend it. __thiscall, 2 stack args.
+    constexpr uintptr_t kSetBoneProceduralTransform        = 0x008272F0;
+    /// Advertise attachment points a stock model lacks, so callers proceed to place effects on
+    /// extension-provided slots. __thiscall, 1 stack arg.
+    constexpr uintptr_t kHasAttachment                     = 0x008273D0;
+    /// Read an attachment's model-space pivot before animation, the basis for remapping attachment IDs
+    /// across model versions. __thiscall, 2 stack args.
+    constexpr uintptr_t kGetAttachmentPivot                = 0x00827460;
+    /// Observe every attach/detach teardown, the point where extension state bound to a parent-child
+    /// model link must be dropped. __thiscall, caller-cleaned.
+    constexpr uintptr_t kDetachFromParent                  = 0x008274F0;
+    /// Declare animation events a stock model does not carry, letting extensions add event-driven
+    /// behaviour to existing models. __thiscall, 1 stack arg.
+    constexpr uintptr_t kHasEvent                          = 0x008275F0;
+    /// Per-model particle toggle, the same knob for emitters. __thiscall, 1 stack arg.
+    constexpr uintptr_t kSetEmittersEnabled                = 0x008279F0;
+    /// Report the batch count the renderer sizes its buffers from, which must reflect any extension-
+    /// added batches. __thiscall, caller-cleaned.
+    constexpr uintptr_t kCountGeometryBatches              = 0x00827A90;
+    /// Replace the keyframe search shared by every animation track, which is what a new interpolation
+    /// or track encoding must go through. __stdcall, 5 stack args.
+    constexpr uintptr_t kFindTrackKey                      = 0x008284D0;
+    /// Own the per-instance index selection, the hook for per-model LOD or geoset-driven index subsets.
+    /// __thiscall, caller-cleaned.
+    constexpr uintptr_t kSetModelIndices                   = 0x00828F90;
+    /// Bind the vertex stream for one model instance, including any extension-supplied skinned buffer.
+    /// __thiscall, 3 stack args.
+    constexpr uintptr_t kSetModelVertices                  = 0x00829160;
+    /// Compute per-region screen or world bounds, used to size projected effects against a model.
+    /// __thiscall, 3 stack args.
+    constexpr uintptr_t kGetRegionBounds                   = 0x008292A0;
+    /// Filter which model batches contribute to the shadow map, separately from the main pass. __cdecl,
+    /// caller-cleaned.
+    constexpr uintptr_t kRenderBatchListShadowMap          = 0x00829E40;
+    /// Own CPU vertex skinning for a model, the fallback path taken whenever hardware skinning is off.
+    /// __cdecl, caller-cleaned.
+    constexpr uintptr_t kTransformVertices                 = 0x00829F40;
+    /// Attach extension-owned per-instance state at the moment a model object comes into existence.
+    /// __thiscall, caller-cleaned.
+    constexpr uintptr_t kModelConstruct                    = 0x0082BE60;
+    /// Catch release of the model's internal animation and geometry buffers. __thiscall, caller-
+    /// cleaned.
+    constexpr uintptr_t kFreeInternalResources             = 0x0082C1C0;
+    /// Same for the bounding sphere used by the cheaper distance and visibility tests. __thiscall, 1
+    /// stack arg.
+    constexpr uintptr_t kGetCurrentBoundingSphere          = 0x0082C2C0;
+    /// Intercept every geoset show/hide, the single choke point for character geoset logic and for
+    /// remapping modern geoset numbering. __thiscall, 3 stack args.
+    constexpr uintptr_t kSetGeometryVisible                = 0x0082C7C0;
+    /// Control the merge of visible geosets into a compacted draw list, where batch limits and merge
+    /// rules can be relaxed. __thiscall, caller-cleaned.
+    constexpr uintptr_t kOptimizeVisibleGeometry           = 0x0082C970;
+    /// Report or rewrite a sequence's timing and flags, the query nearly all animation logic asks
+    /// before playing anything. __thiscall, 3 stack args.
+    constexpr uintptr_t kGetSequenceInfo                   = 0x0082CED0;
+    /// The total-batch query including particles and ribbons, used for draw budgeting and statistics.
+    /// __thiscall, caller-cleaned.
+    constexpr uintptr_t kCountBatches                      = 0x0082D1A0;
+    /// Take over UV animation evaluation, needed for modern texture-transform track types and for
+    /// scripted UV effects. __thiscall, caller-cleaned.
+    constexpr uintptr_t kAnimateTextureTransforms          = 0x0082D6F0;
+    /// The multi-sample vertex variant, which must be hooked alongside the plain one or half the draws
+    /// bypass the override. __thiscall, 2 stack args.
+    constexpr uintptr_t kSetModelVerticesMultiSample       = 0x0082D910;
+    /// Intercept the full placement of a model in the world, including scale and orientation, before
+    /// its matrix is built. __thiscall, 5 stack args.
+    constexpr uintptr_t kSetWorldTransformFull             = 0x0082DD80;
+    /// Adjust attached child models after their parent bones resolve, the hook for extension-driven
+    /// attachment offsets. __thiscall, caller-cleaned.
+    constexpr uintptr_t kAnimateAttachments                = 0x0082E550;
+    /// The per-entry worker behind sequence callbacks, hookable when only individual notifications
+    /// matter. __thiscall, 4 stack args.
+    constexpr uintptr_t kProcessSequenceCallback           = 0x0082E790;
+    /// Supply collision triangles for a model, the single funnel through which extension-provided
+    /// collision geometry must enter. __thiscall, 3 stack args.
+    constexpr uintptr_t kGetCollisionFacets                = 0x0082EC30;
+    /// Own the single-threaded particle advance for a model, which is where emitter behaviour can be
+    /// extended without touching the MT path. __thiscall, 2 stack args.
+    constexpr uintptr_t kAnimateParticlesST                = 0x008309C0;
+    /// Wrap one model's full animation evaluation, the natural place to add procedural bone work or
+    /// skip animation entirely. __thiscall, caller-cleaned.
+    constexpr uintptr_t kModelAnimate                      = 0x00830DC0;
+    /// Reach every M2 animation event as it fires, the direct route from model timelines to extension
+    /// and Lua handlers. __thiscall, 7 stack args.
+    constexpr uintptr_t kDispatchEventCallbacks            = 0x00830FB0;
+    /// Resolve or override where an attachment point sits in world space, which is what spell and
+    /// weapon effects anchor to. __thiscall, 2 stack args.
+    constexpr uintptr_t kGetAttachmentPosition             = 0x00831330;
+    /// Get the full oriented attachment matrix, needed to place extension-owned models on bones
+    /// correctly. __thiscall, 2 stack args.
+    constexpr uintptr_t kGetAttachmentWorldTransform       = 0x00831410;
+    /// Resolve where an animation event fires in world space, which sound and effect spawning depends
+    /// on. __thiscall, 2 stack args.
+    constexpr uintptr_t kGetEventPosition                  = 0x008317E0;
+    /// Control the reduced animation path used for shadow-only models, useful for cutting shadow cost.
+    /// __thiscall, caller-cleaned.
+    constexpr uintptr_t kAnimateShadowModel                = 0x00831990;
+    /// Per-model lighting setup, the right granularity for making one model light differently from the
+    /// rest of the scene. __thiscall, caller-cleaned.
+    constexpr uintptr_t kModelSetupLighting                = 0x00831AF0;
+    /// Catch sequence starts queued while the animation file is still loading, the path that decides
+    /// what plays once it arrives. __thiscall, 9 stack args.
+    constexpr uintptr_t kSetBoneSequenceDeferred           = 0x00831C30;
+    /// See sequence-completion notifications before the registered callback runs, for chaining or
+    /// suppressing them. __thiscall, 1 stack arg.
+    constexpr uintptr_t kDispatchSequenceCallback          = 0x00831FC0;
+    /// Drive the per-model callback drain each frame, one place to add extension-owned deferred work
+    /// per model. __thiscall, caller-cleaned.
+    constexpr uintptr_t kProcessCallbackList               = 0x00832260;
+    /// Release that per-instance state exactly once, at the client's own teardown point. __thiscall,
+    /// caller-cleaned.
+    constexpr uintptr_t kModelDestruct                     = 0x00832640;
+    /// Observe every animation stop, needed to keep extension-side animation state from leaking across
+    /// sequence changes. __thiscall, 3 stack args.
+    constexpr uintptr_t kUnsetBoneSequence                 = 0x00832840;
+    /// Observe models entering the render scene, giving extensions a reliable per-instance registration
+    /// event. __thiscall, 1 stack arg.
+    constexpr uintptr_t kAttachModelToScene                = 0x00834540;
+    /// See a model instance bound to its shared data, the first point where both the file and the
+    /// instance are known. __thiscall, 4 stack args.
+    constexpr uintptr_t kModelInitialize                   = 0x00834810;
+
+    // ribbon emitters
+    /// Drive a ribbon's emission point directly, letting an extension steer a trail independently of
+    /// its bone. __thiscall, 3 stack args.
+    constexpr uintptr_t kRibbonSetPos                      = 0x0097F940;
+    /// Swap a ribbon's texture at runtime, the ribbon counterpart of the already-known model texture
+    /// replacement. __thiscall, 2 stack args.
+    constexpr uintptr_t kRibbonReplaceTexture              = 0x0097FAD0;
+    /// Control how an existing ribbon reacts to its parent teleporting or being re-parented.
+    /// __thiscall, 1 stack arg.
+    constexpr uintptr_t kRibbonChangeFrameOfReference      = 0x0097FBE0;
+    /// Own ribbon segment simulation, which determines trail length, droop and lifetime. __thiscall, 2
+    /// stack args.
+    constexpr uintptr_t kRibbonUpdate                      = 0x00980090;
+    /// Intercept ribbon construction parameters at load time, the place to apply modern ribbon fields.
+    /// __thiscall, 9 stack args.
+    constexpr uintptr_t kRibbonInitialize                  = 0x009808A0;
+
+    // scene graph, hit testing and collision
+    /// Grow the hit-result list, the cap that silently truncates picking in dense scenes. __thiscall,
+    /// caller-cleaned.
+    constexpr uintptr_t kAllocateHitList                   = 0x0081CAD0;
+    /// Change the broad-phase sphere cull that decides which models are even considered for a hit test.
+    /// __thiscall, 4 stack args.
+    constexpr uintptr_t kSphereTestModels                  = 0x0081CFF0;
+    /// Replace ray-versus-model-geometry picking, so extension-owned or modern-format meshes become
+    /// selectable. __thiscall, 8 stack args.
+    constexpr uintptr_t kHitTestGeometry                   = 0x0081DAF0;
+    /// Replace ray-versus-model-collision-mesh testing, which is what physics and line-of-sight queries
+    /// actually consult. __thiscall, 8 stack args.
+    constexpr uintptr_t kHitTestCollisionMesh              = 0x0081DD50;
+    /// Post-process the finished model hit list, to filter results or inject hits from extension-
+    /// managed models. __thiscall, 4 stack args.
+    constexpr uintptr_t kEndHitTest                        = 0x0081DF10;
+    /// Same for the world-collision variant used by movement queries, where a missing model hit becomes
+    /// a walk-through bug. __thiscall, 3 stack args.
+    constexpr uintptr_t kEndHitTestCollisionWorld          = 0x0081E110;
+    /// Replace the per-model light selection, the gate that decides which scene lights a model is
+    /// allowed to see. __thiscall, 1 stack arg.
+    constexpr uintptr_t kSceneSelectLights                 = 0x0081E400;
+    /// Control ribbon draw ordering separately from geometry, which decides how overlapping trails
+    /// composite. __cdecl, caller-cleaned.
+    constexpr uintptr_t kSortOpaqueRibbonElements          = 0x0081ED10;
+    /// Control the opaque particle ordering pass independently of the additive one. __cdecl, caller-
+    /// cleaned.
+    constexpr uintptr_t kSortOpaqueParticleElements        = 0x0081EDF0;
+    /// Reorder the opaque model batch list, for instance to group by material and cut state changes.
+    /// __cdecl, caller-cleaned.
+    constexpr uintptr_t kSortOpaqueElements                = 0x0081EEA0;
+    /// Change the transparent-element ordering, the usual fix when modern models draw their alpha
+    /// batches in the wrong order. __cdecl, caller-cleaned.
+    constexpr uintptr_t kSortTransparentElements           = 0x0081EF30;
+    /// Rewrite the vertex/pixel shader pair chosen for a single draw element just before it is sorted
+    /// and drawn. __stdcall, 1 stack arg.
+    constexpr uintptr_t kSceneComputeElementShaders        = 0x0081F1D0;
+    /// Intercept the sampler binding for every model batch, the hook for injecting extra maps or
+    /// overriding a texture per batch. __thiscall, caller-cleaned.
+    constexpr uintptr_t kSetupBatchTextures                = 0x0081F450;
+    /// Choose which vertex stream a batch draws from, including the fixed-function versus programmable
+    /// split. __stdcall, 1 stack arg.
+    constexpr uintptr_t kUploadBatchVertices               = 0x0081F700;
+    /// Observe and adjust model cloning, which is how mirrored and preview models are spawned from an
+    /// existing instance. __thiscall, 2 stack args.
+    constexpr uintptr_t kSceneDuplicateModel               = 0x0081F970;
+    /// Rewrite the light and ambient constants uploaded for each model batch, the entry point for a
+    /// modern lighting model on characters and doodads. __thiscall, caller-cleaned.
+    constexpr uintptr_t kSetupBatchLighting                = 0x0081FB10;
+    /// Take over the projected-texture batch path, which is how decals and projected effects land on
+    /// models. __thiscall, caller-cleaned.
+    constexpr uintptr_t kDrawBatchProjected                = 0x00820720;
+    /// Own the ribbon draw call and its state, needed to give trails a different blend or shader.
+    /// __thiscall, caller-cleaned.
+    constexpr uintptr_t kDrawRibbonBatch                   = 0x00820F40;
+    /// Reach the merged multi-emitter particle draw, the hot path where particle batching can be
+    /// widened or instanced. __thiscall, 4 stack args.
+    constexpr uintptr_t kDrawBatchedParticles              = 0x00821100;
+    /// Own the per-emitter particle draw, letting an extension change particle blending or route it to
+    /// another pass. __thiscall, 4 stack args.
+    constexpr uintptr_t kDrawParticleBatch                 = 0x008214E0;
+    /// Wrap the whole per-frame model animation pass, giving an extension one place to add, skip or
+    /// time-scale model updates. __thiscall, 1 stack arg.
+    constexpr uintptr_t kSceneAnimate                      = 0x00821A20;
+    /// Reach the element loop that actually issues every model, particle and ribbon draw, for per-
+    /// element filtering or reordering. __thiscall, 4 stack args.
+    constexpr uintptr_t kSceneRenderDraw                   = 0x00823130;
+    /// Bracket the entire M2 draw pass, so an extension can push and restore its own render state
+    /// around all model rendering. __thiscall, 1 stack arg.
+    constexpr uintptr_t kSceneDraw                         = 0x00823CB0;
+
+    // shared-model load, build and teardown
+    /// Pair with the release hook to keep an extension's own per-shared-model table exactly in step
+    /// with the client's refcounting. __thiscall, caller-cleaned.
+    constexpr uintptr_t kSharedAddRef                      = 0x00835970;
+    /// Shared-model refcount step, shape shared by kSharedAddRef and kSharedRelease: native this-in-ECX,
+    /// no stack arguments. A reference is what keeps a shared model resident -- dropping to zero does not
+    /// free it outright but parks it on the cache's reclaim list, where the next reference revives it in
+    /// place and a later sweep is free to take it instead. Holding one past the model that acquired it is
+    /// therefore the way to guarantee a variant stays loaded, and the only way to leak one.
+    using M2_SharedRefFn = void(__fastcall*)(void* shared, void* edx);
+    /// Insert an extension continuation into the load-completion chain of a shared model without
+    /// polling. __thiscall, 1 stack arg.
+    constexpr uintptr_t kSharedCallbackWhenLoaded          = 0x008359C0;
+    /// Own the index-buffer upload for a shared model, the place a 32-bit or re-split index scheme has
+    /// to be installed. __thiscall, caller-cleaned.
+    constexpr uintptr_t kSharedSetIndices                  = 0x008360A0;
+    /// Own the vertex-buffer upload for a shared model, including its vertex format choice, before any
+    /// instance draws. __thiscall, 1 stack arg.
+    constexpr uintptr_t kSharedSetVertices                 = 0x008362B0;
+    /// Catch release of a model's GPU vertex and index pools, needed to keep extension-owned buffers
+    /// from outliving them. __thiscall, caller-cleaned.
+    constexpr uintptr_t kSharedDestroyBuffers              = 0x008368B0;
+    /// Resize the per-instance array a shared model hands to its model instances, the hook for raising
+    /// instance limits. __thiscall, 1 stack arg.
+    constexpr uintptr_t kSharedAllocInstances              = 0x00836DF0;
+    /// Rewrite how per-batch texture values collapse into texture combos, the step that must change
+    /// when a model carries more textures per batch than stock. __thiscall, caller-cleaned.
+    constexpr uintptr_t kSharedConvertTextureCombos        = 0x00837250;
+    /// Control which texture-combo index each render batch ends up pointing at, letting an extension
+    /// re-bind batch materials wholesale. __thiscall, caller-cleaned.
+    constexpr uintptr_t kSharedAssignBatchTextureCombos    = 0x008374A0;
+    /// Override the per-batch shader specialization the client picks at load time, the entry point for
+    /// modern M2 shader IDs. __thiscall, caller-cleaned.
+    constexpr uintptr_t kSharedSubstituteSpecializedShaders = 0x00837680;
+    /// Parse a streamed low-priority .anim payload yourself, which is required when the animation file
+    /// uses a modern layout. __thiscall, 2 stack args.
+    constexpr uintptr_t kSharedFinishLowPrioritySequence   = 0x0083CA90;
+    /// Take over the read request for a model's main file, which is where a modern-format loader must
+    /// divert to its own parser. __thiscall, 3 stack args.
+    constexpr uintptr_t kSharedLoad                        = 0x0083D410;
+    /// Free extension-side allocations hung off a shared model at the single point where the client
+    /// tears the object down. __thiscall, caller-cleaned.
+    constexpr uintptr_t kSharedDestroy                     = 0x0083D5B0;
+    /// Track shared-model refcount drops so extension-owned side data attached to a model can be freed
+    /// at the right moment. __thiscall, caller-cleaned.
+    constexpr uintptr_t kSharedRelease                     = 0x0083DC90;
 }

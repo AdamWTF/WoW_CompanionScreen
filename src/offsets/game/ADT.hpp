@@ -553,4 +553,346 @@ namespace wxl::offsets::game::adt
     static_assert(offsetof(AreaLow, mareData)     == kOffAreaLowMareData,     "AreaLow.mareData");
     static_assert(offsetof(AreaLow, mahoData)     == kOffAreaLowMahoData,     "AreaLow.mahoData");
 #pragma pack(pop)
+
+    // Chunk visibility and the low-detail (WDL) horizon
+    /// Resolves which liquid the camera is in/under each frame -- the hook for underwater state, fog
+    /// and camera-liquid effects driven by terrain water. __cdecl, caller-cleaned.
+    constexpr uintptr_t kUpdateViewerLiquid                = 0x00790920;
+    /// The only per-frame consumer of the WDL low-detail tile grid -- the hook for changing how (or
+    /// whether) the distant horizon terrain is culled and drawn. __cdecl, caller-cleaned.
+    constexpr uintptr_t kCullHorizon                       = 0x00791980;
+    /// The visibility gate for terrain liquid instances specifically, separate from the terrain-surface
+    /// cull. __cdecl, caller-cleaned.
+    constexpr uintptr_t kCullLiquidChunks                  = 0x007935A0;
+    /// Owns the per-slot chunk visibility walk and the render-ready link -- a detour can add chunks to,
+    /// or remove them from, this frame's terrain list wholesale. __cdecl, caller-cleaned.
+    constexpr uintptr_t kCullChunks                        = 0x00799D40;
+
+    // Ground effects / detail doodads
+    /// Brackets the entire ground-effect draw pass; state set here is the one place that affects every
+    /// clutter instance in the frame. __cdecl, caller-cleaned.
+    constexpr uintptr_t kRenderDetailDoodads               = 0x007984A0;
+    /// Builds the distance alpha-ramp texture that fades clutter out -- detour to change the ground-
+    /// effect fade curve. __cdecl, caller-cleaned.
+    constexpr uintptr_t kCreateDetailDoodadAlphaRamp       = 0x007B11B0;
+    /// Teardown of the detail-doodad model set, symmetric with the model resolve above. __cdecl,
+    /// caller-cleaned.
+    constexpr uintptr_t kDestroyDetailDoodadModels         = 0x007B1380;
+    /// The ground-effect subsystem init (pools, heaps, shader handles) -- a place to enlarge the
+    /// detail-doodad budget before anything allocates. __cdecl, caller-cleaned.
+    constexpr uintptr_t kInitDetailDoodads                 = 0x007B2760;
+    /// Per-frame rebuild of the detail-doodad vertex/index pools, gated on the dirty flag at 0x00D1C4C0
+    /// -- hook to instrument or resize the clutter pools. __cdecl, caller-cleaned.
+    constexpr uintptr_t kUpdateDetailDoodadPools           = 0x007B2A80;
+    /// The ground-effect render state and shader selection block -- the place to substitute a custom
+    /// detail-doodad shader. __cdecl, caller-cleaned.
+    constexpr uintptr_t kSetupDetailDoodadRenderState      = 0x007B2D30;
+    /// The per-detail-doodad asset load, where the model path is built and requested. __thiscall,
+    /// caller-cleaned.
+    constexpr uintptr_t kLoadDetailDoodadData              = 0x007B3050;
+    /// The leaf that places one clutter instance (position, scale, rotation, colour) -- the finest-
+    /// grain hook for ground-effect placement. __thiscall, 7 stack args.
+    constexpr uintptr_t kAddDetailDoodadInstance           = 0x007B31E0;
+    /// Index-to-model resolution for detail doodads -- one detour redirects every ground-effect model
+    /// lookup. __cdecl, caller-cleaned.
+    constexpr uintptr_t kResolveDetailDoodadModel          = 0x007B3530;
+    /// Resolves the doodad model set a chunk's ground effects need -- the seam for substituting modern
+    /// detail-doodad models. __thiscall, caller-cleaned.
+    constexpr uintptr_t kLoadChunkDetailDoodadModels       = 0x007D05F0;
+    /// The whole ground-effect placement for one chunk (GroundEffectTexture/Doodad lookup, density,
+    /// per-cell scatter) -- the hook for custom or denser ground clutter. __thiscall, caller-cleaned.
+    constexpr uintptr_t kBuildChunkDetailDoodads           = 0x007D3390;
+    /// The visibility-driven "spawn this chunk's detail-doodad instance" gate -- hook to control
+    /// ground-effect pop-in per chunk. __thiscall, caller-cleaned.
+    constexpr uintptr_t kEnsureChunkDetailDoodadInst       = 0x007D3FE0;
+
+    // Per-chunk terrain draw and the terrain render passes
+    /// Brackets the solid terrain sub-pass, so an extension can add its own full-terrain overlay pass
+    /// at the right point in the frame. __cdecl, caller-cleaned.
+    constexpr uintptr_t kRenderChunksSolid                 = 0x00793B10;
+    /// An already-wired, normally-inert per-chunk overlay pass an extension can take over for zone/area
+    /// visualization without adding a pass of its own. __cdecl, caller-cleaned.
+    constexpr uintptr_t kRenderChunksZoneDebug             = 0x00793C30;
+    /// The bucketed single-pass terrain loop (the one that binds the terrain pixel shader per layer-
+    /// count bucket) -- hook to reorder or filter buckets. __cdecl, caller-cleaned.
+    constexpr uintptr_t kRenderChunksSinglePass            = 0x007989C0;
+    /// The whole terrain pass in one bracket -- set up and restore render state, or skip terrain
+    /// entirely, around every chunk of the frame. __cdecl, caller-cleaned.
+    constexpr uintptr_t kRenderChunks                      = 0x00798DA0;
+    /// Builds the shared terrain vertex-shader constant block at 0x00D250A0 once per pass -- the place
+    /// to reserve or repurpose terrain VS registers safely. __cdecl, caller-cleaned.
+    constexpr uintptr_t kInitTerrainVertexShaderConstants  = 0x007CFBE0;
+    /// Where a chunk's vertex and index buffers are locked/filled for the frame -- the seam for
+    /// injecting extra vertex attributes. __thiscall, 2 stack args.
+    constexpr uintptr_t kPrepareChunkBuffers               = 0x007D02C0;
+    /// The branch that decides a chunk uses the shared streaming buffer pool instead of its own block
+    /// -- hook to force one buffering strategy. __thiscall, caller-cleaned.
+    constexpr uintptr_t kUseStreamingChunkBuffers          = 0x007D0420;
+    /// Called from all three terrain passes, so it is the one hook that sees every chunk about to be
+    /// drawn regardless of which pass is active. __thiscall, 1 stack arg.
+    constexpr uintptr_t kSetupChunkRender                  = 0x007D04A0;
+    /// The untextured/solid terrain draw body (zone-fill and debug overlays), a clean place to draw
+    /// per-chunk overlays in world space. __thiscall, caller-cleaned.
+    constexpr uintptr_t kDrawChunkSolid                    = 0x007D3010;
+    /// Shader-path counterpart of the solid draw -- needed so an overlay extension behaves identically
+    /// on both graphics paths. __thiscall, caller-cleaned.
+    constexpr uintptr_t kDrawChunkSolidShader              = 0x007D3240;
+    /// The last per-chunk seam before the chunk is handed to a draw body -- layers, buffers and loaded-
+    /// state are finalized here. __thiscall, caller-cleaned.
+    constexpr uintptr_t kPrepareChunkRender                = 0x007D3F70;
+
+    // Terrain CVar callbacks (callback-slot targets, no CALL xrefs by design)
+    /// Intercept terrain LOD changes (it writes the enable bits at 0x00CD774C) so an extension can pin
+    /// or extend terrain detail levels. __cdecl, caller-cleaned.
+    constexpr uintptr_t kTerrainLodCallback                = 0x0078D610;
+    /// Intercept the terrain-shadow enable bit so a custom shadow path can own that toggle. __cdecl,
+    /// caller-cleaned.
+    constexpr uintptr_t kTerrainShadowsCallback            = 0x0078D660;
+    /// The toggle that selects 4444 vs 8888 MCAL alpha textures -- hook it to force the bit depth a
+    /// modern alpha source needs. __cdecl, caller-cleaned.
+    constexpr uintptr_t kTerrainAlphaBitDepthCallback      = 0x0078DA50;
+    /// Intercept the clutter density clamp before it reaches the known density-clamp immediates,
+    /// allowing densities the stock UI cannot express. __cdecl, caller-cleaned.
+    constexpr uintptr_t kGroundEffectDensityCallback       = 0x0078DAB0;
+    /// Intercept the clutter draw-distance clamp (it feeds the World ground-effect distance globals),
+    /// the companion to the density callback. __cdecl, caller-cleaned.
+    constexpr uintptr_t kGroundEffectDistCallback          = 0x0078DB10;
+
+    // Terrain chunk build (MCVT / MCNR / MCLY / MCRF / MCSE / index+vertex buffers)
+    /// Fires when a resident chunk releases its GPU/pool resources -- the correct place to release
+    /// extension resources keyed to that chunk. __thiscall, caller-cleaned.
+    constexpr uintptr_t kPurgeChunk                        = 0x007C3370;
+    /// Owns the triangle index emission and therefore the MCNK hole mask -- detour it to add, remove or
+    /// reshape terrain holes at build time. __thiscall, 2 stack args.
+    constexpr uintptr_t kBuildChunkIndices                 = 0x007C3B60;
+    /// Rewrite the 145-entry XY template grid at 0x00D25498 that every chunk's vertex build indexes,
+    /// i.e. change terrain vertex layout globally in one place. __cdecl, caller-cleaned.
+    constexpr uintptr_t kInitChunkVertexTable              = 0x007C3C60;
+    /// One-shot seam to install terrain-wide state (the geo-to-tex ratio at 0x00D25488 and the render-
+    /// chunk pool init) before any tile is parsed. __cdecl, caller-cleaned.
+    constexpr uintptr_t kInitTerrainChunkSystem            = 0x007C3D90;
+    /// Post-hook to rewrite the world-space MCVT heights actually written into the vertex buffer
+    /// (terrain deformation, height remap) without touching the file data. __thiscall, 2 stack args.
+    constexpr uintptr_t kBuildChunkVerticesWorldHigh       = 0x007C3F30;
+    /// Same as the high variant but for the reduced-detail vertex format, so a height override stays
+    /// consistent when terrain LOD drops. __thiscall, 2 stack args.
+    constexpr uintptr_t kBuildChunkVerticesWorldLow        = 0x007C4620;
+    /// Intercept the chunk-local (instanced-transform) vertex build used by the streaming buffer path.
+    /// __thiscall, 1 stack arg.
+    constexpr uintptr_t kBuildChunkVerticesLocalHigh       = 0x007C4960;
+    /// Low-detail counterpart of the local vertex build; needed to keep a vertex-format extension
+    /// complete across all four builders. __thiscall, 1 stack arg.
+    constexpr uintptr_t kBuildChunkVerticesLocalLow        = 0x007C4F10;
+    /// The index-range/primitive-count wrapper that feeds the draw batch; a detour can retarget a
+    /// chunk's index sub-range (partial-chunk draws, LOD stitching). __stdcall, 2 stack args.
+    constexpr uintptr_t kBuildChunkIndexRange              = 0x007C51B0;
+    /// Post-hook to widen or replace the chunk AABB and bounding sphere that the frustum cull and the
+    /// intersect queries both consume. __thiscall, caller-cleaned.
+    constexpr uintptr_t kBuildChunkBounds                  = 0x007C5220;
+    /// The single dispatcher that picks which of the four vertex builders runs -- detour it to force
+    /// one vertex format (world/local, high/low) for all terrain. __stdcall, 3 stack args.
+    constexpr uintptr_t kBuildChunkVertices                = 0x007C54C0;
+    /// The single builder that turns both MCLQ and normalized MH2O into live liquid instances -- the
+    /// place to add a liquid layer or override its type/height. __thiscall, 1 stack arg.
+    constexpr uintptr_t kBuildChunkLiquids                 = 0x007C5690;
+    /// Earliest per-chunk seam -- attach extension-owned side data to a chunk object the moment it
+    /// exists, before any parse. __thiscall, caller-cleaned.
+    constexpr uintptr_t kConstructChunk                    = 0x007C5C50;
+    /// Symmetric teardown point for anything attached at construct time; also the last moment a chunk's
+    /// sub-chunk pointers are still valid. __thiscall, caller-cleaned.
+    constexpr uintptr_t kDestroyChunk                      = 0x007C5E50;
+    /// The MCSE consumer -- an extension can inject or suppress per-chunk ambient sound emitters.
+    /// __thiscall, 1 stack arg.
+    constexpr uintptr_t kBuildChunkSoundEmitters           = 0x007C6060;
+    /// The MCRF walk that spawns a chunk's doodad and map-object references -- detour to filter, add or
+    /// reroute per-chunk placements. __thiscall, 4 stack args.
+    constexpr uintptr_t kBuildChunkRefs                    = 0x007C6150;
+    /// Hook to re-select or inject the dynamic lights a terrain chunk considers when a light moves.
+    /// __thiscall, caller-cleaned.
+    constexpr uintptr_t kUpdateChunkLights                 = 0x007C65A0;
+
+    // Terrain liquid geometry (MCLQ / MH2O instances)
+    /// The distance-driven decision to drop a liquid instance's GPU resources -- hook to pin water
+    /// geometry resident. __thiscall, caller-cleaned.
+    constexpr uintptr_t kUpdateChunkLiquidPurge            = 0x007CDE30;
+    /// The AABB the liquid cull and the liquid raycast both use -- widen it and custom water stops
+    /// being culled early. __thiscall, 1 stack arg.
+    constexpr uintptr_t kGetChunkLiquidBounds              = 0x007CDE80;
+    /// Computes the liquid instance's XY vertex extents from the owning chunk -- the place to change
+    /// water tile granularity. __thiscall, caller-cleaned.
+    constexpr uintptr_t kBuildChunkLiquidVertexGrid        = 0x007CDF80;
+    /// The authoritative per-instance water surface height sampler behind swim/submersion checks --
+    /// detour to reshape water levels. __thiscall, 3 stack args.
+    constexpr uintptr_t kGetChunkLiquidSurfaceHeight       = 0x007CE0B0;
+    /// The per-tile liquid existence bitmap test used by height, intersect and build alike -- one
+    /// detour changes water coverage everywhere consistently. __thiscall, 2 stack args.
+    constexpr uintptr_t kChunkLiquidTileExists             = 0x007CE1F0;
+    /// Emits water collision triangles -- the seam for making custom liquid surfaces
+    /// collidable/raycastable. __thiscall, 4 stack args.
+    constexpr uintptr_t kGetChunkLiquidTris                = 0x007CE5D0;
+    /// Earliest per-liquid-instance seam for attaching extension state (matched by the pooled free at
+    /// 0x007C04A0 below). __thiscall, caller-cleaned.
+    constexpr uintptr_t kConstructChunkLiquid              = 0x007CEE10;
+    /// Builds the liquid draw batch (vertices, indices, material) for one chunk -- the seam for custom
+    /// water tessellation or material selection. __thiscall, caller-cleaned.
+    constexpr uintptr_t kBatchChunkLiquid                  = 0x007CF200;
+    /// Pairs with the create above; the point where a terrain buffer block returns to the free list.
+    /// __cdecl, caller-cleaned.
+    constexpr uintptr_t kFreeChunkBuffer                   = 0x007CF790;
+    /// The lazy "build my batch if I don't have one" gate -- hook to invalidate or force-rebuild a
+    /// chunk's water geometry at will. __thiscall, caller-cleaned.
+    constexpr uintptr_t kPrepareChunkLiquidRender          = 0x007CF9A0;
+
+    // Terrain queries: area id, ground type, shadow, liquid, height and collision
+    /// Walks a tile's chunks to find nearby liquid for ambient sound emitters -- the hook for custom
+    /// water ambience. __thiscall, 3 stack args.
+    constexpr uintptr_t kQueryChunkLiquidSounds            = 0x0079C360;
+    /// Resolves a world position to the MCNK areaId -- the hook for remapping zones/subzones per chunk
+    /// without editing the ADT. __cdecl, caller-cleaned.
+    constexpr uintptr_t kQueryChunkAreaId                  = 0x007A0490;
+    /// Maps a position to the chunk's terrain type (footstep sounds, footprints) -- hook to add ground
+    /// types the DBC does not have. __cdecl, caller-cleaned.
+    constexpr uintptr_t kQueryGroundType                   = 0x007A0530;
+    /// Samples the baked MCSH terrain shadow at a position -- the hook for feeding a custom shadow
+    /// source to gameplay/lighting consumers. __cdecl, caller-cleaned.
+    constexpr uintptr_t kQueryTerrainShadow                = 0x007A06A0;
+    /// The terrain-side liquid probe (type + surface height at a point) that feeds swim state and
+    /// liquid status. __cdecl, caller-cleaned.
+    constexpr uintptr_t kQueryTerrainLiquid                = 0x007A0820;
+    /// The combined terrain+map-object liquid status resolver -- one detour changes what the whole
+    /// client thinks is water at a point. __cdecl, caller-cleaned.
+    constexpr uintptr_t kQueryLiquidStatus                 = 0x007A0B00;
+    /// The terrain ray/segment intersect entry -- hook to add or veto terrain hits for picking, camera
+    /// collision and line-of-sight. __cdecl, caller-cleaned.
+    constexpr uintptr_t kIntersectTerrain                  = 0x007A39F0;
+    /// The finest terrain collision granularity (a single MCVT cell's two triangles) -- the exact place
+    /// to inject sub-chunk height overrides. __cdecl, caller-cleaned.
+    constexpr uintptr_t kGetSubChunkTri                    = 0x007A6260;
+    /// Per-chunk triangle emission, the level below the terrain-wide collector; hook to alter one
+    /// chunk's collision mesh. __cdecl, caller-cleaned.
+    constexpr uintptr_t kGetChunkTris                      = 0x007A6630;
+    /// Collects terrain triangles in a region -- the entry an extension detours to expose modified
+    /// terrain geometry to physics/pathing consumers. __cdecl, caller-cleaned.
+    constexpr uintptr_t kGetTerrainTris                    = 0x007A6830;
+    /// Snaps a world object onto the terrain sub-chunk under it -- the hook for custom ground-snapping
+    /// behavior. __cdecl, caller-cleaned.
+    constexpr uintptr_t kSnapObjectToSubChunk              = 0x007B4A50;
+    /// Position-to-chunk resolution used when linking static entities into the terrain grid, distinct
+    /// from the already-known chunk lookup. __cdecl, caller-cleaned.
+    constexpr uintptr_t kLinkEntityGetChunk                = 0x007C1660;
+    /// The cheapest of the three chunk intersect entries -- a good early-out hook for terrain hit
+    /// filtering. __thiscall, 4 stack args.
+    constexpr uintptr_t kIntersectChunkBox                 = 0x007D8730;
+    /// Per-chunk triangle-level intersect; a detour here can substitute custom collision triangles for
+    /// one chunk. __thiscall, 3 stack args.
+    constexpr uintptr_t kIntersectChunkRay                 = 0x007D8840;
+    /// The volume/box variant of the per-chunk intersect, needed alongside the ray variant for complete
+    /// collision coverage. __thiscall, 3 stack args.
+    constexpr uintptr_t kIntersectChunkVolume              = 0x007D8E00;
+
+    // Terrain shadow map bind
+    /// Binds the projected shadow-map textures and constants for the terrain pass specifically -- the
+    /// hook for a custom terrain shadowing scheme. __cdecl, caller-cleaned.
+    constexpr uintptr_t kBindTerrainShadowMap              = 0x00874660;
+
+    // Texture layers, alpha maps and terrain shadow maps (render-chunk side)
+    /// Teardown counterpart of the layer build -- release any extension-side per-layer resource exactly
+    /// when the client does. __thiscall, caller-cleaned.
+    constexpr uintptr_t kFreeChunkLayers                   = 0x007B7350;
+    /// The "are all my layer textures resident yet" gate -- a detour can hold a chunk back or force it
+    /// ready while streaming a modern texture set. __thiscall, caller-cleaned.
+    constexpr uintptr_t kUpdateChunkLayersLoaded           = 0x007B73E0;
+    /// Decides which lights reach a terrain chunk's constant block -- the hook for custom terrain
+    /// lighting selection. __stdcall, 1 stack arg.
+    constexpr uintptr_t kSelectChunkLights                 = 0x007B7BD0;
+    /// The combined alpha+MCSH unpack -- the single place to change how the baked terrain shadow bitmap
+    /// is folded into the alpha channel. __thiscall, 9 stack args.
+    constexpr uintptr_t kUnpackLayerAlphaShadowBits        = 0x007B87F0;
+    /// The format dispatcher for MCAL decompression (4444/8888, mip0/mip1, fixed/unfixed) -- one detour
+    /// serves every alpha bit depth from a modern source. __thiscall, 6 stack args.
+    constexpr uintptr_t kUnpackLayerAlphaBits              = 0x007B8E20;
+    /// Per-layer seam -- swap the resolved diffuse texture or the layer flags for exactly one MCLY
+    /// entry. __thiscall, 3 stack args.
+    constexpr uintptr_t kCreateChunkLayer                  = 0x007B9250;
+    /// Attach extension state to the draw node (the object holding layer count, flags, layer records
+    /// and the alpha RT) at creation. __thiscall, caller-cleaned.
+    constexpr uintptr_t kConstructRenderChunk              = 0x007B9690;
+    /// The per-chunk entry that materializes all MCLY layer slots -- a detour can add, reorder or drop
+    /// texture layers before any alpha map is unpacked. __thiscall, caller-cleaned.
+    constexpr uintptr_t kCreateChunkLayers                 = 0x007B9770;
+    /// The point where a chunk hands its vertex/index block back to the pooled allocator -- hook to
+    /// track or retain terrain GPU buffers. __thiscall, caller-cleaned.
+    constexpr uintptr_t kFreeRenderChunkBuf                = 0x007B9830;
+    /// Owns the per-layer alpha texture creation path (the one that branches on the big-MCAL MPHD bit),
+    /// so an extension can serve a higher-resolution alpha per layer. __thiscall, 1 stack arg.
+    constexpr uintptr_t kCreateChunkLayerTexture           = 0x007B9890;
+    /// MCSH-only path; a detour can substitute or disable the baked per-chunk shadow bitmap
+    /// independently of the alpha layers. __thiscall, caller-cleaned.
+    constexpr uintptr_t kUnpackChunkShadowBits             = 0x007B9950;
+    /// Builds the combined 4-channel alpha render target the pixel-shader terrain path samples -- the
+    /// hook for replacing the packed alpha atlas wholesale. __thiscall, caller-cleaned.
+    constexpr uintptr_t kCreateChunkShaderTexture          = 0x007B99B0;
+    /// Symmetric teardown for draw-node-keyed extension state. __thiscall, caller-cleaned.
+    constexpr uintptr_t kDestroyRenderChunk                = 0x007B9D60;
+    /// Control the format/size of the per-chunk shadow texture (handle lives at renderChunk+0x88).
+    /// __thiscall, caller-cleaned.
+    constexpr uintptr_t kAllocChunkShadowTexture           = 0x007B9EE0;
+    /// Control the combined alpha render target (renderChunk+0x84) that the shader terrain path binds
+    /// -- e.g. raise its resolution. __thiscall, caller-cleaned.
+    constexpr uintptr_t kAllocChunkShaderTexture           = 0x007B9F90;
+    /// The lazy, draw-time allocator for a chunk's layer textures -- the seam where an extension can
+    /// force allocation of extra layer slots. __thiscall, caller-cleaned.
+    constexpr uintptr_t kAllocChunkLayerTextures           = 0x007BA050;
+    /// Global terrain render-chunk configuration seam (writes the path-selector globals at
+    /// 0x00D1D058/0x00D1D06C before any tile loads). __cdecl, caller-cleaned.
+    constexpr uintptr_t kInitRenderChunkSystem             = 0x007BA340;
+    /// Terrain-wide shutdown seam, paired with the init above. __cdecl, caller-cleaned.
+    constexpr uintptr_t kDestroyRenderChunkSystem          = 0x007BA5A0;
+    /// The per-frame terrain vertex/index pool maintenance -- the place to enlarge or instrument the
+    /// terrain buffer budget. __cdecl, caller-cleaned.
+    constexpr uintptr_t kUpdateRenderChunkPools            = 0x007BA600;
+
+    // Tile-area lifecycle, pooling and the per-frame terrain update lists
+    /// The global "drop every chunk's clutter instance" sweep that runs when the detail-doodad pools
+    /// are rebuilt -- the invalidation seam for custom clutter. __cdecl, caller-cleaned.
+    constexpr uintptr_t kClearChunkDetailDoodads           = 0x0079E730;
+    /// The global terrain GPU-buffer invalidation sweep (device reset / pool rebuild) -- the hook to
+    /// also drop extension-owned terrain buffers. __cdecl, caller-cleaned.
+    constexpr uintptr_t kClearChunkBufs                    = 0x0079E780;
+    /// The per-tile streaming update that decides which chunks get prepared or purged this frame, i.e.
+    /// the terrain LOD/residency driver. __cdecl, caller-cleaned.
+    constexpr uintptr_t kUpdateTileArea                    = 0x007B4DF0;
+    /// The per-frame drain of the pending-liquid-update list -- a detour can queue or veto liquid
+    /// instance updates. __cdecl, caller-cleaned.
+    constexpr uintptr_t kProcessChunkLiquidUpdates         = 0x007B5420;
+    /// The per-frame drain of pending ground-effect updates, the correct place to batch custom clutter
+    /// work. __cdecl, caller-cleaned.
+    constexpr uintptr_t kProcessDetailDoodadUpdates        = 0x007B54A0;
+    /// The per-frame drain of pending render-chunk (layer/buffer) updates -- hook to throttle or
+    /// prioritize terrain texture rebuilds. __cdecl, caller-cleaned.
+    constexpr uintptr_t kProcessRenderChunkUpdates         = 0x007B5500;
+    /// Pairs with the chunk allocator; the last point a chunk pointer is valid before it returns to the
+    /// pool free list. __cdecl, caller-cleaned.
+    constexpr uintptr_t kFreeChunk                         = 0x007C0180;
+    /// Releases a chunk's liquid instances; the symmetric teardown for anything keyed to a liquid
+    /// instance. __cdecl, caller-cleaned.
+    constexpr uintptr_t kFreeChunkLiquid                   = 0x007C04A0;
+    /// The constructor behind the already-known low-detail tile allocator -- the place to widen or pre-
+    /// seed a WDL tile object. __thiscall, caller-cleaned.
+    constexpr uintptr_t kConstructAreaLow                  = 0x007C06E0;
+    /// The pool allocator for chunk objects -- a detour can over-allocate to carry extension fields
+    /// past the stock object size. __cdecl, caller-cleaned.
+    constexpr uintptr_t kAllocChunk                        = 0x007C0830;
+    /// The liquid-instance pool allocator, and the only place both the MCLQ and MH2O branches converge
+    /// on allocation. __cdecl, caller-cleaned.
+    constexpr uintptr_t kAllocChunkLiquid                  = 0x007C0980;
+    /// The tile teardown path that retires the in-flight async read at area+0x70 -- essential when an
+    /// extension serves tile data asynchronously. __thiscall, caller-cleaned.
+    constexpr uintptr_t kCancelTileAreaLoad                = 0x007C35F0;
+    /// Bulk chunk teardown for a tile (distance-driven), so an extension can release per-tile resources
+    /// in one call instead of per chunk. __thiscall, 1 stack arg.
+    constexpr uintptr_t kPurgeTileAreaChunks               = 0x007D6A90;
+    /// The very first moment a tile-area object exists -- attach extension per-tile state before the
+    /// filename or the file buffer are set. __thiscall, caller-cleaned.
+    constexpr uintptr_t kConstructTileArea                 = 0x007D7050;
 }

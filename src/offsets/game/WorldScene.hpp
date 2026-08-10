@@ -88,4 +88,23 @@ namespace wxl::offsets::game::worldscene
     constexpr uintptr_t kCullMapObjDefGroupFromExterior = 0x007B3A10;
     using CullMapObjDefGroupFromExteriorFn = void(__fastcall*)(void* defInstance, void* edx, void* groupEntry,
                                                                  float* frustumCorners, int flag);
+
+    // World scene and view setup
+    /// Object fade-out distance in one call - the lever an extension needs to push doodad/object
+    /// popping out with a raised far clip. __cdecl, caller-cleaned.
+    constexpr uintptr_t kFadeDistanceScale                 = 0x0078F570;
+    /// The per-frame decision of which tile/group the viewer occupies, which drives interior vs
+    /// exterior and the whole cull path - the hook for correcting viewer placement in modern WMOs.
+    /// __cdecl, caller-cleaned.
+    constexpr uintptr_t kViewerLocate                      = 0x00795D40;
+    /// Releases the scene's default textures and sort tables - matching teardown for Scene.Initialize.
+    /// __cdecl, caller-cleaned.
+    constexpr uintptr_t kDestroy                           = 0x00798310;
+    /// Where the scene's default textures and cull parameters are seeded - the place to substitute
+    /// defaults once instead of per frame. __cdecl, caller-cleaned.
+    constexpr uintptr_t kInitialize                        = 0x007997D0;
+    /// The whole world scene draw in one frame - the outermost place to wrap terrain+WMO+doodad
+    /// rendering with extension render state, above every per-pass hook already recorded. __cdecl,
+    /// caller-cleaned.
+    constexpr uintptr_t kRender                            = 0x0079A870;
 }

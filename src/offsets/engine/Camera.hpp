@@ -71,4 +71,21 @@ namespace wxl::offsets::engine::camera
     static_assert(offsetof(SimpleCamera, up)       == kCameraUp,       "SimpleCamera.up");
     static_assert(offsetof(SimpleCamera, fov)      == kCameraFov,      "SimpleCamera.fov");
 #pragma pack(pop)
+
+    // Camera and view
+    /// The world projection setup, ahead of the already-known matrix build - the place to change FOV or
+    /// aspect handling for ultrawide or custom projections. __cdecl, caller-cleaned.
+    constexpr uintptr_t kWorldProjectionSetup              = 0x004BF0C0;
+    /// The actual screen-to-world ray construction under the known public wrapper - the right level to
+    /// correct the ray for a modified projection. __cdecl, caller-cleaned.
+    constexpr uintptr_t kScreenRayBuild                    = 0x004BF0F0;
+    /// The small per-frame test that gates the underwater screen effect and audio - a modern-water
+    /// extension can answer it from its own volumes. __thiscall, caller-cleaned.
+    constexpr uintptr_t kUnderwaterCheck                   = 0x005FE7B0;
+    /// The highest-fanout camera placement call in the client (12 sites) - one detour observes or
+    /// overrides every camera repositioning. __thiscall, 3 stack args.
+    constexpr uintptr_t kViewSet                           = 0x00603330;
+    /// The per-frame camera advance, above matrix construction - the place to inject camera shake,
+    /// offsets or a scripted path. __cdecl, caller-cleaned.
+    constexpr uintptr_t kUpdateCallback                    = 0x00607B00;
 }
