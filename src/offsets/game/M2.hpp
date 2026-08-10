@@ -439,6 +439,37 @@ namespace wxl::offsets::game::m2
                                              float* translate3, float unk1, float unk2);
     constexpr uintptr_t kRenderBatchShadowMap = 0x00829BA0;
 
+    // RenderBatchShadowMap's co-instance run list: drawList->data (the scene's flat sorted batch
+    // array, the same array RenderModelBatchListShadowMap's own outer loop walks) is a flat array of
+    // 3-dword records, stride kShadowRunStride, one record per co-instance slot. A run of N
+    // co-instances occupies N CONSECUTIVE records starting at drawIndex: record[i] = {0: instance
+    // pointer, 1: unused by this read, 2: requested co-instance count -- only the head record
+    // (i == drawIndex) carries a meaningful count}. Confirmed via disasm at both ends:
+    // RenderBatchShadowMap itself reads listData[drawIndex*3+2] before calling AllocInstances
+    // (0x00829c1b), and its caller RenderModelBatchListShadowMap re-reads the SAME field right after
+    // RenderBatchShadowMap returns (0x00829f18) to advance its own run cursor -- the exact
+    // DrawBatchDoodad / M2Element+0x1C shape (kM2ElementRunLengthField, above), so a splitting hook
+    // here must restore this field before returning, for the same reason. `instance`, `skinSection`,
+    // `batchMode`, `skinBatch`, `previousSection` are all confirmed shared/fixed for the whole run
+    // (instance->model's CM2Shared, derived from instance+0x2C, never varies per co-instance slot;
+    // boneCount comes from the fixed skinSection) -- only drawIndex needs to change per sub-call.
+    constexpr size_t kShadowRunStride     = 3; // dwords per co-instance run record
+    constexpr size_t kShadowRunCountField = 2; // dword offset of the "requested count" field
+
+    // AnimateMT's own particle-emitter tick, called unconditionally as a sibling step of the
+    // bone-palette compose (not from any other site -- confirmed via callgraph, its only caller is
+    // AnimateMT itself). Per emitter: evaluates the emitter's own file-side tracks (enabled/rate/
+    // color/etc.) through FUN_0082b270 (bool tracks) / FUN_0082b340 (float tracks), each of which
+    // blends against the attachment bone's CURRENT sequence-assignment state -- reading only
+    // boneStates[bone].{blendWeight, blendSeq, assignedSeq, animIndex} (kOffRtBoneBlendWeight and
+    // neighbors), matching exactly the fields NeedsFullPassReason's MidBlend/MidClamp checks already
+    // gate the Composed decision on, and never a bone's composed world matrix (which ComposeOnly's
+    // own per-bone loop keeps fresh regardless). Whenever those checks let a model reach Composed,
+    // this same state is therefore already correct for this call too -- safe to invoke directly from
+    // the throttled path instead of falling all the way back to a full AnimateMT pass.
+    constexpr uintptr_t kAnimateParticlesMT = 0x0082D2F0;
+    using M2_AnimateParticlesMTFn = void(__thiscall*)(void* instance);
+
     // The scene's per-frame animate walk: a flat singly-linked list of ROOT instances only
     // (kOffInstParent == 0 -- a non-root is animated via its parent's own attachment recursion, never
     // reached from this list directly). Distinct from kOffInstScene (instance -> its scene) and from
