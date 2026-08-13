@@ -111,6 +111,19 @@ namespace
         return ClientProviders();
     }
 
+    std::vector<wxl::runtime::storage::ClientRedirectFn>& ClientRedirects()
+    {
+        static std::vector<wxl::runtime::storage::ClientRedirectFn> v;
+        return v;
+    }
+
+    /** @brief Returns a snapshot of the client redirects safe to iterate without the lock. */
+    std::vector<wxl::runtime::storage::ClientRedirectFn> ClientRedirectsSnapshot()
+    {
+        std::lock_guard<std::mutex> lock(RegistryMutex());
+        return ClientRedirects();
+    }
+
     struct TransformEntry
     {
         std::string suffix; // lowercase, e.g. ".blp"
@@ -352,8 +365,24 @@ namespace
      * @param out      receives the resulting handle.
      * @return 1 on a claim, otherwise the native open result.
      */
+    /// Lets a redirect answer this request with a different file. Runs before everything else so the
+    /// rest of the path, and every consumer past it, only ever sees the name that won.
+    const char* Redirect(const char* name, std::string& scratch)
+    {
+        if (!name) return name;
+        for (wxl::runtime::storage::ClientRedirectFn fn : ClientRedirectsSnapshot())
+        {
+            scratch.clear();
+            if (fn(name, scratch) && !scratch.empty()) return scratch.c_str();
+        }
+        return name;
+    }
+
     int __stdcall OpenDetour(void* archive, const char* name, uint32_t flags, void** out)
     {
+        std::string redirected;
+        name = Redirect(name, redirected);
+
         if (TryServe(archive, name, out)) return 1;
 
         const int result = g_origOpen(archive, name, flags, out);
@@ -516,6 +545,13 @@ namespace wxl::runtime::storage
         if (!fn) return;
         std::lock_guard<std::mutex> lock(RegistryMutex());
         ClientProviders().push_back(fn);
+    }
+
+    void RegisterClientRedirect(ClientRedirectFn fn)
+    {
+        if (!fn) return;
+        std::lock_guard<std::mutex> lock(RegistryMutex());
+        ClientRedirects().push_back(fn);
     }
 
     void RegisterClientTransform(const char* suffix, ClientTransformFn fn)

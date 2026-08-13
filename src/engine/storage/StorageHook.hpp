@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace wxl::runtime::storage
@@ -59,6 +60,28 @@ namespace wxl::runtime::storage
      * @param fn  provider callback to register
      */
     void RegisterClientProvider(ClientProvideFn fn);
+
+    /**
+     * @brief Callback type for a client-side name redirect.
+     * @param name  file name the engine asked for
+     * @param out   receives the name to open instead when the redirect claims it
+     * @return true to open `out` in place of `name`, false to leave the request alone
+     */
+    using ClientRedirectFn = bool(*)(const char* name, std::string& out);
+
+    /**
+     * @brief Registers a redirect: answers one name with a different file, without copying bytes.
+     *
+     * This runs before providers and before the native open, so everything downstream sees only the
+     * name it was given. That is what makes it the right tool for swapping a whole asset family at
+     * once: a model's companions are named after the model, so redirecting the request redirects the
+     * skin, the animations and the skeleton with it, and nothing has to agree about it separately.
+     *
+     * A redirect must not claim a name it would produce itself, or the first request loops. Redirects
+     * are checked in registration order and the first claimant wins.
+     * @param fn  redirect callback to register
+     */
+    void RegisterClientRedirect(ClientRedirectFn fn);
 
     /**
      * @brief Callback type for a client-side byte transform.

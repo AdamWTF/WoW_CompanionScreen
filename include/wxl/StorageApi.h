@@ -53,6 +53,15 @@ typedef int(__cdecl* WXL_ProvideFn)(const char* name, const WXL_ByteSink* sink);
  */
 typedef int(__cdecl* WXL_TransformFn)(const char* name, const uint8_t* raw, uint32_t rawLen, const WXL_ByteSink* sink);
 
+/**
+ * @brief Answers a file request with a different name, without moving any bytes.
+ * @param name    file name requested by the engine.
+ * @param out     receives the replacement name, NUL-terminated, on a claim.
+ * @param outCap  capacity of @p out in bytes, terminator included.
+ * @return non-zero when this redirect claims @p name and has written @p out.
+ */
+typedef int(__cdecl* WXL_RedirectFn)(const char* name, char* out, uint32_t outCap);
+
 typedef struct WXL_StorageApi
 {
     uint32_t structSize;
@@ -77,6 +86,20 @@ typedef struct WXL_StorageApi
      * @param fn      transform callback.
      */
     void(__cdecl* RegisterClientTransform)(const char* suffix, WXL_TransformFn fn);
+
+    /**
+     * @brief Registers a client-side name redirect, consulted before providers and before any read.
+     *
+     * Where a provider answers a name with bytes, this answers it with a different file, so nothing
+     * is copied and everything downstream sees only the name that won. That is what suits it to
+     * swapping a whole asset family at once: a model's skin, animations and skeleton are all named
+     * after the model, so redirecting each request redirects the set without them having to agree.
+     *
+     * A redirect must decline any name it would itself produce, or the first request never settles.
+     * Redirects are tried in registration order; the first to claim a name wins.
+     * @param fn  redirect callback.
+     */
+    void(__cdecl* RegisterClientRedirect)(WXL_RedirectFn fn);
 } WXL_StorageApi;
 
 #ifdef __cplusplus

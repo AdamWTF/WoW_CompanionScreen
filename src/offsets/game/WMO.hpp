@@ -37,6 +37,9 @@ namespace wxl::offsets::game::wmo
     // hands to kGroupWalk as `cursor`, computable directly from groupBuffer without waiting for
     // kGroupParse to run -- what lets WmoAsync.cpp's background stage1 call WalkGroupModern itself.
     constexpr size_t kGroupWalkCursorOffset = 0x58;
+    constexpr size_t kGroupBufFlags        = 0x1C; // u32   -> kOffGroupFlags
+    constexpr size_t kGroupBufBbox         = 0x20; // 6 x f -> kOffGroupBbox
+    constexpr size_t kGroupBufTransBatches = 0x3C; // u16   -> kOffGroupTransBatchCount
 
     // --- the actual chunk walkers (the code a native modern reader replaces) ---
     // ROOT chunk walker. Positional: it skips MVER blind (+0x0C) then consumes 17 chunks in a fixed
@@ -193,9 +196,6 @@ namespace wxl::offsets::game::wmo
     // MODF record: u16 per-instance scale at +0x3E (factor = value/1024; 0 and 1024 both mean 1.0). The
     // Client treats it as padding and renders every WMO at 1.0.
     constexpr size_t kOffModfScale = 0x3E;
-    // Instance transform matrices (4x4 row-major floats): +0x70 the render rotation basis, +0xB0 the
-    // collision/portal copy. A fresh instance's basis is orthonormal; a uniform 3x3-row scale of both
-    // resizes the rendered and the collided WMO together.
     constexpr size_t kOffInstanceRenderMatrix    = 0x70;
     constexpr size_t kOffInstanceCollisionMatrix = 0xB0;
 

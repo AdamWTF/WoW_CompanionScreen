@@ -72,6 +72,37 @@ namespace wxl::offsets::game::db2
     }
 
     // -------------------------------------------------------------------------
+    // CreatureModelData DBC. Where a displayed model's FILE lives: one string per row and nothing
+    // else that names an asset, which is what makes repointing a model a single pointer write rather
+    // than a row rebuild. The client asserts the shape at load and refuses the file otherwise, so a
+    // replacement array must keep both numbers.
+    // -------------------------------------------------------------------------
+    namespace creaturemodeldata
+    {
+        constexpr uintptr_t kStorageObject = 0x00AD3500; // storage instance (g_creatureModelDataDB)
+        constexpr uintptr_t kRecordCount   = 0x00AD3508; // storage +0x08
+        constexpr uintptr_t kRecordData    = 0x00AD351C; // storage +0x1C, record array base
+        constexpr uint32_t  kColumnCount   = 0x1C;       // 28, asserted by Load
+        constexpr uint32_t  kRowSize       = 0x70;       // 112, asserted by Load
+        // The row's ONLY string: every other column is a raw int. Read relocates just this one by the
+        // string block base, and points it at an empty-string constant when there is no block.
+        constexpr size_t    kOffModelName  = 0x08;       // char* model file path
+    }
+
+    // -------------------------------------------------------------------------
+    // CreatureDisplayInfo DBC. The indirection between a display id and the model row above it.
+    // -------------------------------------------------------------------------
+    namespace creaturedisplayinfo
+    {
+        constexpr uintptr_t kStorageObject = 0x00AD34B8; // storage instance (g_creatureDisplayInfoDB)
+        constexpr uintptr_t kRecordCount   = 0x00AD34C0; // storage +0x08
+        constexpr uintptr_t kRecordData    = 0x00AD34D4; // storage +0x1C, record array base
+        constexpr uint32_t  kColumnCount   = 0x10;       // 16, asserted by Load
+        constexpr uint32_t  kRowSize       = 0x40;       // 64, asserted by Load
+        constexpr size_t    kOffModelId    = 0x04;       // u32 CreatureModelData id
+    }
+
+    // -------------------------------------------------------------------------
     // ChrRaces DBC. Compacted storage indexed by (id - minId). The ClientPrefix field at +0x18 is
     // a 4-char race code (e.g. "Hum", "Orc") used to build model paths.
     // -------------------------------------------------------------------------

@@ -148,7 +148,11 @@ namespace wxl::offsets::engine::gx
     // M2 triangle-batch draw (this-in-ECX). The hook reads the current model so the per-draw event
     // can name which model is rendering.
     constexpr uintptr_t kDrawTriangleBatch      = 0x008203B0;
-    constexpr size_t    kDrawBatchCtxModelField = 0x60; // draw context -> current model
+    // Draw context -> the current INSTANCE, not the shared model: the draw reads its bone palette at
+    // +0x98 and reaches the file header through +0x2C -> +0x150. Anything that wants the model (a path,
+    // a registry lookup keyed on shared data) has to take that +0x2C step first; treating this pointer
+    // as the model reads whatever the instance happens to hold at the model's field offsets.
+    constexpr size_t    kDrawBatchCtxModelField = 0x60;
     // draw context -> copied M2SkinSection. TRAP: both kDrawTriangleBatch and kDrawBatchDoodad refresh
     // this field from the current batch record's own section (kM2ElementSectionField below) as the
     // VERY FIRST thing they do, so a hook hung on either function's entry still sees the PREVIOUS
@@ -203,7 +207,7 @@ namespace wxl::offsets::engine::gx
         uint8_t  _pad00[kDrawBatchCtxElementField];
         void*    element;          // kDrawBatchCtxElementField -> current M2Element/batch record
         uint8_t  _pad54[kDrawBatchCtxModelField - (kDrawBatchCtxElementField + sizeof(void*))];
-        void*    model;            // kDrawBatchCtxModelField -> current model
+        void*    model;            // kDrawBatchCtxModelField -> current INSTANCE (see the note there)
         uint8_t  _pad64[kDrawBatchCtxSectionField - (kDrawBatchCtxModelField + sizeof(void*))];
         void*    section;          // kDrawBatchCtxSectionField -> copied M2SkinSection for this draw
     };
@@ -231,11 +235,15 @@ namespace wxl::offsets::engine::gx
     constexpr uintptr_t kGxTexSetWrap = 0x00681450;
     using GxTexSetWrapFn = void(__cdecl*)(void* gxTex, int wrapU, int wrapV);
 
-    // Central texture-data upload to the device (deviceTex, x, y, x2, y2, flag). Full-surface uploads pass
-    // (tex, 0, 0, width, height, 1), so width = x2 - x, height = y2 - y. The single __cdecl choke point all
-    // upload paths funnel through.
+    // Central texture-data upload to the device. The single __cdecl choke point all upload paths
+    // funnel through.
     constexpr uintptr_t kTextureUpdate = 0x00681F20;
-    using TextureUpdateFn = void(__cdecl*)(void* deviceTex, int x, int y, int x2, int y2, int flag);
+    /// One argument, which is what every one of its twenty-one call sites in the client passes: the
+    /// object the rectangle lookup returned, carrying both the texture and the rectangle. Declaring
+    /// more than that does not read more, it reads the caller's leftovers off the stack -- which for a
+    /// character sheet spells out the arguments of the lookup made just before it, a plausible-looking
+    /// rectangle that was never asked for.
+    using TextureUpdateFn = void(__cdecl*)(void* pendingUpdate);
 
     // Central by-name texture create API (__cdecl). The single choke point all texture requests funnel
     // through; fires on every reference (returns the cached handle on a hit), so it sees the name of each
@@ -353,4 +361,7 @@ namespace wxl::offsets::engine::gx
     constexpr uintptr_t kVsConstCache     = 0x00C5EFE8; // float[256*4]: register N at [N*4] floats
     constexpr uintptr_t kVsDirtyRegStart  = 0x00C5FFEC; // uint32: lowest dirty register (0xFF = none)
     constexpr uintptr_t kVsDirtyRegEnd    = 0x00C5FFE8; // uint32: highest dirty register (0 = none)
+    constexpr uintptr_t kPsConstCache     = 0x00C5DFE0; // float[256*4], CGxDevice::s_shadowConstants
+    constexpr uintptr_t kPsDirtyRegStart  = 0x00C5EFE4; // uint32: lowest dirty register (0xFF = none)
+    constexpr uintptr_t kPsDirtyRegEnd    = 0x00C5EFE0; // uint32: highest dirty register (0 = none)
 }

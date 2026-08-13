@@ -107,8 +107,47 @@ namespace
         wxl::runtime::storage::RegisterClientTransform(suffix, &ClientTransformBridge);
     }
 
+    // Extension-registered redirects. Same arrangement as providers: StorageHook only ever sees the
+    // single bridge below, registered once.
+    std::vector<WXL_RedirectFn> g_redirects;
+
+    std::vector<WXL_RedirectFn> RedirectsSnapshot()
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        return g_redirects;
+    }
+
+    /// A path the client can express at all fits comfortably; a redirect that wants more than this is
+    /// not naming a file the engine could have asked for.
+    constexpr uint32_t kMaxRedirectName = 260;
+
+    /** @brief The ClientRedirectFn StorageHook calls; offers the name to every extension redirect. */
+    bool ClientRedirectBridge(const char* name, std::string& out)
+    {
+        char buffer[kMaxRedirectName];
+        for (WXL_RedirectFn fn : RedirectsSnapshot())
+        {
+            buffer[0] = '\0';
+            if (!fn(name, buffer, kMaxRedirectName)) continue;
+            buffer[kMaxRedirectName - 1] = '\0'; // a redirect that filled the buffer still ends here
+            if (!buffer[0]) continue;            // a claim with nothing in it is a decline
+            out.assign(buffer);
+            return true;
+        }
+        out.clear();
+        return false;
+    }
+
+    void __cdecl ApiRegisterClientRedirect(WXL_RedirectFn fn)
+    {
+        if (!fn) return;
+        std::lock_guard<std::mutex> lock(g_mutex);
+        g_redirects.push_back(fn);
+    }
+
     const WXL_StorageApi g_storageApi = {
-        sizeof(WXL_StorageApi), WXL_STORAGE_API_VERSION, &ApiRegisterClientProvider, &ApiRegisterClientTransform,
+        sizeof(WXL_StorageApi), WXL_STORAGE_API_VERSION, &ApiRegisterClientProvider,
+        &ApiRegisterClientTransform, &ApiRegisterClientRedirect,
     };
 
     struct Registrar
@@ -116,6 +155,7 @@ namespace
         Registrar()
         {
             wxl::runtime::storage::RegisterClientProvider(&ClientProviderBridge);
+            wxl::runtime::storage::RegisterClientRedirect(&ClientRedirectBridge);
             wxl::runtime::extensions::PublishInterface(
                 "wxl.storage", WXL_STORAGE_API_VERSION, const_cast<WXL_StorageApi*>(&g_storageApi));
         }

@@ -26,6 +26,9 @@ namespace wxl::offsets::game::m2
     // --- load / setup ---
     // Model init: parses a model file and builds the runtime model.
     constexpr uintptr_t kInit = 0x0083CF00;
+    constexpr uintptr_t kLoadSucceededCallback = 0x0083D340;
+    using M2_LoadSucceededCallbackFn = void(__cdecl*)(void* model);
+    constexpr size_t kOffModelAsyncRead = 0x0C; // -> the in-flight async-read object, null once complete
     // Skin-profile finalizer: runs once after the skin sub-arrays resolve and before the shader passes
     // size their batch blocks. The point to rebuild the material contract a modern skin omits.
     // CAUTION: calls kBuildBatchMaterial per batch. kBuildBatchMaterial crashes (EBX=0 null-deref at
@@ -704,6 +707,7 @@ namespace wxl::offsets::game::m2
     constexpr size_t kOffInstViewDistSq     = 0x88;  // float: squared view-space distance (also the draw sort key)
     constexpr size_t kOffInstConstTrackGate = 0x90;  // uint32: once-only constant-track sampling gate
     constexpr size_t kOffInstBoneStates     = 0x94;  // -> runtime bone-state block (stride kRuntimeBoneStride)
+    constexpr size_t kOffInstSectionVisible = 0x9C;
     constexpr size_t kOffInstTexBinding     = 0x174; // shared texture-binding slot mirrored from the parent
     constexpr size_t kOffInstSpeedBase      = 0x178; // float: base playback speed
     constexpr size_t kOffInstAlphaBase      = 0x17C; // float: base alpha factor
@@ -1308,6 +1312,16 @@ namespace wxl::offsets::game::m2
     /// Own the geoset selection that turns equipment and customization choices into visible character
     /// geometry. __thiscall, caller-cleaned.
     constexpr uintptr_t kCharGeosetRenderPrep              = 0x004ED900;
+    using Char_GeosetRenderPrepFn = void(__fastcall*)(void* component, void* edx);
+    /// -> the model instance the geoset decision writes to. Reloaded from the component before every
+    /// one of its SetGeometryVisible calls, so it is the owner of the visibility array and the
+    /// receiver any replacement decision has to pass in turn.
+    constexpr size_t kOffCharComponentInstance             = 0x38;
+    /// uint32[19]: the chosen geoset id per customization slot, filled by the CCharacterComponent
+    /// setters. This array IS the stock client's customization vocabulary; slot 0x11 is substituted
+    /// with 1703 when the component's own eye-glow condition holds.
+    constexpr size_t kOffCharComponentGeosetSlots          = 0x144;
+    constexpr uint32_t kCharComponentGeosetSlotCount       = 19;
     /// Intercept unequip so extension-added visual slots are torn down with the stock ones. __thiscall,
     /// 1 stack arg.
     constexpr uintptr_t kCharRemoveItem                    = 0x004EE460;
@@ -1323,6 +1337,149 @@ namespace wxl::offsets::game::m2
     /// The matching free, needed to keep an extension's component tracking exact. __cdecl, caller-
     /// cleaned.
     constexpr uintptr_t kCharFreeComponent                 = 0x004F16C0;
+
+    // --- character skin composition: where the sheet's source textures are chosen ------------------
+    //
+    /// Accepts (table, race, sex, sectionType, variation, colour, outFound) and returns the section
+    /// record, or null. sectionType is bounded to 0..4 and indexes [race][sex][type].
+    constexpr uintptr_t kCharGetSectionsRecord             = 0x004F3BA0;
+    /// The table those two index, one entry per (race, sex, sectionType). Built at load, so it reads
+    /// as zeroes in the image and only means anything on a running client.
+    constexpr uintptr_t kCharVariationArray                = 0x00B6B864;
+    constexpr uintptr_t kCharVariationArrayLength          = 0x00B6B874;
+    /// Turns a path into a texture handle. __cdecl, caller-cleaned. This ACQUIRES: it takes a
+    /// reference whether it finds the entry or allocates one, so every call needs its release below.
+    constexpr uintptr_t kCharCreateTextureFromPath         = 0x004F3930;
+    /// Gives back one reference taken above, freeing the entry with the last of them. __cdecl,
+    /// 1 stack arg.
+    constexpr uintptr_t kTextureCacheRelease               = 0x004F31A0;
+    /// Paints one region of the sheet from a source texture. Every region painter is a call to this
+    /// with its own region index, and it returns without painting when the source carries no mip
+    /// chain -- a test it makes before looking at the source in any other way. It then reads mip
+    /// LEVEL 1, so the chain is where the pixels come from, not an optimisation. __cdecl.
+    constexpr uintptr_t kCharPaintRegion                   = 0x004F07D0;
+    /// The mip-chain test that gate rests on. __cdecl, 1 stack arg.
+    constexpr uintptr_t kTextureCacheHasMips               = 0x004F2D80;
+    /// Copies one block of a source texture into the sheet, MAGNIFYING it by two: the source is read
+    /// at half the destination's scale and doubled, averaging across each seam. Level 0 of the sheet
+    /// is filled that way and the levels below it one-for-one, which is why the destination is an
+    /// array of level pointers and not a single surface.
+    /// __cdecl: (source, destLevels, destOrigin, sourceOrigin, size, description).
+    constexpr uintptr_t kCharPaste                         = 0x004EF9D0;
+    /// The same copy REDUCING instead, for a source authored above the sheet's own resolution: the
+    /// extra argument is the source level to start from, and the destination level it lands on is
+    /// counted from there. The painter picks between the two on that test alone, which sends the
+    /// large body skin here and the smaller face and scalp sources to the magnifying copy above.
+    /// __cdecl, same arguments plus that starting level.
+    constexpr uintptr_t kCharPasteScale                    = 0x004EC550;
+    /// The source's palette, or null. Both copies resolve it BEFORE looking at anything else, and a
+    /// source that has none is dropped there: the magnifying copy returns outright, the reducing one
+    /// calls a fill that is not even handed the source. Neither ever reaches its format dispatch. So
+    /// every source that is not palettised paints nothing at all, whatever its format. __cdecl.
+    constexpr uintptr_t kTextureCacheGetPal                = 0x004F2D40;
+    /// A source level's pixels, or null: the container's file image offset by that level's own entry.
+    /// Bounds-checked against the level count below. __cdecl: (source, level).
+    constexpr uintptr_t kTextureCacheGetLevel              = 0x004F2D00;
+    /// The composited sheet's edge, in pixels. Its rows are that many 32-bit pixels wide, and both
+    /// copies derive their destination pitch from it rather than being handed one. The allocation
+    /// passes it as BOTH width and height, so the stock sheet can only ever be square -- which a
+    /// modern texture layout is not.
+    constexpr uintptr_t kCharSheetResolution               = 0x00B6B5FC;
+    /// Fills the six-byte source description both copies read, from a texture handle, and is the ONLY
+    /// way in: it starts the file's read when there is none, takes the cache's lock over the streaming
+    /// path, and refuses while the entry has nothing to describe. Reaching past it to the raw load
+    /// below leaves both the lock and that refusal out.
+    /// __cdecl: (source, outDescription, wait). A non-zero wait blocks until the read lands.
+    /// @return non-zero once the description is filled.
+    constexpr uintptr_t kTextureDescribe                   = 0x004F2E50;
+    /// Creates a texture of a stated size, as opposed to one loaded from a path. __cdecl, 9 stack
+    /// args, caller-cleaned: (width, height, format, usage, flags, owner, filler, name, one). The
+    /// name is a literal the caller supplies, which is what lets one creation be told from another.
+    constexpr uintptr_t kTextureCreateSized                = 0x004B9200;
+    /// Names the rectangle of a texture that is about to be sent to the card.
+    /// __cdecl: (handle, one, zero, left, top, right, bottom, one). The section walk asks for the
+    /// whole sheet as (0, 0, resolution, resolution) -- square, from the one figure, which a layout
+    /// that is not square overruns.
+    constexpr uintptr_t kTextureGetGxTex                   = 0x004B6CB0;
+    /// Sends the rectangle named above to the card. __cdecl, 1 stack arg.
+    constexpr uintptr_t kGxTexUpdate                       = 0x00681F20;
+    /// Texture cache entry. The six bytes from kOffTexEntryWidth are also what both copies receive as
+    /// their "description" argument, laid out exactly as they are here.
+    /// Opens the source's file and starts reading it. Creating the cache entry does NOT do this: the
+    /// entry is a name until something asks for the bytes, and nothing does on its own. Raw, and
+    /// unconditional -- it allocates a fresh read object over any already in flight, whose completion
+    /// then lands on freed memory -- so ask through kTextureDescribe above, never here.
+    /// __fastcall, the entry in ecx.
+    constexpr uintptr_t kTextureCacheLoad                  = 0x004F2BE0;
+    /// The read in flight. Note that the image pointer below is allocated BEFORE the bytes arrive, so
+    /// a non-null image says nothing about readiness -- but neither does this field read on its own,
+    /// since the thread completing the read clears it. kTextureDescribe is the answer, under its lock.
+    constexpr size_t kOffTexEntryPendingRead = 0x18;
+    constexpr size_t kOffTexEntryWidth      = 0x1C; ///< uint16, height at +0x1E
+    constexpr size_t kOffTexEntryLevelCount = 0x20; ///< byte
+    constexpr size_t kOffTexEntryAlphaBits  = 0x21; ///< byte: 0, 1, 4 or 8
+    constexpr size_t kOffTexEntryImage      = 0xAC; ///< the container file, verbatim; null until the
+                                                    ///< async load has landed
+    constexpr size_t kOffTexEntryFlags      = 0xB0;
+    /// Set on an entry whose image must not be read. Both the palette and the level lookup refuse on
+    /// it before they touch the image at all.
+    constexpr uint32_t kTexEntryUnreadable  = 0x00100000;
+    /// Where each composition region lands on the sheet: {x, y, width, height} per region, built at
+    /// load. This is the arrangement the composited sheet is painted in, and a reworked model's UVs
+    /// are authored against a different one -- comparing the two is what says how they correspond.
+    /// WHERE THE COMPOSITION ACTUALLY WRITES. Not the sheet texture: a CPU image allocated ONCE at
+    /// component initialisation, square and at the resolution figure, that every region paints into
+    /// and that the sheet is then updated from. Enlarging the texture alone changes nothing here, and
+    /// composing at a wider pitch than this image was allocated for runs off the end of it.
+    constexpr uintptr_t kCharComposeImage                  = 0x00B6B870;
+    /// The same image again for the compressed and threaded composition paths, allocated beside it
+    /// and only when those are enabled.
+    constexpr uintptr_t kCharComposeImageCompressed        = 0x00B6B86C;
+    constexpr uintptr_t kCharComposeImageThreaded          = 0x00B6B868;
+    /// Allocates one such image. __cdecl: (pixelFormat, width, height) -- two dimensions, unlike the
+    /// figure the client fills them from.
+    constexpr uintptr_t kTextureAllocMippedImg             = 0x004B7220;
+    /// The pixel format the composition image is allocated with.
+    constexpr uint32_t  kCharComposeFormat                 = 2;
+    /// Whether the compressed image exists at all; the threaded one needs this and threading both.
+    constexpr uintptr_t kCharComposeCompressionOn          = 0x00B6B4E4;
+
+    /// The region arrangement the client SHIPS, for a 512 sheet. What the composition reads is
+    /// derived from it at initialisation as `master >> (9 - log2(resolution))`, which is why the two
+    /// tables sit next to each other and why the derived one is not authored anywhere.
+    constexpr uintptr_t kCharRegionRectsMaster             = 0x00B6B928;
+    constexpr uintptr_t kCharRegionRects                   = 0x00B6B888;
+    constexpr size_t    kCharRegionRectStride              = 0x10;
+    /// TEN, not eleven. The section walk states it twice independently -- once as a plain bound and
+    /// once as the address the rectangle pointer must stay below -- and both stop after ten. The
+    /// dirty mask has an eleventh bit set, which is what makes twelve look plausible from that side;
+    /// nothing ever reads an eleventh rectangle. Immediately after the table is component setup data,
+    /// so treating it as one entry longer writes over that instead.
+    constexpr uint32_t  kCharRegionCount                   = 10;
+
+    /// Section record: three texture paths and the flags the callers test.
+    constexpr size_t kOffSectionTexturePaths = 0x10; ///< char*[3], one per composition slot
+    constexpr size_t kOffSectionFlags        = 0x1C;
+    constexpr uint32_t kSectionSlotCount     = 3;
+
+    /// Component fields the load above writes.
+    constexpr size_t kOffCharComponentRace    = 0x18;
+    constexpr size_t kOffCharComponentSex     = 0x1C;
+    constexpr size_t kOffCharComponentDirty   = 0x0C;  ///< bitmask, one bit per region
+    /// int[]: the loaded texture handle per (slot + sectionType * kSectionSlotCount).
+    /// The composited sheet itself, once created. Zero until then, and the allocation is skipped for
+    /// a component that already has one -- which is what makes a sheet outlive the rebuild that built
+    /// it and forbids changing its size anywhere but at creation.
+    /// Bit 0 says a rebuild is owed. The per-frame entry answers every other call by doing nothing,
+    /// so it is also what tells a caller whether this one is worth resolving anything for.
+    constexpr size_t kOffCharComponentRebuild  = 0x08;
+    constexpr size_t kOffCharComponentSheet    = 0x190;
+    constexpr size_t kOffCharComponentTextures = 0x194;
+    /// The component REQUEST, which is what the sheet texture is ultimately fed from: its source
+    /// callback follows this pointer to an image and hands the card a level of it. Not an image
+    /// itself -- requests are allocated from free lists, queued to a composition thread of their own,
+    /// and carry their own mipped image sized from the resolution figure.
+    constexpr size_t kOffCharComponentComposeRequest = 0x52C;
     /// Override creature skin substitution, the mechanism behind displayid-driven recolours. __cdecl,
     /// caller-cleaned.
     constexpr uintptr_t kCharReplaceMonsterSkin            = 0x004F20C0;
@@ -1472,8 +1629,10 @@ namespace wxl::offsets::game::m2
     /// character. __thiscall, 2 stack args.
     constexpr uintptr_t kGetSplitBodyBoundingBox           = 0x00825A60;
     /// Catch the teardown of that compacted list so extension-side batch metadata is invalidated in
-    /// step. __thiscall, caller-cleaned.
+    /// step. __thiscall, caller-cleaned. Also the "the visibility array moved, rebuild from it"
+    /// request every geoset change ends with.
     constexpr uintptr_t kUnoptimizeVisibleGeometry         = 0x00825D70;
+    using M2_UnoptimizeVisibleGeometryFn = void(__fastcall*)(void* instance, void* edx);
     /// Declare sequences present that the stock file does not contain, so callers take the path an
     /// extension wants. __thiscall, 1 stack arg.
     constexpr uintptr_t kHasSequence                       = 0x00825EE0;
@@ -1533,6 +1692,35 @@ namespace wxl::offsets::game::m2
     /// Own the per-instance index selection, the hook for per-model LOD or geoset-driven index subsets.
     /// __thiscall, caller-cleaned.
     constexpr uintptr_t kSetModelIndices                   = 0x00828F90;
+    /// Assemble the index buffer: walk the compacted draw list, and for each visible section append
+    /// its own block of the skin's index array, so the buffer holds exactly the visible geometry
+    /// back to back. Guarded by the buffer's own dirty flags, so it only rebuilds when something moved.
+    ///
+    /// It reads the block's start as a PLAIN 16-BIT FIELD (`movzx ecx, word ptr [esi+8]`, at both the
+    /// memcpy and the CPU-rebase site). A skin whose sections carry the extended (level << 16)
+    /// start therefore has every block past 65535 sourced from the wrong place, which draws as
+    /// triangles joining unrelated vertices. The draw call learned that encoding; this did not.
+    using M2_SetModelIndicesFn = uint32_t(__fastcall*)(void* instance, void* edx);
+    /// Per-instance geometry context: the compacted draw list plus the buffers it feeds.
+    constexpr size_t kOffInstGeometryCtx  = 0x2D0;
+    constexpr size_t kOffGeoCtxGroups     = 0x08; ///< -> group records, stride kGeoCtxGroupStride
+    constexpr size_t kOffGeoCtxGroupCount = 0x0C; ///< uint32
+    constexpr size_t kOffGeoCtxRanges     = 0x10; ///< -> {firstBatch, lastBatch} pairs, stride 8
+    constexpr size_t kOffGeoCtxIndexBuf   = 0x18; ///< -> the index GxBuf this fills
+    constexpr size_t kGeoCtxGroupStride   = 0x30; ///< a group's first dword indexes kOffGeoCtxRanges
+    /// The index buffer's two "already built" flags; both set means the contents still stand.
+    constexpr size_t kOffGxBufBuilt       = 0x1C;
+    constexpr size_t kOffGxBufValid       = 0x1D;
+    /// Device vtable slots the assembly rides: lock returns the writable buffer, unlock commits it.
+    constexpr size_t kGxVtblBufLock       = 0xD8;
+    constexpr size_t kGxVtblBufUnlock     = 0xDC;
+    using Gx_BufLockFn   = void*(__thiscall*)(void* device, void* buffer);
+    using Gx_BufUnlockFn = void(__thiscall*)(void* device, void* buffer, uint32_t flag);
+    /// Bind the assembled buffer as the current index source. The receiver is the DEVICE, not the
+    /// buffer: it compares against and updates the device's own current-index slot, and the buffer
+    /// arrives on the stack (ret 4).
+    constexpr uintptr_t kPrimIndexPtr                      = 0x00682F10;
+    using Gx_PrimIndexPtrFn = void(__thiscall*)(void* device, void* buffer);
     /// Bind the vertex stream for one model instance, including any extension-supplied skinned buffer.
     /// __thiscall, 3 stack args.
     constexpr uintptr_t kSetModelVertices                  = 0x00829160;
@@ -1557,9 +1745,17 @@ namespace wxl::offsets::game::m2
     /// Intercept every geoset show/hide, the single choke point for character geoset logic and for
     /// remapping modern geoset numbering. __thiscall, 3 stack args.
     constexpr uintptr_t kSetGeometryVisible                = 0x0082C7C0;
+    using M2_SetGeometryVisibleFn =
+        void(__fastcall*)(void* instance, void* edx, uint32_t idStart, uint32_t idEnd, uint32_t visible);
+    /// The scan ends by asking for the compacted draw list to be rebuilt, but only when at least one
+    /// entry actually flipped: see kUnoptimizeVisibleGeometry above.
     /// Control the merge of visible geosets into a compacted draw list, where batch limits and merge
     /// rules can be relaxed. __thiscall, caller-cleaned.
     constexpr uintptr_t kOptimizeVisibleGeometry           = 0x0082C970;
+    /// Rebuild the compacted draw list from the visibility array. Nothing else reads that array, so a
+    /// visibility change not followed by this call is a change with no effect. Same receiver as
+    /// kSetGeometryVisible.
+    using M2_OptimizeVisibleGeometryFn = void(__fastcall*)(void* instance, void* edx);
     /// Report or rewrite a sequence's timing and flags, the query nearly all animation logic asks
     /// before playing anything. __thiscall, 3 stack args.
     constexpr uintptr_t kGetSequenceInfo                   = 0x0082CED0;
