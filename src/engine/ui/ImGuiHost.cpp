@@ -249,6 +249,22 @@ namespace wxl::ui
             if (!label || !rgba) return 0;
             return ImGui::ColorEdit4(label, rgba) ? 1 : 0;
         }
+
+        void __cdecl SameLine() { ImGui::SameLine(); }
+
+        int __cdecl Combo(const char* label, int* index, const char* const* items, int count)
+        {
+            if (!label || !index || !items || count <= 0) return 0;
+            // A caller's selection routinely outlives the list it was picked from -- the panel that
+            // wants this walks one subject after another -- so an index outside the current list is
+            // ordinary input and is brought back in range rather than refused.
+            if (*index < 0) *index = 0;
+            else if (*index >= count) *index = count - 1;
+            return ImGui::Combo(label, index, items, count) ? 1 : 0;
+        }
+
+        int __cdecl CollapsingHeader(const char* label)
+        { return (label && ImGui::CollapsingHeader(label)) ? 1 : 0; }
     }
 }
 

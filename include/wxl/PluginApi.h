@@ -222,6 +222,23 @@ typedef struct WXL_Api
 
     /// Draws a colour picker over four floats in 0..1, red first. Non-zero when it changes.
     int(__cdecl* UiColorEdit)(const char* label, float rgba[4]);
+
+    /// Puts the next control beside the one just drawn instead of under it.
+    void(__cdecl* UiSameLine)(void);
+
+    /**
+     * @brief Draws a dropdown over a list of labels.
+     * @param index  read for the entry to show, written when another is picked. An index left over
+     *               from a longer list is clamped rather than refused: a caller that keeps a
+     *               selection across a change of subject is the ordinary case, not a mistake.
+     * @param items  @p count NUL-terminated labels, read only for the duration of the call.
+     * @return non-zero on the frame the selection changes.
+     */
+    int(__cdecl* UiCombo)(const char* label, int* index, const char* const* items, int count);
+
+    /// Draws a section header the reader can fold away. Non-zero while it is open, which is when the
+    /// caller should draw the section's body.
+    int(__cdecl* UiCollapsingHeader)(const char* label);
 } WXL_Api;
 
 /// The two entry points as the core resolves them, by name, out of a loaded extension.

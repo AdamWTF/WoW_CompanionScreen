@@ -160,6 +160,9 @@ namespace wxl::runtime::extensions
             &wxl::ui::c::SliderFloat,
             &wxl::ui::c::SliderInt,
             &wxl::ui::c::ColorEdit,
+            &wxl::ui::c::SameLine,
+            &wxl::ui::c::Combo,
+            &wxl::ui::c::CollapsingHeader,
         };
 
         // --- loading --------------------------------------------------------------------------

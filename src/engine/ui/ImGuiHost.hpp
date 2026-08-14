@@ -56,5 +56,8 @@ namespace wxl::ui
         int  __cdecl SliderFloat(const char* label, float* value, float min, float max);
         int  __cdecl SliderInt(const char* label, int* value, int min, int max);
         int  __cdecl ColorEdit(const char* label, float rgba[4]);
+        void __cdecl SameLine();
+        int  __cdecl Combo(const char* label, int* index, const char* const* items, int count);
+        int  __cdecl CollapsingHeader(const char* label);
     }
 }
