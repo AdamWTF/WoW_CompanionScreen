@@ -26,6 +26,16 @@ namespace wxl::offsets::game::m2
     // --- load / setup ---
     // Model init: parses a model file and builds the runtime model.
     constexpr uintptr_t kInit = 0x0083CF00;
+    // The async-read completion that reaches kInit, and the ONLY point at which a loader can still
+    // defer that parse. Its whole body is:
+    //     AsyncFileReadDestroyObject(model+0x0C); model+0x0C = 0; kInit(model);
+    // so the "still loading" marker every consumer tests is already cleared by the time kInit runs --
+    // a detour on kInit cannot background its work, because nothing would block on the result any more.
+    // Registered as a function pointer (no direct callers), hence detour by address.
+    // TRAP for a loader that DOES defer here: consumers do not go through any M2-specific wait helper.
+    // They inline `if (model+0x0C) kAsyncFileReadWait(model+0x0C)` at ~30 sites, so holding the marker
+    // non-null routes every waiter into kAsyncFileReadWait, which pumps the async drain. Deferred work
+    // must therefore be reachable from THAT wait, never only from a per-frame drain of our own.
     constexpr uintptr_t kLoadSucceededCallback = 0x0083D340;
     using M2_LoadSucceededCallbackFn = void(__cdecl*)(void* model);
     constexpr size_t kOffModelAsyncRead = 0x0C; // -> the in-flight async-read object, null once complete
@@ -707,6 +717,8 @@ namespace wxl::offsets::game::m2
     constexpr size_t kOffInstViewDistSq     = 0x88;  // float: squared view-space distance (also the draw sort key)
     constexpr size_t kOffInstConstTrackGate = 0x90;  // uint32: once-only constant-track sampling gate
     constexpr size_t kOffInstBoneStates     = 0x94;  // -> runtime bone-state block (stride kRuntimeBoneStride)
+    // -> uint32[skin->submeshCount], one per submesh, allocated ALL-VISIBLE at initialize. Its only
+    // writer is kSetGeometryVisible, so a submesh whose id no caller ever names stays drawn forever.
     constexpr size_t kOffInstSectionVisible = 0x9C;
     constexpr size_t kOffInstTexBinding     = 0x174; // shared texture-binding slot mirrored from the parent
     constexpr size_t kOffInstSpeedBase      = 0x178; // float: base playback speed
@@ -776,7 +788,12 @@ namespace wxl::offsets::game::m2
     constexpr size_t kOffModelSkin          = 0x170; // -> live parsed skin profile (valid at/after skin finalize)
     constexpr size_t kOffModelSubMeshCopy   = 0x188; // -> per-submesh object array ptr (written by kFinalizeSkin; not freed on re-call)
     constexpr size_t kOffModelSubmeshBuf    = 0x18C; // -> submesh copy buffer ptr (written by kFinalizeSkin; not freed on re-call)
-    constexpr size_t kOffModelFinalizeDone  = 0x190; // uint32: set to 1 by kFinalizeSkin after IB is built; scheduler checks before re-calling
+    // uint32: how many CO-INSTANCE copies of the whole vertex array the shared vertex buffer holds.
+    // kFinalizeSkin seeds it at 1, and kSharedSetVertices both sizes the pool by it
+    // (skin->vertexCount * this * kModelVertexStride) and loops over it, writing copy N at
+    // N * skin->vertexCount * kModelVertexStride with every bone slot shifted by
+    // section->boneCount * N. Reading it as a done-flag happens to work only because the seed is 1.
+    constexpr size_t kOffSharedCoInstanceCount = 0x190;
     // uint16: count of bones carrying flags & 0x2F8 (0x200 "transformed" + the billboard bits 0xF8),
     // tallied by the shared-data init entry (0x0083CC80). Its ONLY reader is the shadow-path animate
     // (0x00831990), which rebuilds the bone palette at instance+0x98 only when
@@ -1296,6 +1313,12 @@ namespace wxl::offsets::game::m2
     constexpr uintptr_t kCharValidateComponentData         = 0x004E9D50;
     /// Resolve the base skin and face texture set for a character, where modern texture paths must be
     /// substituted. __thiscall, 6 stack args.
+    ///
+    /// Loads ONE section's source texture and installs it: it walks the variation table down to a
+    /// section record, takes the path at kOffSectionTexturePaths + slot * 4, creates the texture,
+    /// stores the handle at kOffCharComponentTextures + (slot + type * kSectionSlotCount) * 4 and
+    /// raises the component's dirty bit for the region. Substituting a path is therefore the whole of
+    /// what a reworked model needs here; the composition around it is already correct.
     constexpr uintptr_t kCharLoadBaseVariation             = 0x004EA1F0;
     /// Intercept the skin variation selection, the customization axis with the widest downstream
     /// effect. __thiscall, 4 stack args.
@@ -1312,6 +1335,12 @@ namespace wxl::offsets::game::m2
     /// Own the geoset selection that turns equipment and customization choices into visible character
     /// geometry. __thiscall, caller-cleaned.
     constexpr uintptr_t kCharGeosetRenderPrep              = 0x004ED900;
+    /// The whole player geoset decision, start to finish: blanket-hide, show the chosen ids, rebuild
+    /// the draw list. It hides ids 0..2000 before re-showing anything, which is the entire reason a
+    /// model numbered beyond that range cannot be made geoset-correct through it: what is never hidden
+    /// stays visible, and the visibility array starts all-on. Replacing it for one model means the same
+    /// three moves over a wider range and a different source of chosen ids.
+    /// The receiver is the character component; the model instance reaches SetGeometryVisible in ECX.
     using Char_GeosetRenderPrepFn = void(__fastcall*)(void* component, void* edx);
     /// -> the model instance the geoset decision writes to. Reloaded from the component before every
     /// one of its SetGeometryVisible calls, so it is the owner of the visibility array and the
@@ -1389,7 +1418,12 @@ namespace wxl::offsets::game::m2
     /// way in: it starts the file's read when there is none, takes the cache's lock over the streaming
     /// path, and refuses while the entry has nothing to describe. Reaching past it to the raw load
     /// below leaves both the lock and that refusal out.
-    /// __cdecl: (source, outDescription, wait). A non-zero wait blocks until the read lands.
+    /// __cdecl: (source, outDescription, wait). A zero wait is a PREDICATE and nothing more: on an
+    /// install without a streaming manifest it does no work at all past starting the read, and what
+    /// makes the read land is a handler on the same event queue as the composition -- so asked from
+    /// inside a composition it can only ever answer "not yet". A non-zero wait pumps that handler on
+    /// the calling thread, which is what the client's own region painters pass. Nesting one such wait
+    /// inside another is fatal to the client.
     /// @return non-zero once the description is filled.
     constexpr uintptr_t kTextureDescribe                   = 0x004F2E50;
     /// Creates a texture of a stated size, as opposed to one loaded from a path. __cdecl, 9 stack
@@ -1470,9 +1504,22 @@ namespace wxl::offsets::game::m2
     /// The composited sheet itself, once created. Zero until then, and the allocation is skipped for
     /// a component that already has one -- which is what makes a sheet outlive the rebuild that built
     /// it and forbids changing its size anywhere but at creation.
-    /// Bit 0 says a rebuild is owed. The per-frame entry answers every other call by doing nothing,
-    /// so it is also what tells a caller whether this one is worth resolving anything for.
+    /// Work the component owes, one bit per kind. The per-frame entry answers every other call by
+    /// doing nothing, so it is also what tells a caller whether this one is worth resolving anything
+    /// for.
     constexpr size_t kOffCharComponentRebuild  = 0x08;
+    /// The sheet is owed a recomposition.
+    constexpr uint8_t kCharRebuildSheet   = 0x01;
+    /// The geometry is owed a fresh decision about which pieces are visible.
+    ///
+    /// The two are NOT independent, and the asymmetry is easy to get backwards: the per-frame entry
+    /// tests the sheet bit first and only reaches the geometry branch when that bit is clear and no
+    /// region is dirty. So asking for the sheet alone also postpones the geometry, and asking for
+    /// geometry by setting the sheet bit asks for the one thing that cannot happen.
+    constexpr uint8_t kCharRebuildGeosets = 0x04;
+    /// How many of the ten regions the stock arrangement spends on the body. The two past it are the
+    /// scalp, which a layout that is not square gives a block of its own beside the arrangement.
+    constexpr uint32_t kCharStockRegionCount = 8;
     constexpr size_t kOffCharComponentSheet    = 0x190;
     constexpr size_t kOffCharComponentTextures = 0x194;
     /// The component REQUEST, which is what the sheet texture is ultimately fed from: its source
@@ -1745,6 +1792,21 @@ namespace wxl::offsets::game::m2
     /// Intercept every geoset show/hide, the single choke point for character geoset logic and for
     /// remapping modern geoset numbering. __thiscall, 3 stack args.
     constexpr uintptr_t kSetGeometryVisible                = 0x0082C7C0;
+    /// Show or hide every geoset whose id falls in [idStart, idEnd]. It resolves ids to submeshes by
+    /// scanning the skin's own submesh table, so it carries no notion of geoset GROUPS and no ceiling
+    /// on their numbering: an id a stock model would never carry is shown or hidden like any other.
+    /// The receiver is the per-instance object that owns the visibility array, not the shared model.
+    ///
+    /// The scan reads a FULL DWORD at the submesh's offset 0 and compares that against the range, so
+    /// the id it matches on is really `(level << 16) | skinSectionId`. On a stock skin level is 0 and
+    /// this is invisible. On a skin that carries a 32-bit index start in level, every section past the
+    /// 16-bit line presents itself as `65536 + id`, falls outside every range anyone asks for, and can
+    /// therefore never be hidden: it draws for the rest of the model's life, alongside every other
+    /// variant of its own group.
+    ///
+    /// Before the instance is initialized (init flag bit 0 clear at kOffInstInitFlags) the call is
+    /// queued as a deferred command instead of acting, and replayed later through
+    /// kInitializeLoaded's opcode 1.
     using M2_SetGeometryVisibleFn =
         void(__fastcall*)(void* instance, void* edx, uint32_t idStart, uint32_t idEnd, uint32_t visible);
     /// The scan ends by asking for the compacted draw list to be rebuilt, but only when at least one
@@ -1932,7 +1994,26 @@ namespace wxl::offsets::game::m2
     constexpr uintptr_t kSharedSetIndices                  = 0x008360A0;
     /// Own the vertex-buffer upload for a shared model, including its vertex format choice, before any
     /// instance draws. __thiscall, 1 stack arg.
+    ///
+    /// With kEnableShaders set it fills at kModelVertexStride: per co-instance, per section, per skin
+    /// vertex v of that section it copies the whole model vertex record named by
+    /// skin->vertexLookup[v] into slot v, then rewrites kOffVertexBoneSlots alone from
+    /// skin->bones[v * 4], adding section->boneCount * coInstance to each of the four bytes as one
+    /// dword add. Position and weights therefore reach the GPU exactly as the record carries them.
+    /// With shaders off it packs a narrower vertex instead and deposits no bone slots at all, the
+    /// stack argument choosing which texture-coordinate pair leads.
     constexpr uintptr_t kSharedSetVertices                 = 0x008362B0;
+    using M2_SharedSetVerticesFn = uint32_t(__fastcall*)(void* shared, void* edx, int texCoordSet);
+    /// The vertex GxBuf the fill writes into, and the pool backing it. Both null until the first call
+    /// creates them; the buffer then carries kOffGxBufBuilt/kOffGxBufValid like the index one, and the
+    /// fill is skipped outright while both stand, leaving only the rebind.
+    constexpr size_t kOffSharedVertexPool = 0x180;
+    constexpr size_t kOffSharedVertexBuf  = 0x184;
+    /// The model vertex record, as kReadVertices lays it down and as the programmable fill copies it.
+    constexpr size_t kModelVertexStride   = 0x30;
+    constexpr size_t kOffVertexPosition   = 0x00; // float[3]
+    constexpr size_t kOffVertexWeights    = 0x0C; // uint8[4], one per slot, summing to 255
+    constexpr size_t kOffVertexBoneSlots  = 0x10; // uint8[4] palette slots; the one field the fill rewrites
     /// Catch release of a model's GPU vertex and index pools, needed to keep extension-owned buffers
     /// from outliving them. __thiscall, caller-cleaned.
     constexpr uintptr_t kSharedDestroyBuffers              = 0x008368B0;
