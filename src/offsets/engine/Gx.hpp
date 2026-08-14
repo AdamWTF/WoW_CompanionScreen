@@ -361,6 +361,20 @@ namespace wxl::offsets::engine::gx
     constexpr uintptr_t kVsConstCache     = 0x00C5EFE8; // float[256*4]: register N at [N*4] floats
     constexpr uintptr_t kVsDirtyRegStart  = 0x00C5FFEC; // uint32: lowest dirty register (0xFF = none)
     constexpr uintptr_t kVsDirtyRegEnd    = 0x00C5FFE8; // uint32: highest dirty register (0 = none)
+    constexpr unsigned  kVsConstRegisters = 256;        // registers in the file the cache mirrors
+    // Where the M2 skinning palette lands in that file. The upload transposes each bone's upper 3x4
+    // into three consecutive vec4s, so bone N owns registers [kVsBonePaletteBase + N*kVsBonePaletteRegs,
+    // + kVsBonePaletteRegs) and its translation is the fourth component of each of the three rather
+    // than a row of its own. The palette runs to the end of the file, which is what fixes the per-draw
+    // bone ceiling at (kVsConstRegisters - kVsBonePaletteBase) / kVsBonePaletteRegs.
+    constexpr unsigned  kVsBonePaletteBase = 31;
+    constexpr unsigned  kVsBonePaletteRegs = 3;
+    // The PIXEL half of the same structure, and the reason a constant written for one draw is still
+    // there for the next: both caches are process-wide, not per-shader. The setter (0x0069E970,
+    // reached through the device vtable at +0x118) forks on its target argument -- 0 takes the vertex
+    // arrays above, anything else takes these. ShaderConstantsClear (0x006833A0) clears both as
+    // 0x400 dwords each, which is what fixes them at 256 registers and makes the two halves
+    // contiguous: cache, dirty-end, dirty-start, then the next cache.
     constexpr uintptr_t kPsConstCache     = 0x00C5DFE0; // float[256*4], CGxDevice::s_shadowConstants
     constexpr uintptr_t kPsDirtyRegStart  = 0x00C5EFE4; // uint32: lowest dirty register (0xFF = none)
     constexpr uintptr_t kPsDirtyRegEnd    = 0x00C5EFE0; // uint32: highest dirty register (0 = none)
