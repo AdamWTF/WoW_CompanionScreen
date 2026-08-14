@@ -163,6 +163,11 @@ typedef struct WXL_AppearanceApi
     /// Regions of one layout, ordered as the table orders them. Index is 0-based and dense.
     uint32_t(__cdecl* SectionCount)(uint32_t layoutId);
     int(__cdecl* SectionAt)(uint32_t layoutId, uint32_t index, WXL_TextureSection* out);
+
+    /// The name a ChrCustomizationOption shows in the character-creation UI ("Hair Style", "Face").
+    const char*(__cdecl* OptionName)(uint32_t chrCustomizationOptionId);
+    /// The name one of an option's choices shows ("Bald", "None", "Goatee").
+    const char*(__cdecl* ChoiceName)(uint32_t chrCustomizationChoiceId);
 } WXL_AppearanceApi;
 
 // LIFETIME. The three arrays a filled recipe points at belong to the resolver, not to the caller,
