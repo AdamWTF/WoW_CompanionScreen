@@ -37,6 +37,12 @@ namespace wxl::offsets::game::wmo
     // hands to kGroupWalk as `cursor`, computable directly from groupBuffer without waiting for
     // kGroupParse to run -- what lets WmoAsync.cpp's background stage1 call WalkGroupModern itself.
     constexpr size_t kGroupWalkCursorOffset = 0x58;
+    // The MOGP-header fields kGroupParse copies into the group object immediately BEFORE it calls
+    // kGroupWalk, addressed the same buffer-relative way the cursor is and for the same reason: a walk
+    // that runs ahead of kGroupParse (WmoAsync.cpp's background stage1) would otherwise read them off a
+    // group object that still holds zeros, or a pooled slot's previous occupant. The bbox especially --
+    // it is what the group's BSP container stores as its own root clip box, so a walk that seeds the BSP
+    // from a not-yet-copied bbox produces a tree every collision query rejects at the first node.
     constexpr size_t kGroupBufFlags        = 0x1C; // u32   -> kOffGroupFlags
     constexpr size_t kGroupBufBbox         = 0x20; // 6 x f -> kOffGroupBbox
     constexpr size_t kGroupBufTransBatches = 0x3C; // u16   -> kOffGroupTransBatchCount
@@ -196,6 +202,12 @@ namespace wxl::offsets::game::wmo
     // MODF record: u16 per-instance scale at +0x3E (factor = value/1024; 0 and 1024 both mean 1.0). The
     // Client treats it as padding and renders every WMO at 1.0.
     constexpr size_t kOffModfScale = 0x3E;
+    // Instance transform matrices (4x4 row-major floats, translation in row 3): +0x70 the model-to-world
+    // placement, +0xB0 its AFFINE INVERSE (built by kSpawnFromModf as AffineInverse of +0x70, translation
+    // row included) and the matrix every collision sweep, portal walk and local-bounds test uses to reach
+    // model space. Resizing an instance therefore means scaling the 3x3 rows of +0x70 by s and BOTH the
+    // 3x3 and the translation row of +0xB0 by 1/s; a fresh instance's basis is orthonormal, which is what
+    // makes |row0| == 1 a usable "not yet scaled" test.
     constexpr size_t kOffInstanceRenderMatrix    = 0x70;
     constexpr size_t kOffInstanceCollisionMatrix = 0xB0;
 
