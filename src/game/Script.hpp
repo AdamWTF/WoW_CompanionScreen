@@ -59,6 +59,12 @@ namespace wxl::game::script
     inline int ArgCount(void* state)
     { return Native<off::LuaGetTopFn>(off::kLuaGetTop)(state); }
 
+    inline void SetTop(void* state, int top)
+    { Native<off::LuaSetTopFn>(off::kLuaSetTop)(state, top); }
+
+    inline void* Context()
+    { return Native<off::FrameScriptGetContextFn>(off::kFrameScriptGetContext)(); }
+
     /**
      * @brief Reports whether an argument is a number, or a string convertible to one.
      * @param state  Script state.
@@ -127,4 +133,11 @@ namespace wxl::game::script
      */
     inline void Register(const char* name, Function function)
     { Native<off::FrameScriptRegisterFunctionFn>(off::kFrameScriptRegisterFunction)(name, function); }
+
+    /// Executes a non-protected FrameScript statement in the active context. Callers must never use
+    /// this to invoke protected gameplay actions; wxl-gamepad uses it only to publish diagnostic state.
+    inline void Execute(const char* source)
+    {
+        if (void* const state = Context()) Native<off::FrameScriptExecuteFn>(off::kFrameScriptExecute)(source, state);
+    }
 }

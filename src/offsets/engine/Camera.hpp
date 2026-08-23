@@ -88,4 +88,16 @@ namespace wxl::offsets::engine::camera
     /// The per-frame camera advance, above matrix construction - the place to inject camera shake,
     /// offsets or a scripted path. __cdecl, caller-cleaned.
     constexpr uintptr_t kUpdateCallback                    = 0x00607B00;
+
+    // Native camera view-control state on the active camera. Derived from MoveView* stock handlers:
+    // 0x005FF000 starts an index by setting 1<<(index*2), stamps time and sets a unit multiplier;
+    // MoveView*Stop records the stop time and sets the adjacent stop bit. Index 2/3/4/5 are
+    // right/left/up/down respectively. The camera update consumes these flags at its normal dt.
+    constexpr size_t kViewControlFlags     = 0x160;
+    constexpr size_t kViewControlStartTime = 0x164; // uint32_t[6], indexed by ViewControl
+    constexpr size_t kViewControlStopTime  = 0x17C; // uint32_t[6], indexed by ViewControl
+    constexpr size_t kViewControlProgress  = 0x194; // float[6]
+    constexpr size_t kViewControlScale     = 0x1AC; // float[6]
+
+    enum class ViewControl : uint32_t { Right = 2, Left = 3, Up = 4, Down = 5 };
 }

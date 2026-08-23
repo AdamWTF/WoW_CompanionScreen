@@ -37,6 +37,10 @@ namespace wxl::offsets::game::unit
     constexpr uintptr_t kActivePlayerGuid = 0x004D3790;
     // Reaction of self toward other (this-in-ECX): 0..1 hostile, 2..3 neutral, 4+ friendly.
     constexpr uintptr_t kUnitReaction = 0x007251C0;
+    // CGPlayer jump transition called by JumpOrAscendStart at 0x005FC07C after it has set the
+    // CInputControl jump bit and completed its player-state checks. __thiscall(player, timeMs).
+    // Verified by its `ret 4` and a second caller at 0x00730E7A, both passing the client action time.
+    constexpr uintptr_t kPlayerJump = 0x0072EB80;
 
     // --- object lifecycle (server-driven) ---
     // Object update-block handler: parses a server update message, creating new objects in the object
@@ -95,6 +99,7 @@ namespace wxl::offsets::game::unit
                                                const char* tag, int flag);
     using ActivePlayerGuidFn = unsigned long long(__cdecl*)();
     using ReactionFn         = int(__fastcall*)(void* self, void* edx, void* other);
+    using PlayerJumpFn       = void(__thiscall*)(void* player, uint32_t timeMs);
     using EnumStepFn         = int(__cdecl*)(uint32_t guidLow, uint32_t guidHigh, void* user);
     using EnumObjectsFn      = int(__cdecl*)(EnumStepFn step, void* user);
     using PositionFn         = void(__thiscall*)(void* self, float out[3]);

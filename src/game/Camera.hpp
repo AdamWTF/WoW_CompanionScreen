@@ -152,4 +152,34 @@ namespace wxl::game::camera
         }
         cam.fov = fovRad;
     }
+
+    /** Drives a stock MoveView direction without crossing the protected FrameScript boundary. */
+    inline bool BeginView(off::ViewControl direction, uint32_t timeMs)
+    {
+        uint8_t* const camera = static_cast<uint8_t*>(GetActiveCamera());
+        if (!camera || (camera[0x9C] & 0x40)) return false;
+        const uint32_t index = uint32_t(direction);
+        const uint32_t start = 1u << (index * 2);
+        uint32_t& flags = *reinterpret_cast<uint32_t*>(camera + off::kViewControlFlags);
+        if (flags & start) return false;
+        flags |= start;
+        reinterpret_cast<uint32_t*>(camera + off::kViewControlStartTime)[index] = timeMs;
+        reinterpret_cast<float*>(camera + off::kViewControlProgress)[index] = 0.0f;
+        reinterpret_cast<float*>(camera + off::kViewControlScale)[index] = 1.0f;
+        return true;
+    }
+
+    /** Stops a stock MoveView direction; the engine consumes the stop flag during its camera update. */
+    inline bool EndView(off::ViewControl direction, uint32_t timeMs)
+    {
+        uint8_t* const camera = static_cast<uint8_t*>(GetActiveCamera());
+        if (!camera) return false;
+        const uint32_t index = uint32_t(direction);
+        const uint32_t start = 1u << (index * 2);
+        uint32_t& flags = *reinterpret_cast<uint32_t*>(camera + off::kViewControlFlags);
+        if (!(flags & start)) return false;
+        reinterpret_cast<uint32_t*>(camera + off::kViewControlStopTime)[index] = timeMs;
+        flags |= start << 1;
+        return true;
+    }
 }

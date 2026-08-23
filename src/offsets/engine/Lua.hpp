@@ -25,6 +25,10 @@ namespace wxl::offsets::engine::lua
     constexpr uintptr_t kLuaGetTop = 0x0084DBD0;
     using LuaGetTopFn = int(__cdecl*)(void* state);
 
+    // lua_settop(lua_State*, int), directly adjacent to lua_gettop in the 12340 Lua 5.1 ABI.
+    constexpr uintptr_t kLuaSetTop = 0x0084DBF0;
+    using LuaSetTopFn = void(__cdecl*)(void* state, int top);
+
     constexpr uintptr_t kLuaIsNumber = 0x0084DF20;
     using LuaIsNumberFn = int(__cdecl*)(void* state, int index);
 

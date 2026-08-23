@@ -60,4 +60,15 @@ namespace wxl::game::unit
      */
     inline int Reaction(void* self, void* other)
     { return Native<off::ReactionFn>(off::kUnitReaction)(self, nullptr, other); }
+
+    /**
+     * Executes the stock player's post-input jump transition.
+     * @p player must be the active player resolved as a unit, and @p timeMs must be the client's
+     * action timestamp (not an extension clock). The function returns with `ret 4`.
+     */
+    inline void Jump(void* player, uint32_t timeMs)
+    {
+        if (player) Native<off::PlayerJumpFn>(off::kPlayerJump)(player, timeMs);
+    }
+
 }
