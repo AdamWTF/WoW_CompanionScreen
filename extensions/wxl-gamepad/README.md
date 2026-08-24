@@ -12,7 +12,7 @@ It does not use DS4Windows, XInput-only input, `SendInput`, injected keyboard/mo
 | --- | --- |
 | Left stick | forward/backward + character turn; diagonals work |
 | Right stick | camera view left/right/up/down |
-| Face buttons + D-Pad | action-bar slot selected by the active controller layer |
+| Face buttons + D-Pad | fixed action-bar slot selected by the active controller layer |
 | L1 / L2 / R1 / R2 | select one modifier layer; triggers have hysteresis |
 | DualShock touchpad | relative in-process cursor; one-finger tap/pad press = left-click; two-finger tap = right-click |
 
@@ -27,8 +27,8 @@ The camera uses the client's `MoveView*Start/Stop` controls, whose own per-frame
 3. Obtain an official SDL3 runtime DLL matching the **Win32/x86** WarcraftXL build and place `SDL3.dll` next to `Wow.exe`. SDL is dynamically loaded: no SDL import library or external process is required.
 4. Build Win32, for example: `cmake -S . -B build -A Win32` then `cmake --build build --config Release --target wxl-gamepad`.
 5. Place the resulting `wxl-gamepad.dll` at `Wow.exe`'s `Extensions/wxl-gamepad/wxl-gamepad.dll` (the normal `CLIENT_PATH` build option deploys it there).
-6. Copy `addon/WXLGamepad/` to `Wow.exe`'s `Interface/AddOns/WXLGamepad/`, enable it in the AddOns list, then use `/wxlgamepad` or Interface Options → AddOns → WXLGamepad.
-6. Build/deploy `WarcraftXL.dll` from the same tree and launch only a 3.3.5a build-12340 client.
+6. Copy `addon/ThorPad/` to `Wow.exe`'s `Interface/AddOns/ThorPad/`, enable it in the AddOns list, then use `/thorpad` or Interface Options → AddOns → ThorPad.
+7. Build/deploy `WarcraftXL.dll` from the same tree and launch only a 3.3.5a build-12340 client.
 
 WarcraftXL validates `WXL_CLIENT_BUILD` during `WXL_Query` before executing `WXL_Load`; a different build is refused rather than guessed.
 
@@ -42,11 +42,11 @@ WarcraftXL validates `WXL_CLIENT_BUILD` during `WXL_Query` before executing `WXL
    SDL/device problem from a client-action problem without requiring an external controller mapper.
 4. Move the left stick in cardinal and diagonal directions, then release it. The character should start the matching movement actions and stop at centre.
 5. Move/release the right stick. The camera should continue only while deflected.
-6. Press Cross/Circle/Square/Triangle and each D-Pad direction: the defaults call action-bar slots 1–8. Hold exactly one of L1, L2, R1 or R2 and repeat: defaults call slots 9–40. Holding two modifiers deliberately does nothing.
-7. Open `/wxlgamepad`, edit one slot to a valid value 1–120, press Enter, reload the UI, and verify it remains configured. Editing is disabled in combat.
+6. Open `/thorpad`. Its Base, L1, L2, R1 and R2 tabs show the exact controller layout. Drag an action directly from the Spellbook, Macros or bags to the required cell. Right-click a cell to clear it. Editing is disabled in combat.
+7. Press each face button and D-Pad direction. The fixed horizontal-bar map is Base `1-8`, L1 `9-12,49-52`, L2 `53-60`, R1 `61-68`, and R2 face buttons `69-72`. R2 D-Pad cells are deliberately unavailable. Holding two modifiers deliberately does nothing.
 8. Place and reposition a single finger on the DualShock touchpad: first contact must not move the cursor, while subsequent finger deltas move it relatively. Tap without moving or physically press the pad for left-click; tap two fingers together for right-click.
 9. Disconnect and reconnect the controller. The log should report disconnection, movement/camera/actions stop, and a later connection is picked up automatically.
-10. Repeat steps 2-9 over USB if available.
+11. Repeat steps 2-10 over USB if available.
 
 ## Engine binding and RE note
 
@@ -60,8 +60,8 @@ The right stick writes the same active-camera view-control flags/timestamps used
 
 ## Known limitations
 
-- The current POC intentionally covers movement, camera, 40 action-bar slots and touchpad mouse only; it has no targeting, radial menus, rumble, touchpad right-click or controller glyphs.
+- The two vertical stock action bars are intentionally not used or hidden. Four R2 D-Pad activators are unavailable because WotLK exposes only 36 stable horizontal slots; bonus/stance-sensitive slots are not used.
 - It opens the first SDL-recognised gamepad. Multi-controller selection is deferred.
 - It requires an SDL3 x86 runtime alongside the client. A future package can ship/validate that dependency.
 - Runtime verification needs a permitted 12340 client and physical controller; this source tree contains neither, so the manual scenario above remains required before declaring gameplay validation complete.
-- The stock 3.3.5 binding UI is keyboard/mouse-oriented and does not enumerate SDL gamepads. `WXLGamepad` is therefore a separate configuration UI, while execution remains native and in-process.
+- The stock 3.3.5 binding UI is keyboard/mouse-oriented and does not enumerate SDL gamepads. `ThorPad` is therefore a separate configuration UI, while execution remains native and in-process.

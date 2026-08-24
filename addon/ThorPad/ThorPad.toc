@@ -1,0 +1,16 @@
+## Interface: 30300
+## Title: ThorPad
+## Notes: Controller action overlay and configuration for the WarcraftXL gamepad extension
+## Author: WarcraftXL
+## Version: 0.6.0
+## SavedVariables: ThorPadDB
+Config.lua
+Native.lua
+ActionSlots.lua
+UI\Widgets.lua
+UI\ActionOverlay.lua
+UI\SettingsPanel.lua
+UI\UtilityDock.lua
+UI\XPBar.lua
+UI\MinimapButton.lua
+Core.lua

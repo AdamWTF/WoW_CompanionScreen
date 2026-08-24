@@ -1,6 +1,0 @@
-## Interface: 30300
-## Title: WXLGamepad
-## Notes: Fixed controller action overlay for the native WarcraftXL gamepad extension
-## Author: WarcraftXL
-## Version: 0.2.0
-WXLGamepad.lua

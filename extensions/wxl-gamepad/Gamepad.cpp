@@ -42,13 +42,16 @@ namespace wxl_gamepad
             if (next ? wxl::game::camera::BeginView(c, time) : wxl::game::camera::EndView(c, time)) current = next;
         }
 
-        struct Controller;
-        Controller* g_controller = nullptr;
-        using ScriptFn = wxl::game::script::Function;
-        using RegisterFn = void(__cdecl*)(const char*, ScriptFn);
-        RegisterFn g_originalRegister = nullptr;
-        wxl::game::script::ValidateCallbackFn g_originalValidate = nullptr;
-        int __cdecl LuaGetBinding(void*); int __cdecl LuaSetBinding(void*); int __cdecl LuaGetState(void*);
+        // Only the three conventional bottom action bars are used.  Slots 13-24
+        // are bonus/stance sensitive and 25-48 belong to the two vertical bars.
+        // A zero marks an intentionally unavailable controller cell.
+        constexpr int kActionSlots[5][8] = {
+            { 1, 2, 3, 4, 5, 6, 7, 8 },
+            { 9, 10, 11, 12, 49, 50, 51, 52 },
+            { 53, 54, 55, 56, 57, 58, 59, 60 },
+            { 61, 62, 63, 64, 65, 66, 67, 68 },
+            { 69, 70, 71, 72, 0, 0, 0, 0 },
+        };
 
         struct Controller final
         {
@@ -58,14 +61,9 @@ namespace wxl_gamepad
             bool activatorDown[8]{}, leftTrigger = false, rightTrigger = false;
             bool touchWasDown = false, touchMoved = false, touchPhysical = false, twoFingerCandidate = false, twoFingerMoved = false;
             uint32_t touchStart = 0; float touchStartX = 0, touchStartY = 0, touchLastX = 0, touchLastY = 0, touchX = 0, touchY = 0;
-            int touchFingers = 0, activeLayer = 0, reportedLayer = -99, lastAction = 0, bindings[40]{};
+            int touchFingers = 0, activeLayer = 0, reportedLayer = -99, lastAction = 0;
             int invertCameraX = 1, invertCameraY = 1;
-            bool luaRegistered = false;
             Stick move{}, camera{}; char name[128] = "no controller";
-
-            Controller() { for (int i = 0; i < 40; ++i) bindings[i] = i + 1; }
-            int Binding(int i) const { return i >= 0 && i < 40 ? bindings[i] : 0; }
-            bool SetBinding(int i, int slot) { if (i < 0 || i >= 40 || slot < 1 || slot > 120) return false; bindings[i] = slot; return true; }
 
             void Stop(uint32_t time)
             {
@@ -77,16 +75,9 @@ namespace wxl_gamepad
                 std::memset(activatorDown, 0, sizeof activatorDown);
                 leftTrigger = rightTrigger = touchWasDown = touchPhysical = twoFingerCandidate = twoFingerMoved = false;
             }
-            void RegisterLua()
-            {
-                if (luaRegistered || !wxl::game::script::Context()) return;
-                wxl::game::script::Register("WXLGamepad_GetBinding", &LuaGetBinding);
-                wxl::game::script::Register("WXLGamepad_SetBinding", &LuaSetBinding);
-                wxl::game::script::Register("WXLGamepad_GetState", &LuaGetState);
-                luaRegistered = true; Log(WXL_LOG_INFO, "WXLGamepad Lua configuration bridge registered");
-            }
             void DispatchAction(int slot)
             {
+                if (slot == 0) return;
                 if (!wxl::game::action::Use(slot)) { Log(WXL_LOG_WARN, "invalid controller action slot"); return; }
                 g_api->Log(WXL_LOG_INFO, kTag, "native action edge: slot=%d", slot);
                 lastAction = slot;
@@ -147,7 +138,7 @@ namespace wxl_gamepad
             }
             void Tick(const wxl::events::UpdateArgs& update)
             {
-                RegisterLua(); sdl.PumpEvents();
+                sdl.PumpEvents();
                 if (!pad) { pad = sdl.OpenFirst(); if (!pad) return; std::snprintf(name, sizeof name, "%s", sdl.Name(pad) ? sdl.Name(pad) : "unknown SDL gamepad"); g_api->Log(WXL_LOG_INFO, kTag, "controller connected: %s", name); }
                 if (!sdl.Connected(pad)) { Stop(update.timeMs); sdl.Close(pad); pad = nullptr; std::snprintf(name, sizeof name, "%s", "no controller"); Log(WXL_LOG_WARN, "controller disconnected; actions stopped"); return; }
                 move = ReadStick(sdl, pad, sdl::Axis::LeftX, sdl::Axis::LeftY); camera = ReadStick(sdl, pad, sdl::Axis::RightX, sdl::Axis::RightY);
@@ -162,12 +153,13 @@ namespace wxl_gamepad
                 {
                     reportedLayer = activeLayer;
                     g_api->Log(WXL_LOG_INFO, kTag, "controller layer changed: %d", activeLayer + 1);
+                    // The addon reads this non-protected state only; it never invokes actions.
                     char script[64];
                     std::snprintf(script, sizeof script, "WXLGamepadNativeLayer=%d", activeLayer + 1);
                     wxl::game::script::Execute(script);
                 }
                 constexpr sdl::Button buttons[8] = { sdl::Button::South, sdl::Button::East, sdl::Button::West, sdl::Button::North, sdl::Button::DpadUp, sdl::Button::DpadDown, sdl::Button::DpadLeft, sdl::Button::DpadRight };
-                for (int i = 0; i < 8; ++i) { const bool down = sdl.Pressed(pad, buttons[i]); if (down && !activatorDown[i] && activeLayer >= 0) DispatchAction(bindings[activeLayer * 8 + i]); activatorDown[i] = down; }
+                for (int i = 0; i < 8; ++i) { const bool down = sdl.Pressed(pad, buttons[i]); if (down && !activatorDown[i] && activeLayer >= 0) DispatchAction(kActionSlots[activeLayer][i]); activatorDown[i] = down; }
                 Touchpad(update.timeMs);
             }
             void DrawPanel()
@@ -181,12 +173,6 @@ namespace wxl_gamepad
         };
         Controller controller;
 
-        int __cdecl LuaGetBinding(void* s) { wxl::game::script::PushNumber(s, controller.Binding(int(wxl::game::script::ToNumber(s, 1)) - 1)); return 1; }
-        int __cdecl LuaSetBinding(void* s) { wxl::game::script::PushBoolean(s, controller.SetBinding(int(wxl::game::script::ToNumber(s, 1)) - 1, int(wxl::game::script::ToNumber(s, 2)))); return 1; }
-        int __cdecl LuaGetState(void* s) { wxl::game::script::PushNumber(s, controller.activeLayer + 1); wxl::game::script::PushNumber(s, controller.lastAction); wxl::game::script::PushNumber(s, controller.touchX); wxl::game::script::PushNumber(s, controller.touchY); wxl::game::script::PushNumber(s, controller.touchFingers); return 5; }
-        bool Ours(uintptr_t f) { return f == reinterpret_cast<uintptr_t>(&LuaGetBinding) || f == reinterpret_cast<uintptr_t>(&LuaSetBinding) || f == reinterpret_cast<uintptr_t>(&LuaGetState); }
-        void __cdecl RegisterHook(const char* name, ScriptFn function) { g_originalRegister(name, function); }
-        void __cdecl ValidateHook(uintptr_t f) { if (!Ours(f)) g_originalValidate(f); }
         void __cdecl OnUpdate(void*, const void* a) { controller.Tick(*static_cast<const wxl::events::UpdateArgs*>(a)); }
         void __cdecl OnWorldLeave(void*, const void*) { controller.Stop(0); }
         void __cdecl DrawPanel(void*) { controller.DrawPanel(); }
@@ -194,7 +180,6 @@ namespace wxl_gamepad
     bool InstallGamepad()
     {
         if (!controller.sdl.Initialise()) return false;
-        if (!g_api->HookAttachByName("Lua.RegisterFunction", reinterpret_cast<void*>(&RegisterHook), reinterpret_cast<void**>(&g_originalRegister), WXL_HOOK_DEFAULT_PRIORITY) || !g_api->HookAttachByName("Lua.ValidateFunctionPointer", reinterpret_cast<void*>(&ValidateHook), reinterpret_cast<void**>(&g_originalValidate), WXL_HOOK_DEFAULT_PRIORITY)) { Log(WXL_LOG_ERROR, "could not attach Lua configuration bridge hooks"); return false; }
         g_api->Subscribe(uint32_t(wxl::events::Event::OnUpdate), &OnUpdate, nullptr); g_api->Subscribe(uint32_t(wxl::events::Event::OnWorldLeave), &OnWorldLeave, nullptr); g_api->UiAddPanel("wxl-gamepad", &DrawPanel, nullptr);
         Log(WXL_LOG_INFO, "initialised; SDL3 controller actions and touchpad polling run on OnUpdate"); return true;
     }
