@@ -8,7 +8,7 @@ ThorPad.Config = {
     layerPollInterval = 0.10,
     dockReconcileInterval = 0.50,
     minimap = { defaultAngle = 225, radius = 80 },
-    layerNames = { "Base", "L1", "L2", "R1", "R2" },
+    layerNames = { "Base", "L1", "L2", "R1", "R2", "Bridge" },
     glyphs = {
         "CP_R_DOWN", "CP_R_RIGHT", "CP_R_LEFT", "CP_R_UP",
         "CP_L_UP", "CP_L_DOWN", "CP_L_LEFT", "CP_L_RIGHT",

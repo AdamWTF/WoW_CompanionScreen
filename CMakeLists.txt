@@ -6,6 +6,7 @@
 cmake_minimum_required(VERSION 3.20)
 # C is enabled for the vendored C libraries pulled in via add_subdirectory (MinHook).
 project(WarcraftXL LANGUAGES CXX C)
+include(CTest)
 
 # Static CRT: the DLLs load inside the player's Wow.exe, which has no reason to carry the toolset's
 # brand-new VC++ redistributable. A dynamic CRT turns a missing/stale redist into a loader failure at
@@ -178,6 +179,10 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
         # the target rather than in a source file: an extension that forgets it still builds, and fails
         # only at load with "exports no WXL_Query/WXL_Load".
         target_compile_definitions(${wxl_ext_name} PRIVATE ${WXL_DEFS} WXL_EXTENSION)
+
+        # Optional per-extension link settings and tests. The extension remains auto-discovered;
+        # this hook only supplies platform libraries or standalone test targets it uniquely needs.
+        include("${wxl_ext_dir}/target.cmake" OPTIONAL)
 
         if(CLIENT_PATH)
             add_custom_command(TARGET ${wxl_ext_name} POST_BUILD

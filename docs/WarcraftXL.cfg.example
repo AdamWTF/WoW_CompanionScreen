@@ -40,6 +40,13 @@
 # Log every client-provider claim / client-transform reshape (storage debug mode).
 #WXL_VERBOSE_ASSET_LOGS=0
 
+# ----------------------------------------------------------------------------- Thor Bridge
+# Embedded LAN WebSocket endpoint. Pairing is strongly recommended because ws:// is plaintext.
+#WXL_THOR_ENABLED=1
+#WXL_THOR_BIND_ADDRESS=0.0.0.0
+#WXL_THOR_PORT=18423
+#WXL_THOR_REQUIRE_PAIRING=1
+
 # ----------------------------------------------------------------------------- Profilers
 # Client: asset phases + frame-hitch histogram (h25/h50/h100).
 #WXL_CLIENT_ASSET_PROFILE=1

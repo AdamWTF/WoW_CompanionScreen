@@ -11,3 +11,27 @@ function ThorPad.Native:GetCurrentLayer()
     end
     return layer
 end
+
+function ThorPad.Native:IsBridgeAvailable()
+    return type(WXLThorBridgePublishSnapshot) == "function"
+end
+
+function ThorPad.Native:PublishBridgeSnapshot(json)
+    if not self:IsBridgeAvailable() then return false end
+    return WXLThorBridgePublishSnapshot(json)
+end
+
+function ThorPad.Native:PublishBridgeEvent(eventType, json)
+    if type(WXLThorBridgePublishEvent) ~= "function" then return false end
+    return WXLThorBridgePublishEvent(eventType, json)
+end
+
+function ThorPad.Native:GetBridgeStatus()
+    if type(WXLThorBridgeGetStatus) ~= "function" then return nil end
+    return WXLThorBridgeGetStatus()
+end
+
+function ThorPad.Native:ForgetBridgeDevice()
+    if type(WXLThorBridgeForgetDevice) ~= "function" then return false end
+    return WXLThorBridgeForgetDevice()
+end
