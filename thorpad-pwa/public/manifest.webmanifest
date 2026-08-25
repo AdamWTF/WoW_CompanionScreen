@@ -1,0 +1,14 @@
+{
+  "name": "ThorPad",
+  "short_name": "ThorPad",
+  "description": "World of Warcraft companion for the AYN Thor",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#100d09",
+  "theme_color": "#100d09",
+  "icons": [
+    { "src": "/icons/thorpad.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
