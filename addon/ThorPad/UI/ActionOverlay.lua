@@ -1,32 +1,24 @@
 local addonName, ThorPad = ...
-local Config, Slots, Widgets = ThorPad.Config, ThorPad.ActionSlots, ThorPad.UI.Widgets
+local C, Widgets = ThorPad.Constants, ThorPad.UI.Widgets
 
-ThorPad.ActionOverlay = {}
+ThorPad.ActionOverlay = { layer = "default" }
 local Overlay = ThorPad.ActionOverlay
 
 function Overlay:Create()
-    self.frame = CreateFrame("Frame", "ThorPadActionOverlay", UIParent)
-    self.frame:SetSize(470, 170); self.frame:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 34); self.frame:SetFrameStrata("MEDIUM")
-    self.labels, self.cells = {}, {}
-    for i, name in ipairs({ "L1", "L2", "R1", "R2" }) do
-        local badge = CreateFrame("Frame", nil, self.frame); badge:SetSize(30, 18); badge:SetPoint("TOP", self.frame, "TOP", -54 + (i - 1) * 36, -16); Widgets:SetBackdrop(badge)
-        local text = badge:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"); text:SetPoint("CENTER", badge, "CENTER"); text:SetText(name)
-        self.labels[i] = { frame = badge, text = text }
+    local frame = CreateFrame("Frame", "ThorPadActionOverlay", UIParent); frame:SetSize(520, 92); frame:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 42); frame:SetFrameStrata("MEDIUM")
+    self.frame, self.cells = frame, {}
+    self.l2Indicator = frame:CreateTexture(nil, "OVERLAY"); self.l2Indicator:SetSize(28, 28); self.l2Indicator:SetPoint("BOTTOMRIGHT", frame, "TOP", -2, 2); self.l2Indicator:SetTexture(ThorPad.Glyphs:GetModifier("l2"))
+    self.r2Indicator = frame:CreateTexture(nil, "OVERLAY"); self.r2Indicator:SetSize(28, 28); self.r2Indicator:SetPoint("BOTTOMLEFT", frame, "TOP", 2, 2); self.r2Indicator:SetTexture(ThorPad.Glyphs:GetModifier("r2"))
+    for index, control in ipairs(C.CONTROLLER_CONTROLS) do
+        local cell = Widgets:CreateActionCell(frame, nil, 52, "display"); cell:SetPoint("LEFT", frame, "LEFT", (index - 1) * 64 + 6, 0); cell.control = control; cell:EnableMouse(false); cell.label:Hide(); self.cells[index] = cell
     end
-    for i = 1, 8 do local p = Config.overlayPositions[i]; self.cells[i] = Widgets:CreateActionCell(self.frame, p[1], p[2], Config.overlayCellSize, false) end
 end
 
-function Overlay:SetLayer(layer)
-    self.layer = layer
-    for i = 1, 4 do
-        local active = layer == i + 1
-        self.labels[i].text:SetTextColor(active and 1 or 0.55, active and 0.82 or 0.55, active and 0.15 or 0.55)
-        self.labels[i].frame:SetBackdropBorderColor(active and 1 or 0.35, active and 0.72 or 0.35, active and 0.15 or 0.35, active and 1 or 0.8)
-    end
-    self:Refresh()
-end
-
+function Overlay:SetLayer(layer) self.layer = layer or "default"; self:Refresh() end
 function Overlay:Refresh()
-    if not self.cells then return end
-    for i = 1, 8 do local cell = self.cells[i]; cell:SetAction(Slots:GetSlot(self.layer or 1, i)); cell:Refresh(i) end
+    if not self.frame then return end
+    self.frame:SetScale(ThorPadDB.display.actionScale or 1)
+    if self.layer == "l2" or self.layer == "l2r2" then self.l2Indicator:Show() else self.l2Indicator:Hide() end
+    if self.layer == "r2" or self.layer == "l2r2" then self.r2Indicator:Show() else self.r2Indicator:Hide() end
+    for _, cell in ipairs(self.cells) do cell.layer = self.layer; Widgets:RefreshControllerCell(cell) end
 end

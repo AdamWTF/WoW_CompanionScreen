@@ -4,7 +4,7 @@ ThorPad.Bridge = {}
 local Bridge = ThorPad.Bridge
 local Null = {}
 local nativeSlots = {}
-for logical = 1, 24 do nativeSlots[logical] = logical + 24 end
+for logical = 1, ThorPad.Constants.SECOND_SCREEN_SLOT_COUNT do nativeSlots[logical] = ThorPad.SecondScreen:GetActionID(logical) end
 
 local function escape(value)
     return value:gsub('[%z\1-\31\\"]', function(c)
@@ -80,7 +80,7 @@ local function actionState(logical)
 end
 
 local function allActions()
-    local slots = {}; for logical = 1, 24 do slots[logical] = actionState(logical) end
+    local slots = {}; for logical = 1, ThorPad.Constants.SECOND_SCREEN_SLOT_COUNT do slots[logical] = actionState(logical) end
     return { slots = slots }
 end
 
@@ -88,7 +88,7 @@ function Bridge:PublishSnapshot()
     if not ThorPad.Native:IsBridgeAvailable() then return false end
     local ok = ThorPad.Native:PublishBridgeSnapshot(encode({ player = playerState(), actions = allActions() }))
     if ok then
-        self.lastActions = {}; for logical = 1, 24 do self.lastActions[logical] = encode(actionState(logical)) end
+        self.lastActions = {}; for logical = 1, ThorPad.Constants.SECOND_SCREEN_SLOT_COUNT do self.lastActions[logical] = encode(actionState(logical)) end
     end
     return ok
 end
@@ -105,7 +105,7 @@ function Bridge:PublishBags() self:Publish("player.bags", playerState().bags) en
 function Bridge:ReconcileActions()
     if not ThorPad.Native:IsBridgeAvailable() then return end
     self.lastActions = self.lastActions or {}
-    for logical = 1, 24 do
+    for logical = 1, ThorPad.Constants.SECOND_SCREEN_SLOT_COUNT do
         local state = actionState(logical); local serialized = encode(state)
         if self.lastActions[logical] ~= serialized then self.lastActions[logical] = serialized; ThorPad.Native:PublishBridgeEvent("action.updated", serialized) end
     end
@@ -133,26 +133,37 @@ function Bridge:GetStatus()
         bindAddress = stringValue("bindAddress"), port = number("port") or 0, device = stringValue("device"), pairingCode = stringValue("pairingCode") }
 end
 
+function Bridge:IsAvailable() return ThorPad.Native:IsBridgeAvailable() end
+function Bridge:GetHost() local state = self:GetStatus(); return state.bindAddress or "" end
+function Bridge:GetPort() local state = self:GetStatus(); return state.port and state.port > 0 and state.port or ThorPad.Constants.DEFAULT_PORT end
+function Bridge:GetPairingCode() local state = self:GetStatus(); return state.pairingCode or "" end
+function Bridge:GetConnectionState()
+    local state = self:GetStatus()
+    if not state.available then return "unavailable" end
+    if state.connected then return "connected" end
+    if state.listening then return state.paired and "waiting" or "pairing-required" end
+    return "disconnected"
+end
+function Bridge:RegeneratePairingCode() return ThorPad.Native:RegeneratePairingCode() end
+
 function Bridge:Initialize()
-    if self.frame then return end
-    self.frame = CreateFrame("Frame")
-    local events = { "PLAYER_ENTERING_WORLD", "PLAYER_LEVEL_UP", "PLAYER_XP_UPDATE", "UPDATE_EXHAUSTION", "PLAYER_MONEY", "BAG_UPDATE",
-        "ACTIONBAR_SLOT_CHANGED", "ACTIONBAR_UPDATE_COOLDOWN", "ACTIONBAR_UPDATE_USABLE", "ACTIONBAR_UPDATE_STATE" }
-    for _, event in ipairs(events) do self.frame:RegisterEvent(event) end
-    self.frame:SetScript("OnEvent", function(_, event)
-        if event == "PLAYER_ENTERING_WORLD" then self:PublishSnapshot()
-        elseif event == "PLAYER_LEVEL_UP" then self:PublishPlayer(); self:PublishExperience()
-        elseif event == "PLAYER_XP_UPDATE" or event == "UPDATE_EXHAUSTION" then self:PublishExperience()
-        elseif event == "PLAYER_MONEY" then self:PublishMoney()
-        elseif event == "BAG_UPDATE" then self:PublishBags()
-        else self:ReconcileActions() end
-    end)
-    self.frame:SetScript("OnUpdate", function(_, elapsed)
-        self.elapsed = (self.elapsed or 0) + elapsed; self.statusElapsed = (self.statusElapsed or 0) + elapsed
-        if self.elapsed >= 0.25 then self.elapsed = 0; local available = ThorPad.Native:IsBridgeAvailable(); if available and not self.wasAvailable then self:PublishSnapshot() elseif available then self:ReconcileActions() end; self.wasAvailable = available end
-        if self.statusElapsed >= 1 then self.statusElapsed = 0; if ThorPad.Settings and ThorPad.Settings.RefreshBridge then ThorPad.Settings:RefreshBridge() end end
-    end)
+    if self.initialized then return end; self.initialized = true
     self.wasAvailable = ThorPad.Native:IsBridgeAvailable(); if self.wasAvailable then self:PublishSnapshot() end
+end
+
+function Bridge:OnEvent(event)
+    if event == "PLAYER_ENTERING_WORLD" then self:PublishSnapshot()
+    elseif event == "PLAYER_LEVEL_UP" then self:PublishPlayer(); self:PublishExperience()
+    elseif event == "PLAYER_XP_UPDATE" or event == "UPDATE_EXHAUSTION" then self:PublishExperience()
+    elseif event == "PLAYER_MONEY" then self:PublishMoney()
+    elseif event == "BAG_UPDATE" then self:PublishBags()
+    elseif event == "ACTIONBAR_SLOT_CHANGED" or event == "ACTIONBAR_UPDATE_COOLDOWN" or event == "ACTIONBAR_UPDATE_USABLE" or event == "ACTIONBAR_UPDATE_STATE" then self:ReconcileActions() end
+end
+
+function Bridge:Tick(elapsed)
+    self.elapsed = (self.elapsed or 0) + elapsed; self.statusElapsed = (self.statusElapsed or 0) + elapsed
+    if self.elapsed >= 1 then self.elapsed = 0; local available = ThorPad.Native:IsBridgeAvailable(); if available and not self.wasAvailable then self:PublishSnapshot() elseif available then self:ReconcileActions() end; self.wasAvailable = available end
+    if self.statusElapsed >= 2 then self.statusElapsed = 0; if ThorPad.Settings and ThorPad.Settings.RefreshBridge then ThorPad.Settings:RefreshBridge() end end
 end
 
 Bridge.JsonNull = Null

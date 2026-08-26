@@ -1,98 +1,69 @@
 local addonName, ThorPad = ...
-local Config = ThorPad.Config
 
 ThorPad.UI = ThorPad.UI or {}
 ThorPad.UI.Widgets = {}
+local Widgets = ThorPad.UI.Widgets
 
-function ThorPad.UI.Widgets:SetBackdrop(frame)
+function Widgets:SetBackdrop(frame)
     frame:SetBackdrop({ bgFile = [[Interface\Tooltips\UI-Tooltip-Background]], edgeFile = [[Interface\Tooltips\UI-Tooltip-Border]], tile = true, tileSize = 16, edgeSize = 16, insets = { left = 4, right = 4, top = 4, bottom = 4 } })
-    frame:SetBackdropColor(0.05, 0.05, 0.05, 0.94)
-    frame:SetBackdropBorderColor(0.62, 0.48, 0.18, 1)
+    frame:SetBackdropColor(.035, .035, .035, .96); frame:SetBackdropBorderColor(.62, .48, .18, 1)
 end
 
-function ThorPad.UI.Widgets:CreateActionCell(parent, x, y, size, interactive)
-    local cell = CreateFrame("Button", nil, parent)
-    cell:SetSize(size, size)
-    cell:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
-    cell:EnableMouse(interactive)
-    if interactive then cell:RegisterForDrag("LeftButton"); cell:RegisterForClicks("AnyUp") end
+function Widgets:CreateSection(parent, title, x, y, width, height)
+    local frame = CreateFrame("Frame", nil, parent); frame:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y); frame:SetSize(width, height); frame:SetFrameLevel(parent:GetFrameLevel() + 2); self:SetBackdrop(frame)
+    local label = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal"); label:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -10); label:SetText(title)
+    return frame
+end
 
-    local iconInset = math.floor(size * 0.13)
+function Widgets:CreateCheck(parent, label, x, y, callback)
+    local check = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate"); check:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y); check:SetSize(24, 24); check:SetFrameLevel(parent:GetFrameLevel() + 2)
+    local labelText = check:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); labelText:SetPoint("LEFT", check, "RIGHT", 3, 1); labelText:SetText(label)
+    check:SetScript("OnClick", function(self) callback(self:GetChecked() and true or false) end)
+    return check
+end
 
-    local background = cell:CreateTexture(nil, "BACKGROUND")
-    background:SetTexture([[Interface\Minimap\UI-Minimap-Background]])
-    background:SetAllPoints(cell)
-    background:SetVertexColor(0.08, 0.08, 0.08, 1)
-
-    local icon = cell:CreateTexture(nil, "ARTWORK")
-    icon:SetPoint("TOPLEFT", cell, "TOPLEFT", iconInset, -iconInset)
-    icon:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", -iconInset, iconInset)
-    icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    cell.icon = icon
-
-    local cooldown = CreateFrame("Cooldown", nil, cell, "CooldownFrameTemplate")
-    cooldown:SetPoint("TOPLEFT", icon, "TOPLEFT", 0, 0)
-    cooldown:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 0, 0)
-    cell.cooldown = cooldown
-
-    local disabled = cell:CreateTexture(nil, "OVERLAY")
-    disabled:SetTexture([[Interface\Minimap\UI-Minimap-Background]])
-    disabled:SetAllPoints(cell)
-    disabled:SetVertexColor(0, 0, 0, 0.72)
-    cell.disabled = disabled
-
-
-    -- Wrath has no texture masks. A built-in circular background, inset icon,
-    -- and action-button ring provide the round presentation without newer APIs.
-    local ringFrame = CreateFrame("Frame", nil, cell)
-    ringFrame:SetAllPoints(cell)
-    ringFrame:SetFrameStrata(cell:GetFrameStrata())
-    ringFrame:SetFrameLevel(cell:GetFrameLevel() + 10)
-
-    local ring = ringFrame:CreateTexture(nil, "OVERLAY")
-    ring:SetTexture([[Interface\Buttons\UI-ActionButton-Border]])
-    ring:SetPoint("CENTER", ringFrame, "CENTER", 0, 0)
-    ring:SetSize(size + 12, size + 12)
-    ring:SetBlendMode("ADD")
-    ring:SetVertexColor(0.72, 0.62, 0.36, 0.78)
-    cell.ring = ring
-
-    local glyphSize = math.max(24, math.floor(size * Config.glyphScale))
-    local glyphFrame = CreateFrame("Frame", nil, cell)
-    glyphFrame:SetSize(glyphSize, glyphSize)
-    glyphFrame:SetPoint("TOP", cell, "TOP", 0, math.floor(size * 0.13))
-    glyphFrame:SetFrameStrata(cell:GetFrameStrata())
-    glyphFrame:SetFrameLevel(cell:GetFrameLevel() + 20)
-    local glyph = glyphFrame:CreateTexture(nil, "OVERLAY")
-    glyph:SetAllPoints(glyphFrame)
-    cell.glyphFrame, cell.controllerGlyph = glyphFrame, glyph
-
-    local count = cell:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
-    count:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", -5, 5)
-    count:SetShadowOffset(1, -1)
-    cell.count = count
-
-    function cell:SetAction(slot) self.slot = slot end
-    function cell:SetControllerGlyph(index)
-        local name = Config.glyphs[index]
-        if name and self.slot and self.slot > 0 then self.controllerGlyph:SetTexture(Config.mediaPath .. name); self.glyphFrame:Show() else self.glyphFrame:Hide() end
-    end
-    function cell:SetDisabled(disabled) if disabled then self.disabled:Show() else self.disabled:Hide() end end
-    function cell:Refresh(index)
-        local slot = self.slot
-        self:SetControllerGlyph(index)
-        if not slot or slot == 0 then
-            self.icon:SetTexture([[Interface\Icons\INV_Misc_QuestionMark]]); self.icon:SetVertexColor(0.32, 0.32, 0.32)
-            self.count:SetText(""); self.cooldown:Hide(); self:SetDisabled(true); return
-        end
-        self:SetDisabled(false)
-        self.icon:SetTexture(GetActionTexture(slot) or [[Interface\Icons\INV_Misc_QuestionMark]])
-        local usable, noMana = IsUsableAction(slot)
-        if usable then self.icon:SetVertexColor(1, 1, 1) elseif noMana then self.icon:SetVertexColor(0.48, 0.48, 1) else self.icon:SetVertexColor(0.42, 0.42, 0.42) end
-        local countValue = GetActionCount(slot)
-        self.count:SetText(countValue and countValue > 0 and countValue or "")
-        local start, duration, enabled = GetActionCooldown(slot)
-        if enabled and duration and duration > 0 then self.cooldown:Show(); self.cooldown:SetCooldown(start, duration) else self.cooldown:Hide() end
-    end
+function Widgets:CreateActionCell(parent, name, size, kind)
+    local cell = CreateFrame("Button", name, parent); cell:SetSize(size, size); cell:SetFrameLevel(parent:GetFrameLevel() + 2); cell:RegisterForDrag("LeftButton"); cell:RegisterForClicks("AnyUp")
+    local background = cell:CreateTexture(nil, "BACKGROUND"); background:SetTexture([[Interface\Minimap\UI-Minimap-Background]]); background:SetAllPoints(cell); background:SetVertexColor(.07, .07, .07, 1)
+    local inset = math.floor(size * .12)
+    cell.icon = cell:CreateTexture(nil, "ARTWORK"); cell.icon:SetPoint("TOPLEFT", cell, "TOPLEFT", inset, -inset); cell.icon:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", -inset, inset); cell.icon:SetTexCoord(.08, .92, .08, .92)
+    cell.cooldown = CreateFrame("Cooldown", nil, cell, "CooldownFrameTemplate"); cell.cooldown:SetAllPoints(cell.icon)
+    cell.border = cell:CreateTexture(nil, "OVERLAY"); cell.border:SetTexture([[Interface\Buttons\UI-ActionButton-Border]]); cell.border:SetPoint("CENTER"); cell.border:SetSize(size + 12, size + 12); cell.border:SetBlendMode("ADD"); cell.border:SetVertexColor(.72, .62, .36, .82)
+    cell.count = cell:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall"); cell.count:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", -5, 5)
+    cell.label = cell:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); cell.label:SetPoint("TOP", cell, "BOTTOM", 0, -2)
+    local glyphFrame = CreateFrame("Frame", nil, cell); glyphFrame:SetSize(25, 25); glyphFrame:SetPoint("TOP", cell, "TOP", 0, 8); glyphFrame:SetFrameLevel(cell:GetFrameLevel() + 20)
+    cell.glyph = glyphFrame:CreateTexture(nil, "OVERLAY"); cell.glyph:SetAllPoints(glyphFrame)
+    cell.glyphText = glyphFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"); cell.glyphText:SetPoint("CENTER"); cell.glyphFrame = glyphFrame
     return cell
+end
+
+function Widgets:SetGlyph(cell, control)
+    local texture, label, red, green, blue = ThorPad.Glyphs:Get(control)
+    cell.glyph:SetTexture(nil)
+    if texture then cell.glyph:SetTexture(texture); cell.glyph:SetTexCoord(0, 1, 0, 1); cell.glyph:Show() else cell.glyph:Hide() end
+    cell.glyphText:SetText(texture and "" or label or "?"); cell.glyphText:SetTextColor(red or 1, green or 1, blue or 1)
+    cell.glyphFrame:SetScale((ThorPadDB.display.glyphScale or 1) * .75)
+end
+
+function Widgets:SetVisualState(cell, icon, count, usable, noResource, start, duration, enabled, current, inRange)
+    cell.icon:SetTexture(icon or [[Interface\Icons\INV_Misc_QuestionMark]])
+    if not icon then cell.icon:SetVertexColor(.28, .28, .28)
+    elseif inRange == 0 then cell.icon:SetVertexColor(1, .18, .18)
+    elseif usable then cell.icon:SetVertexColor(1, 1, 1)
+    elseif noResource then cell.icon:SetVertexColor(.45, .45, 1)
+    else cell.icon:SetVertexColor(.4, .4, .4) end
+    cell.count:SetText(count and count > 0 and count or "")
+    if duration and duration > 0 and enabled ~= 0 then cell.cooldown:Show(); cell.cooldown:SetCooldown(start or 0, duration) else cell.cooldown:Hide() end
+    if current then cell.border:SetVertexColor(.15, 1, .25, 1) else cell.border:SetVertexColor(.72, .62, .36, .82) end
+end
+
+function Widgets:RefreshControllerCell(cell)
+    local descriptor = ThorPad.Controller:GetAssignment(cell.layer, cell.control); local state = ThorPad.Controller:GetState(descriptor); self:SetGlyph(cell, cell.control)
+    if state then self:SetVisualState(cell, state.icon, state.count, state.usable, state.noResource, state.start, state.duration, state.enabled, state.current, state.inRange)
+    else self:SetVisualState(cell, nil, 0, false, false, 0, 0, 0, false, nil) end
+end
+
+function Widgets:RefreshNativeCell(cell)
+    local slot = cell.actionID; local usable, noResource = IsUsableAction(slot); local start, duration, enabled = GetActionCooldown(slot); local inRange = IsActionInRange(slot)
+    self:SetVisualState(cell, GetActionTexture(slot), GetActionCount(slot), usable, noResource, start, duration, enabled, IsCurrentAction(slot), inRange)
 end
