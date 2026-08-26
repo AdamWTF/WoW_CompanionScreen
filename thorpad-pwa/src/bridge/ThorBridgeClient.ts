@@ -61,10 +61,20 @@ export class ThorBridgeClient {
         if (message.type === "auth.required") {
           const token = await this.callbacks.getToken().catch(() => null);
           if (token) this.sendRaw({ type: "auth", token });
-          else { this.callbacks.onAuthMissing(); return; }
+          else {
+            // This browser has no credential for a bridge which is already paired. Stop here so the
+            // server's authentication timeout cannot turn the useful error into an endless reconnect.
+            this.halted = true;
+            this.callbacks.onAuthMissing();
+            socket.close();
+            return;
+          }
         }
         if (message.type === "pairing.complete" && typeof message.token === "string") await this.callbacks.onToken(message.token);
-        if (message.type === "error" && message.code === "client-busy") this.halted = true;
+        if (message.type === "error" && ["client-busy", "protocol-mismatch", "auth-failed"].includes(message.code ?? "")) {
+          this.halted = true;
+          socket.close();
+        }
         this.callbacks.onMessage(message);
       };
       socket.onerror = () => socket.close();

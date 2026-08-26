@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "icons:import": "node scripts/import-wow-icons.mjs",
     "start": "npx serve@latest out",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
@@ -22,7 +23,10 @@
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
+    "sharp": "^0.34.5",
     "typescript": "^5.7.2",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "wow-blp-web": "^0.7.2",
+    "wow-mpq-web": "^0.7.2"
   }
 }

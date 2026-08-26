@@ -147,7 +147,11 @@ namespace wxl_thor
         json::Value actions = data.Find("actions") ? *data.Find("actions") : EmptyActions();
         if (!player.IsNull() && !player.IsObject()) { error = "player must be an object or null"; return false; }
         if (!NormalizeActions(actions, error)) return false;
-        std::lock_guard lock(mutex_); player_ = std::move(player); actions_ = std::move(actions); return true;
+        // Addon snapshots can only be published from the in-world FrameScript context. Treat one as
+        // authoritative lifecycle evidence as well as authoritative player/action state. The client's
+        // CWorldEnter routine does not return until the world is left, so the lower-level lifecycle
+        // detour cannot reliably mark the active session as "world" on its own.
+        std::lock_guard lock(mutex_); gameState_ = "world"; player_ = std::move(player); actions_ = std::move(actions); return true;
     }
 
     bool StateStore::PublishEvent(std::string_view type, const json::Value& data, std::string& error)

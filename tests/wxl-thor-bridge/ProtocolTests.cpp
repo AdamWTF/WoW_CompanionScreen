@@ -41,6 +41,7 @@ int main()
     Check(actions->Find("slots")->ArrayValue()->size() == 24, "default snapshot has 24 slots");
     Check(state.PublishSnapshot(Parse(R"({"player":{"name":"Adfox","level":37},"actions":{"slots":[{"slot":1,"empty":false},{"slot":24,"empty":true}]}})"), error), "snapshot accepted");
     snapshot = state.SnapshotMessage();
+    Check(*snapshot.Find("data")->Find("game")->Find("state")->String() == "world", "addon snapshot marks lifecycle in-world");
     const auto* slots = snapshot.Find("data")->Find("actions")->Find("slots")->ArrayValue();
     Check(slots->size() == 24, "normalized snapshot has 24 slots");
     int64_t slot = 0; Check((*slots)[0].Find("slot")->Integer(slot) && slot == 1, "first slot fixed");
