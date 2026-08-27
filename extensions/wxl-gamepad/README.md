@@ -14,7 +14,7 @@
 - D-pad plus South/East/West/North: 32 existing action-bar assignments.
 - DualShock touchpad: relative cursor, one-finger/physical click, and two-finger right-click when supplied by SDL.
 
-Controller polling runs at 125 Hz on a worker. WoW movement, action, keyboard, and mouse calls are applied only from the main `OnUpdate` event. Disconnects, backend changes, focus loss, and world leave release every input owned by the extension.
+Controller polling runs at 125 Hz on a worker. WoW movement, action, keyboard, mouse, UI, and camera calls are applied only from the main `OnUpdate` event while the world-render lifecycle is active. Login, realm, character-selection, and loading screens remain diagnostic-only. Disconnects, backend changes, focus loss, and world leave release every input owned by the extension.
 
 ## Installation and configuration
 
@@ -28,4 +28,4 @@ An unmapped SDL joystick is intentionally diagnostic-only. Set `ControllerDebug=
 
 ## Manual acceptance
 
-For AYN Thor/GameNative, Xbox, and DualShock, verify discovery logs, every cardinal/diagonal movement, right-stick camera and RMB release, L1/R1 hostile targeting, R3 friendly targeting, L3 camera-view cycling, Start game-menu toggling, Select all-bag toggling, trigger hysteresis and all four layers, all 32 action cells, disconnect/reconnect, focus loss, and physical mouse/touchscreen coexistence. Confirm held fixed controls do not repeat and controls held while focus returns do not fire accidentally. On DualShock also verify touchpad cursor and taps. Finally verify the ThorPad WebSocket connection, 24 second-screen actions, keyboard, touchpad, shortcuts, game-state export, and persistent settings.
+For AYN Thor/GameNative, Xbox, and DualShock, first exercise every controller input on the login, realm, character-selection, and loading screens; discovery diagnostics may update, but no gameplay/UI command may run and the client must remain stable. In-world, verify every cardinal/diagonal movement, right-stick camera and RMB release, L1/R1 hostile targeting, R3 friendly targeting, L3 camera-view cycling, Start game-menu toggling, Select all-bag toggling, trigger hysteresis and all four layers, all 32 action cells, disconnect/reconnect, focus loss, and physical mouse/touchscreen coexistence. Confirm held fixed controls do not repeat or fire when entering the world or returning focus. On DualShock also verify touchpad cursor and taps. Finally verify the ThorPad WebSocket connection, 24 second-screen actions, keyboard, touchpad, shortcuts, game-state export, and persistent settings.

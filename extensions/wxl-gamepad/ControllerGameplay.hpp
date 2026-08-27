@@ -16,12 +16,13 @@ namespace wxl_gamepad
     {
     public:
         ControllerGameplay(const ControllerConfig& config, IGameInput& input, bool publishState = true) : config_(config), input_(input), publishState_(publishState) {}
-        void Update(const ControllerSnapshot& snapshot, float dt, uint32_t time); void Release(uint32_t time);
+        void Update(const ControllerSnapshot& snapshot, float dt, uint32_t time); void SetActive(bool active, uint32_t time); void Release(uint32_t time);
         int Layer() const { return layer_; } int LastAction() const { return lastAction_; }
+        bool Active() const { return active_; }
         bool LeftModifier() const { return leftTrigger_; } bool RightModifier() const { return rightTrigger_; }
     private:
         void Publish(const ControllerSnapshot& snapshot); void Touch(const ControllerState& state, uint32_t time);
-        const ControllerConfig& config_; IGameInput& input_; bool publishState_{}; uint64_t generation_{~uint64_t{}}; ControllerState previous_{};
+        const ControllerConfig& config_; IGameInput& input_; bool publishState_{}, active_{}, suppressEdges_{true}; uint64_t generation_{~uint64_t{}}; ControllerState previous_{};
         bool forward_{}, backward_{}, strafeLeft_{}, strafeRight_{}, leftTrigger_{}, rightTrigger_{}; bool actions_[8]{};
         int layer_{}, reportedLayer_{-1}, lastAction_{}; bool wasForeground_{};
         bool touchWasDown_{}, touchMoved_{}, touchButton_{}, twoFingerCandidate_{}, twoFingerMoved_{}; uint32_t touchStart_{}; float touchStartX_{}, touchStartY_{}, touchLastX_{}, touchLastY_{};

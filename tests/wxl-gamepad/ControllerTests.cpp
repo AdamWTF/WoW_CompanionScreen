@@ -42,6 +42,9 @@ int main()
 
     ControllerConfig config; ParseChord("SHIFT+TAB", config.previousHostile); ParseChord("TAB", config.nextHostile); ParseChord("CTRL+TAB", config.nextFriendly);
     FakeInput input; ControllerGameplay gameplay(config, input, false); ControllerSnapshot snapshot; snapshot.generation = ~uint64_t{}; snapshot.connected = true;
+    snapshot.state.start = snapshot.state.back = snapshot.state.leftStickButton = true; snapshot.state.leftY = -.8f; gameplay.Update(snapshot, .01f, 1); assert(input.commands.empty() && !input.movement[0]);
+    gameplay.SetActive(true, 5); gameplay.Update(snapshot, .01f, 6); assert(input.commands.empty() && input.movement[0]);
+    snapshot.state = {}; gameplay.Update(snapshot, .01f, 7); assert(!input.movement[0]);
     snapshot.state.leftY = -.8f; snapshot.state.leftX = .8f; gameplay.Update(snapshot, .01f, 10); assert(input.movement[0] && input.movement[3]);
     snapshot.state.leftY = snapshot.state.leftX = 0; gameplay.Update(snapshot, .01f, 20); assert(!input.movement[0] && !input.movement[3]);
     snapshot.state.leftTrigger = .56f; gameplay.Update(snapshot, .01f, 30); assert(gameplay.Layer() == 1); snapshot.state.rightTrigger = .56f; gameplay.Update(snapshot, .01f, 40); assert(gameplay.Layer() == 3);
@@ -56,7 +59,7 @@ int main()
     snapshot.connected = false; ++snapshot.generation; gameplay.Update(snapshot, .01f, 69); snapshot.connected = true; ++snapshot.generation; gameplay.Update(snapshot, .01f, 70); assert(input.commands.size() == 6);
     snapshot.state.start = snapshot.state.back = snapshot.state.leftStickButton = false; gameplay.Update(snapshot, .01f, 71); snapshot.state.start = snapshot.state.back = snapshot.state.leftStickButton = true; gameplay.Update(snapshot, .01f, 72); assert(input.commands.size() == 9);
     snapshot.state.rightX = 1; gameplay.Update(snapshot, .01f, 70); assert(input.camera && input.cameraX > 0); snapshot.state.rightX = 0; gameplay.Update(snapshot, .01f, 80); assert(!input.camera);
-    gameplay.Release(90); assert(input.releases == 1);
+    gameplay.SetActive(false, 90); assert(!gameplay.Active() && input.releases == 5); const size_t commandCount = input.commands.size(); snapshot.state.start = true; gameplay.Update(snapshot, .01f, 91); assert(input.commands.size() == commandCount);
     std::cout << "wxl-gamepad tests passed\n";
     return 0;
 }

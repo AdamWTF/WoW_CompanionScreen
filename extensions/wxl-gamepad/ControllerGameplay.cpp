@@ -18,6 +18,11 @@ namespace wxl_gamepad
     {
         input_.ReleaseAll(time); forward_ = backward_ = strafeLeft_ = strafeRight_ = false; leftTrigger_ = rightTrigger_ = false; layer_ = 0; reportedLayer_ = -1; touchWasDown_ = touchMoved_ = touchButton_ = twoFingerCandidate_ = twoFingerMoved_ = false; for (bool& action : actions_) action = false; previous_ = {};
     }
+    void ControllerGameplay::SetActive(bool active, uint32_t time)
+    {
+        if (active_ == active) return;
+        Release(time); active_ = active; suppressEdges_ = true;
+    }
     void ControllerGameplay::Publish(const ControllerSnapshot& snapshot)
     {
         if (!publishState_) return;
@@ -42,13 +47,15 @@ namespace wxl_gamepad
     }
     void ControllerGameplay::Update(const ControllerSnapshot& snapshot, float dt, uint32_t time)
     {
+        if (!active_) return;
         const bool generationChanged = snapshot.generation != generation_;
-        if (generationChanged) { Release(time); generation_ = snapshot.generation; reportedLayer_ = -1; Publish(snapshot); }
+        if (generationChanged) { Release(time); generation_ = snapshot.generation; reportedLayer_ = -1; suppressEdges_ = true; Publish(snapshot); }
         if (!snapshot.connected) return;
-        if (generationChanged)
+        if (suppressEdges_)
         {
             previous_ = snapshot.state; const ControllerState& held = snapshot.state;
             actions_[0]=held.dpadUp; actions_[1]=held.dpadDown; actions_[2]=held.dpadLeft; actions_[3]=held.dpadRight; actions_[4]=held.south; actions_[5]=held.east; actions_[6]=held.west; actions_[7]=held.north;
+            suppressEdges_ = false;
         }
         const bool foreground = input_.Foreground(); if (!foreground) { if (wasForeground_) Release(time); previous_ = snapshot.state; const ControllerState& held = snapshot.state; actions_[0]=held.dpadUp; actions_[1]=held.dpadDown; actions_[2]=held.dpadLeft; actions_[3]=held.dpadRight; actions_[4]=held.south; actions_[5]=held.east; actions_[6]=held.west; actions_[7]=held.north; wasForeground_ = false; return; } wasForeground_ = true;
         const ControllerState& s = snapshot.state;

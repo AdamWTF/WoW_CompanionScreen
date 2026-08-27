@@ -25,7 +25,14 @@ namespace wxl_gamepad
             const auto& update = *static_cast<const wxl::events::UpdateArgs*>(raw);
             if (manager && gameplay) gameplay->Update(manager->Snapshot(), update.dt, update.timeMs);
         }
-        void __cdecl OnWorldLeave(void*, const void*) { if (gameplay) gameplay->Release(0); }
+        void __cdecl OnWorldRenderEnd(void*, const void*)
+        {
+            if (gameplay && !gameplay->Active()) { gameplay->SetActive(true, 0); Log(WXL_LOG_INFO, "world rendering detected; gameplay dispatch enabled"); }
+        }
+        void __cdecl OnWorldLeave(void*, const void*)
+        {
+            if (gameplay && gameplay->Active()) { gameplay->SetActive(false, 0); Log(WXL_LOG_INFO, "world leave detected; gameplay dispatch disabled"); }
+        }
         void __cdecl DrawPanel(void*)
         {
             if (!manager || !gameplay || !config) return; const ControllerSnapshot snapshot = manager->Snapshot(); char line[512];
@@ -34,7 +41,7 @@ namespace wxl_gamepad
             std::snprintf(line, sizeof line, "Controller: %s%s", snapshot.connected ? snapshot.device.name.c_str() : "not connected", snapshot.device.diagnosticOnly ? " (diagnostic only)" : ""); g_api->UiText(line);
             if (!snapshot.device.guid.empty()) { std::snprintf(line, sizeof line, "GUID: %s  VID:%04x PID:%04x", snapshot.device.guid.c_str(), snapshot.device.vendor, snapshot.device.product); g_api->UiText(line); }
             std::snprintf(line, sizeof line, "Left: %.2f %.2f  Right: %.2f %.2f", snapshot.state.leftX, snapshot.state.leftY, snapshot.state.rightX, snapshot.state.rightY); g_api->UiText(line);
-            std::snprintf(line, sizeof line, "Layer: %d  L2:%s R2:%s  Last action: %d", gameplay->Layer() + 1, gameplay->LeftModifier() ? "on" : "off", gameplay->RightModifier() ? "on" : "off", gameplay->LastAction()); g_api->UiText(line);
+            std::snprintf(line, sizeof line, "Gameplay: %s  Layer: %d  L2:%s R2:%s  Last action: %d", gameplay->Active() ? "in world" : "inactive", gameplay->Layer() + 1, gameplay->LeftModifier() ? "on" : "off", gameplay->RightModifier() ? "on" : "off", gameplay->LastAction()); g_api->UiText(line);
             std::snprintf(line, sizeof line, "Polling: %d Hz  Debug: %s  Glyph hint: %s", config->pollingRateHz, config->debug ? "on" : "off", snapshot.device.glyphHint.c_str()); g_api->UiText(line);
         }
     }
@@ -43,7 +50,7 @@ namespace wxl_gamepad
     {
         config = std::make_unique<ControllerConfig>(ControllerConfig::Load(kConfigPath)); input = std::make_unique<GameInput>(); gameplay = std::make_unique<ControllerGameplay>(*config, *input); manager = std::make_unique<ControllerManager>(*config);
         if (!manager->Start()) return false;
-        g_api->Subscribe(uint32_t(wxl::events::Event::OnUpdate), &OnUpdate, nullptr); g_api->Subscribe(uint32_t(wxl::events::Event::OnWorldLeave), &OnWorldLeave, nullptr); g_api->UiAddPanel("wxl-gamepad", &DrawPanel, nullptr);
-        Log(WXL_LOG_INFO, "initialized normalized controller subsystem; gameplay dispatch runs on OnUpdate"); return true;
+        g_api->Subscribe(uint32_t(wxl::events::Event::OnUpdate), &OnUpdate, nullptr); g_api->Subscribe(uint32_t(wxl::events::Event::OnWorldRenderEnd), &OnWorldRenderEnd, nullptr); g_api->Subscribe(uint32_t(wxl::events::Event::OnWorldLeave), &OnWorldLeave, nullptr); g_api->UiAddPanel("wxl-gamepad", &DrawPanel, nullptr);
+        Log(WXL_LOG_INFO, "initialized normalized controller subsystem; gameplay dispatch is gated to an active world"); return true;
     }
 }
