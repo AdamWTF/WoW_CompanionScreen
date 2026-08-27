@@ -15,6 +15,10 @@ export const defaultBindings: Record<ShortcutName, ShortcutBinding> = {
   Settings: { key: "ESCAPE", modifiers: [] },
 };
 
+export const defaultShortcutVisibility: Record<ShortcutName, boolean> = Object.fromEntries(
+  shortcutNames.map((name) => [name, true]),
+) as Record<ShortcutName, boolean>;
+
 const STORAGE_KEY = "thorpad.preferences.v1";
 const makeId = () => typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `thor-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
@@ -25,6 +29,7 @@ export function defaultPreferences(): ThorPadPreferences {
     deviceName: "AYN Thor",
     authToken: null,
     shortcutBindings: defaultBindings,
+    shortcutVisibility: defaultShortcutVisibility,
     pointerSensitivity: 1,
     scrollSensitivity: 1,
     hapticsEnabled: true,
@@ -37,7 +42,13 @@ export function loadPreferences(): ThorPadPreferences {
   if (typeof window === "undefined") return defaults;
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
-    return { ...defaults, ...saved, authToken: null, shortcutBindings: { ...defaultBindings, ...saved.shortcutBindings } };
+    return {
+      ...defaults,
+      ...saved,
+      authToken: null,
+      shortcutBindings: { ...defaultBindings, ...(saved.shortcutBindings ?? {}) },
+      shortcutVisibility: { ...defaultShortcutVisibility, ...(saved.shortcutVisibility ?? {}) },
+    };
   } catch { return defaults; }
 }
 

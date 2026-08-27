@@ -2,7 +2,7 @@
 
 import * as Dialog from "@radix-ui/react-dialog";
 import { FormEvent, KeyboardEvent, useState } from "react";
-import { RotateCcw, X } from "lucide-react";
+import { Eye, EyeOff, RotateCcw, X } from "lucide-react";
 import { Modifier, ShortcutBinding } from "@/bridge/protocol";
 import { defaultBindings, shortcutNames, validIpv4 } from "@/persistence/preferences";
 import { useThorPad } from "@/state/ThorPadContext";
@@ -52,7 +52,10 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
             </SettingsSection>
             <SettingsSection title="WoW shortcuts">
               <div className="binding-list">
-                {shortcutNames.map((name) => <div className="binding-row" key={name}><div><strong>{name}</strong><span>{formatBinding(preferences.shortcutBindings[name])}</span></div><button className={capturing === name ? "capture-button capturing" : "capture-button"} onClick={() => setCapturing(name)} onKeyDown={(event) => capturing === name && capture(event, name)}>{capturing === name ? "Press combination…" : "Change Binding"}</button><button className="reset-button" title="Reset default" onClick={() => { setBinding(name, defaultBindings[name]); setCapturing(null); }}><RotateCcw /></button></div>)}
+                {shortcutNames.map((name) => {
+                  const visible = preferences.shortcutVisibility[name] !== false;
+                  return <div className="binding-row" key={name}><div><strong>{name}</strong><span>{formatBinding(preferences.shortcutBindings[name])}</span></div><button className={capturing === name ? "capture-button capturing" : "capture-button"} onClick={() => setCapturing(name)} onKeyDown={(event) => capturing === name && capture(event, name)}>{capturing === name ? "Press combination…" : "Change Binding"}</button><button className="reset-button" title="Reset default binding" aria-label={`Reset ${name} binding`} onClick={() => { setBinding(name, defaultBindings[name]); setCapturing(null); }}><RotateCcw /></button><button className="visibility-button" title={visible ? "Hide from Home" : "Show on Home"} aria-label={`${visible ? "Hide" : "Show"} ${name} on Home`} aria-pressed={!visible} onClick={() => updatePreferences({ shortcutVisibility: { ...preferences.shortcutVisibility, [name]: !visible } })}>{visible ? <Eye /> : <EyeOff />}</button></div>;
+                })}
               </div>
             </SettingsSection>
             <SettingsSection title="Touchpad">

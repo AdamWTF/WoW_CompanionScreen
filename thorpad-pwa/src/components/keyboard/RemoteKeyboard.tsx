@@ -28,7 +28,7 @@ export function RemoteKeyboard() {
       <div className={!enabled ? "keyboard-board disabled" : "keyboard-board"}>
         {mode === "basic" ? <>
           {rows.map((row, index) => <div className="key-row" key={row}>{[...row].map((key) => <Key key={`${index}-${key}`} label={key} onClick={() => press(key)} />)}</div>)}
-          <div className="key-row utility-row"><ModifierKey name="SHIFT" active={modifiers.includes("SHIFT")} onClick={() => toggle("SHIFT")} /><Key wide label="Space" icon={<Space />} onClick={() => press("SPACE")} /><Key label="Back" icon={<Delete />} onClick={() => press("BACKSPACE")} /><Key label="Enter" icon={<CornerDownLeft />} onClick={() => press("ENTER")} /></div>
+          <div className="key-row utility-row"><Key label="Esc" onClick={() => press("ESCAPE")} /><ModifierKey name="SHIFT" active={modifiers.includes("SHIFT")} onClick={() => toggle("SHIFT")} /><Key wide label="Space" icon={<Space />} onClick={() => press("SPACE")} /><Key label="Back" icon={<Delete />} onClick={() => press("BACKSPACE")} /><Key label="Enter" icon={<CornerDownLeft />} onClick={() => press("ENTER")} /></div>
         </> : <>
           <div className="function-row">{Array.from({ length: 12 }, (_, i) => <Key key={i} label={`F${i + 1}`} onClick={() => press(`F${i + 1}`)} />)}</div>
           <div className="extended-grid">{named.map((key) => <Key key={key} label={friendly(key)} onClick={() => press(key)} />)}</div>

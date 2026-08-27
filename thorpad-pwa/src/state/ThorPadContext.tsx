@@ -5,10 +5,12 @@ import { ThorBridgeClient } from "@/bridge/ThorBridgeClient";
 import { BridgeMessage, Modifier, ShortcutBinding, ThorPadPreferences } from "@/bridge/protocol";
 import { getAuthToken, setAuthToken } from "@/persistence/credentials";
 import { defaultPreferences, loadPreferences, savePreferences } from "@/persistence/preferences";
+import { createDemoRuntimeState, isDemoRequested } from "@/demo/demoState";
 import { bridgeReducer, initialRuntimeState, RuntimeAction, RuntimeState } from "./reducer";
 
 interface ThorPadContextValue {
   runtime: RuntimeState;
+  demoMode: boolean;
   preferences: ThorPadPreferences;
   updatePreferences(patch: Partial<ThorPadPreferences>): void;
   setBinding(name: string, binding: ShortcutBinding): void;
@@ -30,12 +32,21 @@ export function ThorPadProvider({ children }: { children: ReactNode }) {
   const [runtime, dispatch] = useReducer(bridgeReducer, initialRuntimeState);
   const [preferences, setPreferences] = useState<ThorPadPreferences>(() => defaultPreferences());
   const [hydrated, setHydrated] = useState(false);
+  const [demoMode, setDemoMode] = useState(false);
   const clientRef = useRef<ThorBridgeClient | null>(null);
 
-  useEffect(() => { setPreferences(loadPreferences()); setHydrated(true); }, []);
+  useEffect(() => {
+    setPreferences(loadPreferences());
+    if (isDemoRequested(window.location.search)) {
+      setDemoMode(true);
+      dispatch({ type: "message", message: { type: "state.snapshot", data: createDemoRuntimeState().bridgeState } });
+    }
+    setHydrated(true);
+  }, []);
   useEffect(() => { if (hydrated) savePreferences(preferences); }, [hydrated, preferences]);
 
   useEffect(() => {
+    if (!hydrated || demoMode) return;
     const client = new ThorBridgeClient({
       onOpen: () => dispatch({ type: "connection", connection: "connecting", session: "negotiating" }),
       onDisconnect: (reconnecting) => dispatch({ type: "reset", connection: reconnecting ? "reconnecting" : "connecting" }),
@@ -59,14 +70,14 @@ export function ThorPadProvider({ children }: { children: ReactNode }) {
     });
     clientRef.current = client;
     return () => { client.disconnect(); clientRef.current = null; };
-  }, []);
+  }, [hydrated, demoMode]);
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || demoMode) return;
     if (preferences.hostIp) clientRef.current?.connect(preferences.hostIp);
     else dispatch({ type: "reset", connection: "unconfigured" });
     return () => clientRef.current?.disconnect();
-  }, [hydrated, preferences.hostIp]);
+  }, [hydrated, demoMode, preferences.hostIp]);
 
   const updatePreferences = useCallback((patch: Partial<ThorPadPreferences>) => setPreferences((current) => ({ ...current, ...patch })), []);
   const setBinding = useCallback((name: string, binding: ShortcutBinding) => setPreferences((current) => ({
@@ -76,6 +87,7 @@ export function ThorPadProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<ThorPadContextValue>(() => ({
     runtime,
+    demoMode,
     preferences,
     updatePreferences,
     setBinding,
@@ -89,7 +101,7 @@ export function ThorPadProvider({ children }: { children: ReactNode }) {
     pointerUp: (button) => clientRef.current?.pointerUp(button),
     scrollPointer: (delta) => clientRef.current?.scrollPointer(delta),
     dispatch,
-  }), [runtime, preferences, updatePreferences, setBinding]);
+  }), [runtime, demoMode, preferences, updatePreferences, setBinding]);
 
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }

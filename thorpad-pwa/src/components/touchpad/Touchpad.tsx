@@ -7,7 +7,7 @@ import { useThorPad } from "@/state/ThorPadContext";
 interface Point { x: number; y: number; startX: number; startY: number; started: number }
 
 export function Touchpad() {
-  const { runtime, preferences, movePointer, clickPointer, pointerDown, pointerUp, scrollPointer, dispatch } = useThorPad();
+  const { runtime, preferences, updatePreferences, movePointer, clickPointer, pointerDown, pointerUp, scrollPointer, dispatch } = useThorPad();
   const pointers = useRef(new Map<number, Point>());
   const moveBuffer = useRef({ x: 0, y: 0 });
   const scrollBuffer = useRef(0);
@@ -76,7 +76,7 @@ export function Touchpad() {
 
   return (
     <section className="touchpad-page">
-      <header className="page-heading"><div><p className="eyebrow">REMOTE CONTROL</p><h1>Touchpad</h1></div><span>{preferences.pointerSensitivity.toFixed(1)}× sensitivity</span></header>
+      <header className="page-heading"><div><p className="eyebrow">REMOTE CONTROL</p><h1>Touchpad</h1></div><label className="touchpad-sensitivity"><span>Sensitivity <b>{preferences.pointerSensitivity.toFixed(1)}×</b></span><input aria-label="Pointer sensitivity" type="range" value={preferences.pointerSensitivity} min={0.4} max={2.5} step={0.1} onChange={(event) => updatePreferences({ pointerSensitivity: Number(event.target.value) })} /></label></header>
       {runtime.touchpadWarning && <button className="warning-banner" onClick={() => dispatch({ type: "warning", warning: null })}>{runtime.touchpadWarning}<b>×</b></button>}
       <div className={!ready ? "touch-surface disabled" : "touch-surface"} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onContextMenu={(event) => event.preventDefault()}>
         <div className="touch-glyph"><MousePointer2 /><strong>{ready ? "Move to control" : "Connect to the WoW PC"}</strong><span>Tap · click &nbsp; Two-finger tap · right click</span><span>Hold and move · drag &nbsp; Two fingers · scroll</span></div>

@@ -12,7 +12,7 @@ import { useThorPad } from "@/state/ThorPadContext";
 type Tab = "home" | "touchpad" | "keyboard";
 
 export function ThorShell() {
-  const { preferences, runtime } = useThorPad();
+  const { demoMode, preferences, runtime } = useThorPad();
   const [tab, setTab] = useState<Tab>("home");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const connectionLocked = runtime.connectionState !== "connected" || runtime.sessionState !== "ready" || !runtime.hasSnapshot;
@@ -20,6 +20,7 @@ export function ThorShell() {
   return (
     <main className="viewport" style={{ "--ui-scale": preferences.uiScale } as React.CSSProperties}>
       <div className="shell">
+        {demoMode && <div className="demo-badge">Demo data</div>}
         <div className="content" inert={connectionLocked ? true : undefined} aria-hidden={connectionLocked || undefined}>
           {tab === "home" && <HomeScreen openSettings={() => setSettingsOpen(true)} />}
           {tab === "touchpad" && <Touchpad />}

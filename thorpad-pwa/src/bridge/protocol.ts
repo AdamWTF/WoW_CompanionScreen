@@ -41,6 +41,7 @@ export interface ThorPadPreferences {
   deviceName: string;
   authToken: string | null;
   shortcutBindings: Record<string, ShortcutBinding>;
+  shortcutVisibility: Record<string, boolean>;
   pointerSensitivity: number;
   scrollSensitivity: number;
   hapticsEnabled: boolean;
