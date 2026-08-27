@@ -1,0 +1,42 @@
+#pragma once
+
+#include "ControllerConfig.hpp"
+
+#include <cstdint>
+
+namespace wxl_gamepad
+{
+    enum class MovementControl { Forward, Backward, StrafeLeft, StrafeRight };
+    enum class GameCommand { ToggleGameMenu, ToggleAllBags, NextView };
+
+    class IGameInput
+    {
+    public:
+        virtual ~IGameInput() = default;
+        virtual bool Foreground() const = 0;
+        virtual void Movement(MovementControl control, bool down, uint32_t time) = 0;
+        virtual void Target(const KeyChord& chord) = 0;
+        virtual void Command(GameCommand command) = 0;
+        virtual void Camera(bool active, float dx, float dy) = 0;
+        virtual void PointerMove(int dx, int dy) = 0;
+        virtual void PointerClick(bool right) = 0;
+        virtual void ReleaseAll(uint32_t time) = 0;
+    };
+
+    class GameInput final : public IGameInput
+    {
+    public:
+        bool Foreground() const override;
+        void Movement(MovementControl control, bool down, uint32_t time) override;
+        void Target(const KeyChord& chord) override;
+        void Command(GameCommand command) override;
+        void Camera(bool active, float dx, float dy) override;
+        void PointerMove(int dx, int dy) override;
+        void PointerClick(bool right) override;
+        void ReleaseAll(uint32_t time) override;
+    private:
+        static void* Window(); static intptr_t KeyParameter(unsigned key, bool down); void Key(unsigned key, bool down);
+        void MouseButton(bool right, bool down, bool force = false); void Move(float dx, float dy, bool camera);
+        bool movement_[4]{}, keys_[256]{}, rightMouse_{}; float cameraRemainderX_{}, cameraRemainderY_{};
+    };
+}

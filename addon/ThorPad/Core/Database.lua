@@ -21,7 +21,7 @@ function ThorPad.Database:Initialize()
 
     local controller = tableValue(ThorPadDB, "controller")
     booleanDefault(controller, "enabled", true)
-    if controller.glyphFamily ~= "xbox" and controller.glyphFamily ~= "playstation" and controller.glyphFamily ~= "aynthor" then controller.glyphFamily = "xbox" end
+    if controller.glyphFamily ~= "auto" and controller.glyphFamily ~= "xbox" and controller.glyphFamily ~= "playstation" and controller.glyphFamily ~= "aynthor" then controller.glyphFamily = "auto" end
     local assignments = tableValue(controller, "assignments")
     for _, layer in ipairs(ThorPad.Constants.CONTROLLER_LAYERS) do tableValue(assignments, layer) end
 

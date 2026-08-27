@@ -1,67 +1,31 @@
 # wxl-gamepad
 
-`wxl-gamepad` is a proof-of-concept native controller extension for WarcraftXL `v1.1` and the 32-bit World of Warcraft 3.3.5a build 12340 client.  Its input path is entirely in-process:
+`wxl-gamepad` provides in-process controller support for the 32-bit WoW 3.3.5a build 12340 client. Hardware is normalized behind XInput, SDL3 Gamepad, or diagnostic SDL3 Joystick backends before any gameplay behavior runs.
 
-`DualShock 4 -> SDL3 -> wxl-gamepad -> WarcraftXL OnUpdate -> WoW native input/camera controls`
+## Runtime layout
 
-It does not use DS4Windows, XInput-only input, `SendInput`, injected keyboard/mouse messages, Steam Input, or a companion process. SDL's gamepad mapping recognises a DualShock 4 over either USB or Bluetooth as a gamepad, rather than requiring Xbox emulation.
+- Left stick: forward/backward and strafe left/right, including diagonals.
+- Right stick: relative mouse movement while ThorPad owns a synthetic right mouse hold.
+- L1/R1: previous/next hostile target.
+- L3: cycle through WoW's camera views. R3: next friendly target.
+- Start (Xbox Menu/Start, PlayStation Options, Thor Start): toggle the WoW game menu.
+- Select (Xbox View/Back, PlayStation Share/Create, Thor Select): toggle all bags.
+- L2/R2: Base, L2, R2, and L2+R2 action layers with trigger hysteresis.
+- D-pad plus South/East/West/North: 32 existing action-bar assignments.
+- DualShock touchpad: relative cursor, one-finger/physical click, and two-finger right-click when supplied by SDL.
 
-## Controls
+Controller polling runs at 125 Hz on a worker. WoW movement, action, keyboard, and mouse calls are applied only from the main `OnUpdate` event. Disconnects, backend changes, focus loss, and world leave release every input owned by the extension.
 
-| Control | Client-native action |
-| --- | --- |
-| Left stick | forward/backward + character turn; diagonals work |
-| Right stick | camera view left/right/up/down |
-| Face buttons + D-Pad | fixed action-bar slot selected by the active controller layer |
-| L1 / L2 / R1 / R2 | select one modifier layer; triggers have hysteresis |
-| DualShock touchpad | relative in-process cursor; one-finger tap/pad press = left-click; two-finger tap = right-click |
+## Installation and configuration
 
-Both sticks use a radial 18% deadzone and actions engage at 35% deflection. This eliminates centred-stick drift and makes release issue the matching native stop action immediately. The present POC converts the post-deadzone analogue values to digital client action state; keeping the analogue values in the input layer makes a later true-analogue engine binding a contained replacement.
+Place the Win32 `wxl-gamepad.dll` in `Extensions/wxl-gamepad/`. SDL support additionally needs a Win32 SDL3 runtime beside `Wow.exe`; XInput does not. Keep `gamecontrollerdb.txt` beside the extension DLL.
 
-The camera uses the client's `MoveView*Start/Stop` controls, whose own per-frame update owns timing; therefore camera motion does not depend on the extension's frame rate. The F9 panel exposes horizontal/vertical inversion toggles, initially enabled for this client. Initial speed is the player's normal WoW keyboard-view speed and can be tuned through the existing in-game camera/keybinding settings.
+Copy `wxl-gamepad.cfg.example` to `wxl-gamepad.cfg`. The default `Backend=Auto` order is XInput, SDL Gamepad, SDL Joystick under Wine/GameNative and SDL Gamepad, XInput, SDL Joystick on native Windows. Explicit backend choices do not cross-fallback. Every section key also has a flat/environment alias such as `WXL_GAMEPAD_BACKEND`.
 
-## Build and install
+An unmapped SDL joystick is intentionally diagnostic-only. Set `ControllerDebug=1`, record its GUID plus button/axis/hat transitions, and add a verified SDL mapping entry to `gamecontrollerdb.txt`; it will then enter through SDL's standardized Gamepad path.
 
-1. Check out WarcraftXL branch `v1.1`.
-2. Copy this `wxl-gamepad` folder to `extensions/wxl-gamepad/` in that checkout (this repository already has it there).
-3. Obtain an official SDL3 runtime DLL matching the **Win32/x86** WarcraftXL build and place `SDL3.dll` next to `Wow.exe`. SDL is dynamically loaded: no SDL import library or external process is required.
-4. Build Win32, for example: `cmake -S . -B build -A Win32` then `cmake --build build --config Release --target wxl-gamepad`.
-5. Place the resulting `wxl-gamepad.dll` at `Wow.exe`'s `Extensions/wxl-gamepad/wxl-gamepad.dll` (the normal `CLIENT_PATH` build option deploys it there).
-6. Copy `addon/ThorPad/` to `Wow.exe`'s `Interface/AddOns/ThorPad/`, enable it in the AddOns list, then use `/thorpad` or Interface Options → AddOns → ThorPad.
-7. Build/deploy `WarcraftXL.dll` from the same tree and launch only a 3.3.5a build-12340 client.
+`GlyphStyle=PlayStation`, `Xbox`, or `Thor` forces presentation. With `Auto`, the addon's persisted selector applies, and its Auto option uses the active backend's device hint. Glyph selection never changes input.
 
-WarcraftXL validates `WXL_CLIENT_BUILD` during `WXL_Query` before executing `WXL_Load`; a different build is refused rather than guessed.
+## Manual acceptance
 
-## Manual test
-
-1. Disable DS4Windows, Steam Input, WoWpadX and every controller mapper.
-2. Connect a DualShock 4 by Bluetooth, start the WarcraftXL-enabled client, log in, and inspect the WarcraftXL log.
-3. Confirm `SDL3 gamepad subsystem initialised` and `controller connected: Wireless Controller` (or the SDL-provided name).
-   Press `F9` to open the WarcraftXL overlay and select the `wxl-gamepad` panel. It displays the
-   SDL connection state, deadzoned left/right stick values, and Cross state, so it distinguishes an
-   SDL/device problem from a client-action problem without requiring an external controller mapper.
-4. Move the left stick in cardinal and diagonal directions, then release it. The character should start the matching movement actions and stop at centre.
-5. Move/release the right stick. The camera should continue only while deflected.
-6. Open `/thorpad`. Its Base, L1, L2, R1 and R2 tabs show the exact controller layout. Drag an action directly from the Spellbook, Macros or bags to the required cell. Right-click a cell to clear it. Editing is disabled in combat.
-7. Press each face button and D-Pad direction. The fixed horizontal-bar map is Base `1-8`, L1 `9-12,49-52`, L2 `53-60`, R1 `61-68`, and R2 face buttons `69-72`. R2 D-Pad cells are deliberately unavailable. Holding two modifiers deliberately does nothing.
-8. Place and reposition a single finger on the DualShock touchpad: first contact must not move the cursor, while subsequent finger deltas move it relatively. Tap without moving or physically press the pad for left-click; tap two fingers together for right-click.
-9. Disconnect and reconnect the controller. The log should report disconnection, movement/camera/actions stop, and a later connection is picked up automatically.
-11. Repeat steps 2-10 over USB if available.
-
-## Engine binding and RE note
-
-The extension never invokes the protected FrameScript `MoveForwardStart`, `JumpOrAscendStart`, or `MoveView*` handlers. Those handlers display WoW's "blocked from an action only available to the Blizzard UI" popup when called from an extension/addon context.
-
-Instead, `wxl::game::input` wraps the lower native `CInputControl` calls found directly beneath the stock handlers: the control pointer is `0x00C24954`, `Begin` is `0x005FA170`, `End` is `0x005FA450`, and `Commit` is `0x005FBBC0`. All are `__thiscall`; the action handlers verify their control IDs as forward `0x10`, backward `0x20`, strafe left `0x40`, strafe right `0x80`, and jump `0x2000`. The extension calls Begin/End only on controller state transitions, then Commit so the client owns movement packets and animation.
-
-Action dispatch calls the lower executor at `0x005ABBC0`, reached by the stock `UseAction` wrapper after it has converted the UI's one-based slot into a zero-based action index. The typed binding accepts `(slotIndex, TargetContext*, targetName)`; controller actions provide the same zeroed eight-byte target context and null name as `UseAction(slot, 0)`. This avoids directly invoking a Lua C callback without its VM call frame. The addon is presentation-only.
-
-The right stick writes the same active-camera view-control flags/timestamps used by the stock `MoveView*` handlers. These fields and indices were verified from the 12340 executable's `0x005FF000` start and `0x005FF120`-`0x005FF230` stop handlers. The client's per-frame camera update consumes them, preserving frame-rate-independent camera motion. No raw client address appears in the extension.
-
-## Known limitations
-
-- The two vertical stock action bars are intentionally not used or hidden. Four R2 D-Pad activators are unavailable because WotLK exposes only 36 stable horizontal slots; bonus/stance-sensitive slots are not used.
-- It opens the first SDL-recognised gamepad. Multi-controller selection is deferred.
-- It requires an SDL3 x86 runtime alongside the client. A future package can ship/validate that dependency.
-- Runtime verification needs a permitted 12340 client and physical controller; this source tree contains neither, so the manual scenario above remains required before declaring gameplay validation complete.
-- The stock 3.3.5 binding UI is keyboard/mouse-oriented and does not enumerate SDL gamepads. `ThorPad` is therefore a separate configuration UI, while execution remains native and in-process.
+For AYN Thor/GameNative, Xbox, and DualShock, verify discovery logs, every cardinal/diagonal movement, right-stick camera and RMB release, L1/R1 hostile targeting, R3 friendly targeting, L3 camera-view cycling, Start game-menu toggling, Select all-bag toggling, trigger hysteresis and all four layers, all 32 action cells, disconnect/reconnect, focus loss, and physical mouse/touchscreen coexistence. Confirm held fixed controls do not repeat and controls held while focus returns do not fire accidentally. On DualShock also verify touchpad cursor and taps. Finally verify the ThorPad WebSocket connection, 24 second-screen actions, keyboard, touchpad, shortcuts, game-state export, and persistent settings.

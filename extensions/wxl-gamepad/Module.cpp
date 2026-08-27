@@ -3,7 +3,7 @@
 const WXL_PluginInfo* __cdecl WXL_Query(void)
 {
     static const WXL_PluginInfo info = {
-        sizeof(WXL_PluginInfo), WXL_API_VERSION, "wxl-gamepad", 1, WXL_CLIENT_BUILD,
+        sizeof(WXL_PluginInfo), WXL_API_VERSION, "wxl-gamepad", 2, WXL_CLIENT_BUILD,
     };
     return &info;
 }

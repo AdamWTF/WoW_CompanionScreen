@@ -76,8 +76,8 @@ function Settings:CreateDisplayPage(parent)
     self.controllerNative = controller:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); self.controllerNative:SetPoint("TOPLEFT", controller, "TOPLEFT", 15, -72)
     self.glyphButton = CreateFrame("Button", nil, controller, "UIPanelButtonTemplate"); self.glyphButton:SetSize(180, 24); self.glyphButton:SetPoint("TOPRIGHT", controller, "TOPRIGHT", -14, -36)
     self.glyphButton:SetScript("OnClick", function()
-        local nextFamily = { xbox = "playstation", playstation = "aynthor", aynthor = "xbox" }
-        ThorPadDB.controller.glyphFamily = nextFamily[ThorPadDB.controller.glyphFamily] or "xbox"
+        local nextFamily = { auto = "xbox", xbox = "playstation", playstation = "aynthor", aynthor = "auto" }
+        ThorPadDB.controller.glyphFamily = nextFamily[ThorPadDB.controller.glyphFamily] or "auto"
         self:RefreshAll()
     end)
 
@@ -154,8 +154,10 @@ function Settings:RefreshDisplayPage()
     self.controllerCheck:SetChecked(ThorPadDB.controller.enabled); self.screenCheck:SetChecked(ThorPadDB.secondScreen.enabled); self.reduceCheck:SetChecked(ThorPadDB.secondScreen.reduceUI)
     self.controllerNative:SetText(ThorPad.Native:IsControllerAvailable() and "|cff55ff55Native controller integration available|r" or "|cff888888Native controller integration unavailable|r")
     if ThorPadDB.controller.enabled and ThorPadDB.secondScreen.enabled then self.reduceCheck:Enable() else self.reduceCheck:Disable() end
-    local familyLabels = { xbox = "Xbox", playstation = "PlayStation", aynthor = "AYN Thor" }
-    self.glyphButton:SetText("Glyphs: " .. (familyLabels[ThorPadDB.controller.glyphFamily] or "Xbox"))
+    local familyLabels = { auto = "Auto", xbox = "Xbox", playstation = "PlayStation", aynthor = "AYN Thor" }
+    if WXLGamepadConfiguredGlyphStyle and WXLGamepadConfiguredGlyphStyle ~= "Auto" then
+        self.glyphButton:SetText("Glyphs: " .. WXLGamepadConfiguredGlyphStyle .. " (config)"); self.glyphButton:Disable()
+    else self.glyphButton:SetText("Glyphs: " .. (familyLabels[ThorPadDB.controller.glyphFamily] or "Auto")); self.glyphButton:Enable() end
     self.scaleLabel:SetText(string.format("Action: %d%%", math.floor(ThorPadDB.display.actionScale * 100 + .5))); self.glyphScaleLabel:SetText(string.format("Glyph: %d%%", math.floor(ThorPadDB.display.glyphScale * 100 + .5))); self:RefreshBridge()
 end
 function Settings:RefreshBridge()

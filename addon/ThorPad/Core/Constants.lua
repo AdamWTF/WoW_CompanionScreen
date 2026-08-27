@@ -7,10 +7,10 @@ ThorPad.Constants = {
     MEDIA = [[Interface\AddOns\ThorPad\media\]],
     CONTROLLER_LAYERS = { "default", "l2", "r2", "l2r2" },
     CONTROLLER_LAYER_LABELS = { default = "Default", l2 = "L2", r2 = "R2", l2r2 = "L2 + R2" },
-    CONTROLLER_CONTROLS = { "dpad_up", "dpad_down", "dpad_left", "dpad_right", "y", "x", "b", "a" },
+    CONTROLLER_CONTROLS = { "dpad_up", "dpad_down", "dpad_left", "dpad_right", "south", "east", "west", "north" },
     CONTROLLER_CONTROL_LABELS = {
         dpad_up = "D-pad Up", dpad_down = "D-pad Down", dpad_left = "D-pad Left", dpad_right = "D-pad Right",
-        a = "A", b = "B", x = "X", y = "Y",
+        south = "South", east = "East", west = "West", north = "North",
     },
     CONTROLLER_BUTTON_PREFIXES = {
         default = "ThorPadControllerDefault", l2 = "ThorPadControllerL2_", r2 = "ThorPadControllerR2_", l2r2 = "ThorPadControllerL2R2_",

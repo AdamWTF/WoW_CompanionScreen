@@ -1,13 +1,13 @@
 local addonName, ThorPad = ...
 local eventFrame = CreateFrame("Frame")
-local Core = { initialized = false, layer = "default" }
+local Core = { initialized = false, layer = "default", glyphSignature = "" }
 
 local function printLine(message) DEFAULT_CHAT_FRAME:AddMessage("|cffffd040ThorPad:|r " .. message) end
 
 function Core:Initialize()
     if self.initialized then return end; self.initialized = true
     ThorPad.Database:Initialize(); ThorPad.Controller:CreateButtons(); ThorPad.ActionOverlay:Create(); ThorPad.Settings:Create(); ThorPad.MinimapButton:Create(); ThorPad.Bridge:Initialize(); ThorPad.Display:Initialize()
-    self.layer = ThorPad.Native:GetCurrentLayer(); ThorPad.ActionOverlay:SetLayer(self.layer); ThorPad.Display:Apply()
+    self.layer = ThorPad.Native:GetCurrentLayer(); self.glyphSignature = tostring(WXLGamepadConfiguredGlyphStyle) .. ":" .. tostring(WXLGamepadDetectedGlyphStyle); ThorPad.ActionOverlay:SetLayer(self.layer); ThorPad.Display:Apply()
 end
 
 function Core:RefreshActions()
@@ -31,7 +31,12 @@ eventFrame:SetScript("OnUpdate", function(_, elapsed)
     if not Core.initialized then return end
     ThorPad.Bridge:Tick(elapsed)
     Core.layerElapsed = (Core.layerElapsed or 0) + elapsed; Core.reconcileElapsed = (Core.reconcileElapsed or 0) + elapsed
-    if Core.layerElapsed >= .12 then Core.layerElapsed = 0; local layer = ThorPad.Native:GetCurrentLayer(); if layer ~= Core.layer then Core.layer = layer; ThorPad.ActionOverlay:SetLayer(layer) end end
+    if Core.layerElapsed >= .12 then
+        Core.layerElapsed = 0; local layer = ThorPad.Native:GetCurrentLayer(); local glyphSignature = tostring(WXLGamepadConfiguredGlyphStyle) .. ":" .. tostring(WXLGamepadDetectedGlyphStyle)
+        if layer ~= Core.layer then Core.layer = layer; ThorPad.ActionOverlay:SetLayer(layer)
+        elseif glyphSignature ~= Core.glyphSignature then ThorPad.ActionOverlay:Refresh() end
+        Core.glyphSignature = glyphSignature
+    end
     if Core.reconcileElapsed >= 2 then Core.reconcileElapsed = 0; ThorPad.Display:Reconcile() end
 end)
 

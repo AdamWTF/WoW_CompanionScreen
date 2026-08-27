@@ -1,57 +1,59 @@
-// SDL3 loaded at runtime so the extension remains a normal WarcraftXL DLL.
 #pragma once
 
+#include "IControllerBackend.hpp"
 #include <cstdint>
+#include <vector>
 
 namespace wxl_gamepad::sdl
 {
-    struct Gamepad;
-    using JoystickId = int32_t;
+    struct Gamepad; struct Joystick; using JoystickId = uint32_t; struct Guid { uint8_t data[16]; };
+    enum class Axis : int { LeftX, LeftY, RightX, RightY, LeftTrigger, RightTrigger };
+    enum class Button : int { South, East, West, North, Back, Guide, Start, LeftStick, RightStick, LeftShoulder, RightShoulder, DpadUp, DpadDown, DpadLeft, DpadRight, Misc1, RightPaddle1, LeftPaddle1, RightPaddle2, LeftPaddle2, Touchpad };
 
-    // SDL_GAMEPAD_AXIS_* and SDL_GAMEPAD_BUTTON_* values from SDL3's public API.  The SDL DLL is
-    // loaded dynamically to avoid a static CRT/dependency conflict inside Wow.exe.
-    enum class Axis : int { LeftX = 0, LeftY = 1, RightX = 2, RightY = 3, LeftTrigger = 4, RightTrigger = 5 };
-    enum class Button : int
-    {
-        South = 0, East = 1, West = 2, North = 3,
-        LeftShoulder = 9, RightShoulder = 10,
-        DpadUp = 11, DpadDown = 12, DpadLeft = 13, DpadRight = 14,
-        Touchpad = 20,
-    };
-
-    struct TouchFinger { bool down; float x; float y; float pressure; };
-
-    class GamepadApi final
+    class Api final
     {
     public:
-        bool Initialise();
-        void Shutdown();
-        void PumpEvents() const;
-        Gamepad* OpenFirst();
-        void Close(Gamepad* gamepad);
-        const char* Name(Gamepad* gamepad) const;
-        const char* Error() const;
-        bool Connected(Gamepad* gamepad) const;
-        int16_t AxisValue(Gamepad* gamepad, Axis axis) const;
-        bool Pressed(Gamepad* gamepad, Button button) const;
-        bool FirstTouch(Gamepad* gamepad, TouchFinger& finger, int& fingerCount) const;
-
+        bool Initialize(); void Shutdown(); void Pump() const; void AddMappings(const char* path) const;
+        JoystickId* Gamepads(int& count) const; JoystickId* Joysticks(int& count) const; void Free(void*) const; bool IsGamepad(JoystickId) const;
+        Gamepad* OpenGamepad(JoystickId) const; void CloseGamepad(Gamepad*) const; bool GamepadConnected(Gamepad*) const; Guid GamepadGuid(JoystickId) const;
+        const char* GamepadName(Gamepad*) const; uint16_t GamepadVendor(Gamepad*) const; uint16_t GamepadProduct(Gamepad*) const;
+        int16_t GamepadAxis(Gamepad*, Axis) const; bool GamepadButton(Gamepad*, Button) const; bool FirstTouch(Gamepad*, ControllerState&) const;
+        Joystick* OpenJoystick(JoystickId) const; void CloseJoystick(Joystick*) const; bool JoystickConnected(Joystick*) const;
+        const char* JoystickName(Joystick*) const; Guid JoystickGuid(Joystick*) const; void GuidString(Guid, char*, int) const;
+        uint16_t JoystickVendor(Joystick*) const; uint16_t JoystickProduct(Joystick*) const;
+        int JoystickAxes(Joystick*) const; int JoystickButtons(Joystick*) const; int JoystickHats(Joystick*) const;
+        int16_t JoystickAxis(Joystick*, int) const; bool JoystickButton(Joystick*, int) const; uint8_t JoystickHat(Joystick*, int) const; const char* Error() const;
     private:
-        void* module_ = nullptr;
-        int (*init_)(uint32_t) = nullptr;
-        void (*quitSubSystem_)(uint32_t) = nullptr;
-        void (*pumpEvents_)() = nullptr;
-        JoystickId* (*getGamepads_)(int*) = nullptr;
-        void (*free_)(void*) = nullptr;
-        Gamepad* (*openGamepad_)(JoystickId) = nullptr;
-        void (*closeGamepad_)(Gamepad*) = nullptr;
-        const char* (*getGamepadName_)(Gamepad*) = nullptr;
-        const char* (*getError_)() = nullptr;
-        uint8_t (*gamepadConnected_)(Gamepad*) = nullptr;
-        int16_t (*getGamepadAxis_)(Gamepad*, int) = nullptr;
-        uint8_t (*getGamepadButton_)(Gamepad*, int) = nullptr;
-        int (*getNumTouchpads_)(Gamepad*) = nullptr;
-        int (*getNumTouchpadFingers_)(Gamepad*, int) = nullptr;
-        uint8_t (*getTouchpadFinger_)(Gamepad*, int, int, uint8_t*, float*, float*, float*) = nullptr;
+        void* module_{}; uint8_t (*init_)(uint32_t){}; void (*quit_)(uint32_t){}; void (*pump_)(){}; int (*addMappings_)(const char*){};
+        JoystickId* (*getGamepads_)(int*){}; JoystickId* (*getJoysticks_)(int*){}; void (*free_)(void*){}; uint8_t (*isGamepad_)(JoystickId){};
+        Gamepad* (*openGamepad_)(JoystickId){}; void (*closeGamepad_)(Gamepad*){}; uint8_t (*gamepadConnected_)(Gamepad*){}; Guid (*gamepadGuid_)(JoystickId){};
+        const char* (*gamepadName_)(Gamepad*){}; uint16_t (*gamepadVendor_)(Gamepad*){}; uint16_t (*gamepadProduct_)(Gamepad*){};
+        int16_t (*gamepadAxis_)(Gamepad*, int){}; uint8_t (*gamepadButton_)(Gamepad*, int){};
+        int (*numTouchpads_)(Gamepad*){}; int (*numTouchFingers_)(Gamepad*, int){}; uint8_t (*touchFinger_)(Gamepad*, int, int, uint8_t*, float*, float*, float*){};
+        Joystick* (*openJoystick_)(JoystickId){}; void (*closeJoystick_)(Joystick*){}; uint8_t (*joystickConnected_)(Joystick*){};
+        const char* (*joystickName_)(Joystick*){}; Guid (*joystickGuid_)(Joystick*){}; void (*guidString_)(Guid, char*, int){};
+        uint16_t (*joystickVendor_)(Joystick*){}; uint16_t (*joystickProduct_)(Joystick*){}; int (*joystickAxes_)(Joystick*){}; int (*joystickButtons_)(Joystick*){}; int (*joystickHats_)(Joystick*){};
+        int16_t (*joystickAxis_)(Joystick*, int){}; uint8_t (*joystickButton_)(Joystick*, int){}; uint8_t (*joystickHat_)(Joystick*, int){}; const char* (*error_)(){};
+    };
+}
+
+namespace wxl_gamepad
+{
+    class SDLGameControllerBackend final : public IControllerBackend
+    {
+    public:
+        bool Initialize() override; void Shutdown() override; bool IsControllerConnected() const override; bool Poll(ControllerState&) override;
+        ControllerDeviceInfo GetDeviceInfo() const override { return info_; } const char* GetBackendName() const override { return "SDL Gamepad"; }
+    private: sdl::Api api_; sdl::Gamepad* pad_{}; ControllerDeviceInfo info_{};
+    };
+    class SDLJoystickBackend final : public IControllerBackend
+    {
+    public:
+        explicit SDLJoystickBackend(bool debug) : debug_(debug) {}
+        bool Initialize() override; void Shutdown() override; bool IsControllerConnected() const override; bool Poll(ControllerState&) override;
+        ControllerDeviceInfo GetDeviceInfo() const override { return info_; } const char* GetBackendName() const override { return "SDL Joystick"; }
+    private:
+        sdl::Api api_; sdl::Joystick* joystick_{}; ControllerDeviceInfo info_{}; bool debug_{};
+        std::vector<int16_t> axes_; std::vector<uint8_t> buttons_, hats_; uint32_t lastAxisLog_{};
     };
 }

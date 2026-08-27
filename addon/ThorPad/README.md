@@ -4,7 +4,7 @@ ThorPad targets World of Warcraft 3.3.5a build 12340. Open its native-style conf
 
 ## Native controller integration contract
 
-Controller mappings directly mirror the three horizontal Blizzard action bars and are exposed through globally named `SecureActionButtonTemplate` frames. Controls use semantic names (`DPadUp`, `DPadDown`, `DPadLeft`, `DPadRight`, `A`, `B`, `X`, and `Y`) through `ThorPad.Controller:GetButton(layer, control)`.
+Controller mappings directly mirror the three horizontal Blizzard action bars and are exposed through globally named `SecureActionButtonTemplate` frames. Controls use positional names (`DPadUp`, `DPadDown`, `DPadLeft`, `DPadRight`, `South`, `East`, `West`, and `North`) through `ThorPad.Controller:GetButton(layer, control)`.
 
 The deterministic global button names are:
 
