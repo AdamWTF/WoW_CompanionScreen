@@ -29,6 +29,8 @@ namespace wxl_gamepad
             }
             else if (jumpHolds_ && --jumpHolds_ == 0) input_.SystemAction(action.systemAction, state, time);
         }
+        else if (action.systemAction == ThorPadSystemAction::Interact && state == InputState::Pressed)
+            input_.SystemAction(action.systemAction, state, time);
     }
     void ControllerGameplay::ReleaseCapturedActions(uint32_t time)
     {

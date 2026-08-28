@@ -6,7 +6,7 @@
 namespace wxl_gamepad
 {
     enum class ThorPadActionType { None, WoWAction, SystemAction };
-    enum class ThorPadSystemAction { Unknown, Jump };
+    enum class ThorPadSystemAction { Unknown, Jump, Interact };
     enum class InputState { Pressed, Released };
 
     struct ThorPadAction
@@ -43,12 +43,16 @@ namespace wxl_gamepad
 
     inline ThorPadSystemAction ParseSystemAction(std::string_view action)
     {
-        return action == "JUMP" ? ThorPadSystemAction::Jump : ThorPadSystemAction::Unknown;
+        if (action == "JUMP") return ThorPadSystemAction::Jump;
+        if (action == "INTERACT") return ThorPadSystemAction::Interact;
+        return ThorPadSystemAction::Unknown;
     }
 
     inline const char* SystemActionName(ThorPadSystemAction action)
     {
-        return action == ThorPadSystemAction::Jump ? "JUMP" : "UNKNOWN";
+        if (action == ThorPadSystemAction::Jump) return "JUMP";
+        if (action == ThorPadSystemAction::Interact) return "INTERACT";
+        return "UNKNOWN";
     }
 
     class ThorPadActionMap final

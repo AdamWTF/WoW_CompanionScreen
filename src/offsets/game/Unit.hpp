@@ -42,6 +42,13 @@ namespace wxl::offsets::game::unit
     // Verified by its `ret 4` and a second caller at 0x00730E7A, both passing the client action time.
     constexpr uintptr_t kPlayerJump = 0x0072EB80;
 
+    // Full target-selection path used by the client UI. __cdecl(guidLow, guidHigh). It updates the
+    // target globals, notifies FrameScript/UI state and sends the normal selection change.
+    constexpr uintptr_t kTargetGuidSet = 0x00524BF0;
+    // GUID interaction path called by Script_InteractUnit. __cdecl(guidLow, guidHigh); resolves any
+    // world-object type, selects it through kTargetGuidSet and invokes its interaction virtual.
+    constexpr uintptr_t kInteractGuid = 0x005277B0;
+
     // --- object lifecycle (server-driven) ---
     // Object update-block handler: parses a server update message, creating new objects in the object
     // manager or applying field deltas to existing GUIDs. One call per message (a batch of objects); hook
@@ -81,6 +88,22 @@ namespace wxl::offsets::game::unit
     constexpr size_t kVtPosition     = 11; // world position; the base implementation reports the origin
     constexpr size_t kVtRawPosition  = 12;
     constexpr size_t kVtFacing       = 13;
+    constexpr size_t kVtSelectable   = 42; // byte slot 0xA8, tested by the stock selection path
+    constexpr size_t kVtInteract     = 44; // byte slot 0xB0, invoked by the stock GUID interact path
+    constexpr size_t kVtName         = 54;
+
+    // Build-12340 update-field indices. ObjectBase::header is the live descriptor array.
+    constexpr size_t kObjectEntryField       = 0x03;
+    constexpr size_t kUnitFlagsField         = 0x3B;
+    constexpr size_t kUnitDynamicFlagsField  = 0x4F;
+    constexpr size_t kUnitNpcFlagsField      = 0x52;
+    constexpr size_t kGameObjectDisplayField = 0x08;
+    constexpr size_t kGameObjectFlagsField   = 0x09;
+    constexpr size_t kGameObjectDynamicField = 0x0E;
+
+    constexpr uint32_t kUnitFlagInCombat = 0x00080000;
+    constexpr uint32_t kGameObjectFlagNotSelectable = 0x00000010;
+    constexpr uint32_t kGameObjectDynamicActivate = 0x00000001;
 
     // --- type masks ---
     // Bit per object category. A lookup passes the set it accepts and yields null for anything else, so
@@ -100,9 +123,14 @@ namespace wxl::offsets::game::unit
     using ActivePlayerGuidFn = unsigned long long(__cdecl*)();
     using ReactionFn         = int(__fastcall*)(void* self, void* edx, void* other);
     using PlayerJumpFn       = void(__thiscall*)(void* player, uint32_t timeMs);
+    using TargetGuidFn       = void(__cdecl*)(uint32_t guidLow, uint32_t guidHigh);
+    using InteractGuidFn     = int(__cdecl*)(uint32_t guidLow, uint32_t guidHigh);
     using EnumStepFn         = int(__cdecl*)(uint32_t guidLow, uint32_t guidHigh, void* user);
     using EnumObjectsFn      = int(__cdecl*)(EnumStepFn step, void* user);
     using PositionFn         = void(__thiscall*)(void* self, float out[3]);
+    using FacingFn           = float(__thiscall*)(void* self);
+    using SelectableFn       = int(__thiscall*)(void* self);
+    using NameFn             = const char*(__thiscall*)(void* self);
 
     // --- typed views over the objects above ---
     // The constants are the curated landmarks; these structs give named, typed access to the same fields,

@@ -32,17 +32,22 @@ namespace
 int main()
 {
     using namespace wxl_gamepad;
+    ControllerConfig defaultSettings; assert(!defaultSettings.smartInteractDebug);
     assert(NormalizeSigned16(-32768) == -1.0f); assert(NormalizeSigned16(32767) == 1.0f); assert(NormalizeSigned16(0) == 0.0f);
     Stick dead = RadialDeadzone(.1f, .1f, .2f); assert(dead.x == 0 && dead.y == 0);
     Stick diagonal = RadialDeadzone(.5f, .5f, .2f); assert(diagonal.x > 0 && diagonal.y > 0 && std::abs(diagonal.x - diagonal.y) < .0001f);
     bool trigger = Hysteresis(.54f, false, .55f, .45f); assert(!trigger); trigger = Hysteresis(.56f, trigger, .55f, .45f); assert(trigger); trigger = Hysteresis(.50f, trigger, .55f, .45f); assert(trigger); trigger = Hysteresis(.44f, trigger, .55f, .45f); assert(!trigger);
     KeyChord chord; assert(ParseChord("CTRL+SHIFT+TAB", chord)); assert(chord.key == VK_TAB && chord.modifiers.size() == 2); assert(!ParseChord("CTRL+NO_SUCH_KEY", chord));
     char temp[MAX_PATH]{}; GetTempPathA(MAX_PATH, temp); std::string configPath = std::string(temp) + "wxl-gamepad-test.cfg";
-    { std::ofstream file(configPath); file << "WXL_GAMEPAD_CAMERA_SENSITIVITY_X=2.0\n[Controller]\nBackend=SDL\nLeftStickDeadzone=0.30\n"; }
+    { std::ofstream file(configPath); file << "WXL_GAMEPAD_CAMERA_SENSITIVITY_X=2.0\n[Controller]\nBackend=SDL\nLeftStickDeadzone=0.30\nSmartInteractDebug=1\n"; }
     ControllerConfig loaded = ControllerConfig::Load(configPath.c_str()); assert(loaded.backend == BackendKind::SDL); assert(std::abs(loaded.leftStickDeadzone - .30f) < .001f); assert(std::abs(loaded.cameraSensitivityX - 2.0f) < .001f);
+    assert(loaded.smartInteractDebug);
     _putenv_s("WXL_GAMEPAD_BACKEND", "XInput"); loaded = ControllerConfig::Load(configPath.c_str()); assert(loaded.backend == BackendKind::XInput); _putenv_s("WXL_GAMEPAD_BACKEND", ""); DeleteFileA(configPath.c_str());
     assert(ControllerActionSlot(0, 0) == 1); assert(ControllerActionSlot(1, 4) == 49); assert(ControllerActionSlot(2, 7) == 60); assert(ControllerActionSlot(3, 7) == 68);
     ThorPadActionMap defaults; for (int layer = 0; layer < 4; ++layer) for (int control = 0; control < 8; ++control) { const ThorPadAction& action = defaults.Get(layer, control); assert(action.type == ThorPadActionType::WoWAction); assert(action.wowActionSlot == ControllerActionSlot(layer, control)); }
+    ThorPadActionMap interactLayers; const char* layerNames[] = {"default", "l2", "r2", "l2r2"};
+    for (int layer = 0; layer < 4; ++layer) { assert(interactLayers.SetSystemAction(layerNames[layer], "east", "INTERACT")); assert(interactLayers.Get(layer, 5).systemAction == ThorPadSystemAction::Interact); }
+    interactLayers.Reset(); for (int layer = 0; layer < 4; ++layer) assert(interactLayers.Get(layer, 5).type == ThorPadActionType::WoWAction);
 
     ControllerConfig config; ParseChord("SHIFT+TAB", config.previousHostile); ParseChord("TAB", config.nextHostile); ParseChord("CTRL+TAB", config.nextFriendly);
     FakeInput input; ControllerGameplay gameplay(config, input, false); ControllerSnapshot snapshot; snapshot.generation = ~uint64_t{}; snapshot.connected = true;
@@ -67,7 +72,7 @@ int main()
 
     FakeInput actionInput; ControllerGameplay actionGameplay(config, actionInput, false); ControllerSnapshot actionSnapshot; actionSnapshot.generation = 1; actionSnapshot.connected = true;
     actionGameplay.SetActive(true, 100); actionGameplay.Update(actionSnapshot, .01f, 101);
-    assert(actionGameplay.SetSystemAction("l2", "south", "JUMP")); assert(ControllerGameplay::SupportsSystemAction("JUMP")); assert(!ControllerGameplay::SupportsSystemAction("AUTO_RUN"));
+    assert(actionGameplay.SetSystemAction("l2", "south", "JUMP")); assert(ControllerGameplay::SupportsSystemAction("JUMP")); assert(ControllerGameplay::SupportsSystemAction("INTERACT")); assert(!ControllerGameplay::SupportsSystemAction("AUTO_RUN"));
     actionSnapshot.state.leftTrigger = .8f; actionSnapshot.state.south = true; actionGameplay.Update(actionSnapshot, .01f, 102);
     assert(actionInput.systemActions.size() == 1 && actionInput.systemActions[0].state == InputState::Pressed);
     actionSnapshot.state.leftTrigger = 0; actionGameplay.Update(actionSnapshot, .01f, 103); assert(actionInput.systemActions.size() == 1);
@@ -80,8 +85,14 @@ int main()
     actionSnapshot.state.south = false; actionGameplay.Update(actionSnapshot, .01f, 107); assert(actionInput.systemActions.size() == 3);
     actionSnapshot.state.east = false; actionGameplay.Update(actionSnapshot, .01f, 108); assert(actionInput.systemActions.size() == 4 && actionInput.systemActions.back().state == InputState::Released);
 
+    assert(actionGameplay.SetSystemAction("default", "east", "INTERACT"));
+    actionSnapshot.state.east = true; actionGameplay.Update(actionSnapshot, .01f, 108);
+    assert(actionInput.systemActions.size() == 5 && actionInput.systemActions.back().action == ThorPadSystemAction::Interact && actionInput.systemActions.back().state == InputState::Pressed);
+    actionSnapshot.state.east = false; actionGameplay.Update(actionSnapshot, .01f, 108);
+    assert(actionInput.systemActions.size() == 5); // INTERACT is intentionally press-only.
+
     assert(!actionGameplay.SetSystemAction("default", "west", "FUTURE_ACTION")); actionSnapshot.state.west = true; actionGameplay.Update(actionSnapshot, .01f, 109); actionSnapshot.state.west = false; actionGameplay.Update(actionSnapshot, .01f, 110);
-    assert(actionInput.systemActions.size() == 4 && actionInput.wowActions.empty());
+    assert(actionInput.systemActions.size() == 5 && actionInput.wowActions.empty());
     actionGameplay.ResetSystemActions(111); actionSnapshot.state.north = true; actionGameplay.Update(actionSnapshot, .01f, 112); assert(actionInput.wowActions.size() == 1 && actionInput.wowActions[0] == 8);
     actionSnapshot.state.north = false; actionGameplay.Update(actionSnapshot, .01f, 113); assert(actionInput.wowActions.size() == 1);
     assert(actionGameplay.SetSystemAction("default", "south", "JUMP")); actionSnapshot.state.south = true; actionGameplay.Update(actionSnapshot, .01f, 114); const size_t beforeReset = actionInput.systemActions.size(); actionGameplay.ResetSystemActions(115); assert(actionInput.systemActions.size() == beforeReset + 1 && actionInput.systemActions.back().state == InputState::Released);
@@ -90,6 +101,17 @@ int main()
     actionInput.foreground = true; actionGameplay.Update(actionSnapshot, .01f, 119); actionSnapshot.state.south = false; actionGameplay.Update(actionSnapshot, .01f, 120);
     actionSnapshot.state.south = true; actionGameplay.Update(actionSnapshot, .01f, 121); const size_t beforeDisconnect = actionInput.systemActions.size(); actionSnapshot.connected = false; ++actionSnapshot.generation; actionGameplay.Update(actionSnapshot, .01f, 122); assert(actionInput.systemActions.size() == beforeDisconnect + 1 && actionInput.systemActions.back().state == InputState::Released);
     actionSnapshot.connected = true; ++actionSnapshot.generation; actionGameplay.Update(actionSnapshot, .01f, 123); actionSnapshot.state.south = false; actionGameplay.Update(actionSnapshot, .01f, 124); actionSnapshot.state.south = true; actionGameplay.Update(actionSnapshot, .01f, 125); const size_t beforeDeactivate = actionInput.systemActions.size(); actionGameplay.SetActive(false, 126); assert(actionInput.systemActions.size() == beforeDeactivate + 1 && actionInput.systemActions.back().state == InputState::Released);
+
+    FakeInput cleanupInput; ControllerGameplay cleanupGameplay(config, cleanupInput, false); ControllerSnapshot cleanupSnapshot; cleanupSnapshot.generation = 1; cleanupSnapshot.connected = true;
+    cleanupGameplay.SetActive(true, 200); cleanupGameplay.Update(cleanupSnapshot, .01f, 201); assert(cleanupGameplay.SetSystemAction("default", "east", "INTERACT"));
+    cleanupSnapshot.state.east = true; cleanupGameplay.Update(cleanupSnapshot, .01f, 202); assert(cleanupInput.systemActions.size() == 1);
+    cleanupInput.foreground = false; cleanupGameplay.Update(cleanupSnapshot, .01f, 203); assert(cleanupInput.systemActions.size() == 1);
+    cleanupInput.foreground = true; cleanupGameplay.Update(cleanupSnapshot, .01f, 204); cleanupSnapshot.state.east = false; cleanupGameplay.Update(cleanupSnapshot, .01f, 205);
+    cleanupSnapshot.state.east = true; cleanupGameplay.Update(cleanupSnapshot, .01f, 206); assert(cleanupInput.systemActions.size() == 2);
+    cleanupSnapshot.connected = false; ++cleanupSnapshot.generation; cleanupGameplay.Update(cleanupSnapshot, .01f, 207); assert(cleanupInput.systemActions.size() == 2);
+    cleanupSnapshot.connected = true; ++cleanupSnapshot.generation; cleanupGameplay.Update(cleanupSnapshot, .01f, 208); cleanupSnapshot.state.east = false; cleanupGameplay.Update(cleanupSnapshot, .01f, 209);
+    cleanupSnapshot.state.east = true; cleanupGameplay.Update(cleanupSnapshot, .01f, 210); assert(cleanupInput.systemActions.size() == 3);
+    cleanupGameplay.SetActive(false, 211); assert(cleanupInput.systemActions.size() == 3);
     std::cout << "wxl-gamepad tests passed\n";
     return 0;
 }

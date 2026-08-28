@@ -60,7 +60,7 @@ function Settings:CreateControllerPage(parent)
         end)
         cell:SetScript("OnDragStop", function() ThorPad.Controller:ScheduleCursorCancel() end)
     end
-    local systemIndex = 0; for _, action in pairs(ThorPad.SystemActions:All()) do systemIndex = systemIndex + 1; createSystemActionCell(action, systemIndex) end
+    local systemIndex = 0; for _, action in ipairs(ThorPad.SystemActions:All()) do systemIndex = systemIndex + 1; createSystemActionCell(action, systemIndex) end
 end
 
 function Settings:CreateSecondScreenPage(parent)

@@ -129,6 +129,7 @@ namespace wxl_gamepad
         config.cameraResponseCurve = FloatValue(value("CameraResponseCurve", "1.5"), 1.5f, .1f, 5, "CameraResponseCurve");
         config.invertCameraY = BoolValue(value("InvertCameraY", "0"), false, "InvertCameraY");
         config.debug = BoolValue(value("ControllerDebug", "0"), false, "ControllerDebug");
+        config.smartInteractDebug = BoolValue(value("SmartInteractDebug", "0"), false, "SmartInteractDebug");
         config.movementPressThreshold = FloatValue(value("MovementPressThreshold", ".35"), .35f, 0, 1, "MovementPressThreshold");
         config.movementReleaseThreshold = FloatValue(value("MovementReleaseThreshold", ".25"), .25f, 0, 1, "MovementReleaseThreshold");
         config.cameraMaxPixelsPerSecond = FloatValue(value("CameraMaxPixelsPerSecond", "900"), 900, 1, 5000, "CameraMaxPixelsPerSecond");

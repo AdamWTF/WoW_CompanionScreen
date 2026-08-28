@@ -1,4 +1,6 @@
 #include "GameInput.hpp"
+#include "NativeSmartInteractWorld.hpp"
+#include "SmartInteract.hpp"
 
 #include "game/Input.hpp"
 #include "game/Action.hpp"
@@ -14,6 +16,25 @@ namespace wxl_gamepad
 {
     namespace
     {
+        SmartInteractConfig SmartInteractSettings(const ControllerConfig& config)
+        {
+            SmartInteractConfig settings;
+            settings.debug = config.smartInteractDebug;
+            return settings;
+        }
+    }
+
+    struct GameInput::SmartInteractState
+    {
+        NativeSmartInteractWorld world;
+        SmartInteractExecutor executor;
+        SmartInteractResult last{SmartInteractResult::NoTarget};
+
+        explicit SmartInteractState(const ControllerConfig& config) : executor(world, SmartInteractSettings(config)) {}
+    };
+
+    namespace
+    {
         struct WindowChoice { HWND window{}; long long area{}; };
         BOOL CALLBACK Pick(HWND h, LPARAM parameter) { DWORD process{}; GetWindowThreadProcessId(h, &process); if (process != GetCurrentProcessId() || GetWindow(h, GW_OWNER) || !IsWindowVisible(h)) return TRUE; RECT r{}; GetClientRect(h, &r); long long area = long long(r.right - r.left) * (r.bottom - r.top); auto& choice = *reinterpret_cast<WindowChoice*>(parameter); if (area > choice.area) { choice.window = h; choice.area = area; } return TRUE; }
         wxl::game::input::Control NativeControl(MovementControl control)
@@ -22,11 +43,18 @@ namespace wxl_gamepad
             switch (control) { case MovementControl::Forward: return C::Forward; case MovementControl::Backward: return C::Backward; case MovementControl::StrafeLeft: return C::StrafeLeft; default: return C::StrafeRight; }
         }
     }
+    GameInput::GameInput(const ControllerConfig& config) : smartInteract_(std::make_unique<SmartInteractState>(config)) {}
+    GameInput::~GameInput() = default;
     void* GameInput::Window() { WindowChoice choice; EnumWindows(&Pick, reinterpret_cast<LPARAM>(&choice)); return choice.window; }
     bool GameInput::Foreground() const { HWND h = static_cast<HWND>(Window()); return h && GetForegroundWindow() == h; }
     void GameInput::WoWAction(int slot) { wxl::game::action::Use(slot); }
     void GameInput::SystemAction(ThorPadSystemAction action, InputState state, uint32_t time)
     {
+        if (action == ThorPadSystemAction::Interact)
+        {
+            if (state == InputState::Pressed && smartInteract_) smartInteract_->last = smartInteract_->executor.Execute();
+            return;
+        }
         if (action != ThorPadSystemAction::Jump) return;
         const bool changed = state == InputState::Pressed ? wxl::game::input::Begin(wxl::game::input::Control::Jump, time) : wxl::game::input::End(wxl::game::input::Control::Jump, time);
         if (changed && state == InputState::Pressed)
@@ -36,6 +64,8 @@ namespace wxl_gamepad
         }
         if (changed) wxl::game::input::Commit(time);
     }
+    const char* GameInput::LastSmartInteractResult() const
+    { return smartInteract_ ? SmartInteractResultName(smartInteract_->last) : "NO_TARGET"; }
     intptr_t GameInput::KeyParameter(unsigned key, bool down) { unsigned scan = MapVirtualKeyA(key, MAPVK_VK_TO_VSC); LPARAM p = 1 | LPARAM(scan << 16); if (!down) p |= LPARAM(3u << 30); return p; }
     void GameInput::Key(unsigned key, bool down)
     {

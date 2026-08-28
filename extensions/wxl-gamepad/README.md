@@ -16,7 +16,9 @@
 
 Controller polling runs at 125 Hz on a worker. WoW movement, action, keyboard, mouse, UI, and camera calls are applied only from the main `OnUpdate` event while the world-render lifecycle is active. Login, realm, character-selection, and loading screens remain diagnostic-only. Disconnects, backend changes, focus loss, and world leave release every input owned by the extension.
 
-The ThorPad addon may override any logical action through the extension's in-process Lua API. `JUMP` uses WoW's native Jump input-control bit on press and release, including swimming/flying ascent; it never synthesizes Space. Unsupported System Action IDs are retained as inert mappings and logged rather than falling through to a WoW action.
+The ThorPad addon may override any logical action through the extension's in-process Lua API. `JUMP` uses WoW's native Jump input-control bit on press and release, including swimming/flying ascent; it never synthesizes Space. `INTERACT` runs Smart Interact once per press: it preserves positively identified interactable targets, suppresses automatic replacement in combat, and otherwise scores conservative NPC/GameObject candidates by camera alignment, distance, and verified interaction metadata. Unsupported System Action IDs are retained as inert mappings and logged rather than falling through to a WoW action.
+
+Smart Interact defaults to a 12-yard search radius and a 60-degree horizontal half-cone. `SmartInteractDebug=1` adds native diagnostic logging for eligible candidates, the selected candidate, score components, and the result; it never writes addon chat output.
 
 ## Installation and configuration
 

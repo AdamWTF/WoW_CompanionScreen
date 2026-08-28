@@ -17,7 +17,7 @@ namespace wxl_gamepad
 
     struct ControllerConfig
     {
-        bool enabled{true}, invertCameraY{}, debug{};
+        bool enabled{true}, invertCameraY{}, debug{}, smartInteractDebug{};
         BackendKind backend{BackendKind::Auto};
         std::string glyphStyle{"Auto"};
         float leftStickDeadzone{.20f}, rightStickDeadzone{.15f};

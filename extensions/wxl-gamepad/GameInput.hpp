@@ -4,6 +4,7 @@
 #include "ThorPadActions.hpp"
 
 #include <cstdint>
+#include <memory>
 
 namespace wxl_gamepad
 {
@@ -29,6 +30,8 @@ namespace wxl_gamepad
     class GameInput final : public IGameInput
     {
     public:
+        explicit GameInput(const ControllerConfig& config);
+        ~GameInput();
         bool Foreground() const override;
         void WoWAction(int slot) override;
         void SystemAction(ThorPadSystemAction action, InputState state, uint32_t time) override;
@@ -39,9 +42,12 @@ namespace wxl_gamepad
         void PointerMove(int dx, int dy) override;
         void PointerClick(bool right) override;
         void ReleaseAll(uint32_t time) override;
+        const char* LastSmartInteractResult() const;
     private:
+        struct SmartInteractState;
         static void* Window(); static intptr_t KeyParameter(unsigned key, bool down); void Key(unsigned key, bool down);
         void MouseButton(bool right, bool down, bool force = false); void Move(float dx, float dy, bool camera);
         bool movement_[4]{}, keys_[256]{}, rightMouse_{}; float cameraRemainderX_{}, cameraRemainderY_{};
+        std::unique_ptr<SmartInteractState> smartInteract_;
     };
 }
