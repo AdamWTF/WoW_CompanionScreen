@@ -11,10 +11,12 @@
 - Start (Xbox Menu/Start, PlayStation Options, Thor Start): toggle the WoW game menu.
 - Select (Xbox View/Back, PlayStation Share/Create, Thor Select): toggle all bags.
 - L2/R2: Base, L2, R2, and L2+R2 action layers with trigger hysteresis.
-- D-pad plus South/East/West/North: 32 existing action-bar assignments.
+- D-pad plus South/East/West/North: 32 logical ThorPad actions, defaulting to the existing action-bar assignments.
 - DualShock touchpad: relative cursor, one-finger/physical click, and two-finger right-click when supplied by SDL.
 
 Controller polling runs at 125 Hz on a worker. WoW movement, action, keyboard, mouse, UI, and camera calls are applied only from the main `OnUpdate` event while the world-render lifecycle is active. Login, realm, character-selection, and loading screens remain diagnostic-only. Disconnects, backend changes, focus loss, and world leave release every input owned by the extension.
+
+The ThorPad addon may override any logical action through the extension's in-process Lua API. `JUMP` uses WoW's native Jump input-control bit on press and release, including swimming/flying ascent; it never synthesizes Space. Unsupported System Action IDs are retained as inert mappings and logged rather than falling through to a WoW action.
 
 ## Installation and configuration
 

@@ -12,6 +12,10 @@ function ThorPad.Migrations:Run(database)
         database.display.glyphScale = database.display.glyphScale / .75
     end
 
+    -- Version 3 introduces SavedVariables-backed System Action overrides. The
+    -- database initializer creates and validates the new assignment tables;
+    -- existing WoW action slots need no migration because they remain native.
+
     database.version = ThorPad.Constants.DB_VERSION
     return database
 end

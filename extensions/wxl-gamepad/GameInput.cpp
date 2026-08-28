@@ -1,7 +1,10 @@
 #include "GameInput.hpp"
 
 #include "game/Input.hpp"
+#include "game/Action.hpp"
 #include "game/Script.hpp"
+#include "game/Unit.hpp"
+#include "game/World.hpp"
 
 #include <windows.h>
 #include <algorithm>
@@ -21,6 +24,18 @@ namespace wxl_gamepad
     }
     void* GameInput::Window() { WindowChoice choice; EnumWindows(&Pick, reinterpret_cast<LPARAM>(&choice)); return choice.window; }
     bool GameInput::Foreground() const { HWND h = static_cast<HWND>(Window()); return h && GetForegroundWindow() == h; }
+    void GameInput::WoWAction(int slot) { wxl::game::action::Use(slot); }
+    void GameInput::SystemAction(ThorPadSystemAction action, InputState state, uint32_t time)
+    {
+        if (action != ThorPadSystemAction::Jump) return;
+        const bool changed = state == InputState::Pressed ? wxl::game::input::Begin(wxl::game::input::Control::Jump, time) : wxl::game::input::End(wxl::game::input::Control::Jump, time);
+        if (changed && state == InputState::Pressed)
+        {
+            const unsigned long long guid = wxl::game::world::ActivePlayerGuid();
+            wxl::game::unit::Jump(wxl::game::world::ResolveObject(guid, wxl::game::world::kTypeMaskPlayer), time);
+        }
+        if (changed) wxl::game::input::Commit(time);
+    }
     intptr_t GameInput::KeyParameter(unsigned key, bool down) { unsigned scan = MapVirtualKeyA(key, MAPVK_VK_TO_VSC); LPARAM p = 1 | LPARAM(scan << 16); if (!down) p |= LPARAM(3u << 30); return p; }
     void GameInput::Key(unsigned key, bool down)
     {

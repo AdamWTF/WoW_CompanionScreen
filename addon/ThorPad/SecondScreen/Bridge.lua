@@ -10,6 +10,12 @@ function ThorPad.Native:GetCurrentLayer()
 end
 
 function ThorPad.Native:IsControllerAvailable() return WXLGamepadNativeLayer ~= nil or type(WXLGamepadIsAvailable) == "function" end
+function ThorPad.Native:IsSystemActionBridgeAvailable()
+    return type(WXLGamepadResetSystemActions) == "function" and type(WXLGamepadSetSystemAction) == "function" and type(WXLGamepadSupportsSystemAction) == "function"
+end
+function ThorPad.Native:ResetSystemActions() return type(WXLGamepadResetSystemActions) == "function" and WXLGamepadResetSystemActions() or nil end
+function ThorPad.Native:SetSystemAction(layer, control, action) return type(WXLGamepadSetSystemAction) == "function" and WXLGamepadSetSystemAction(layer, control, action) or nil end
+function ThorPad.Native:SupportsSystemAction(action) return type(WXLGamepadSupportsSystemAction) == "function" and WXLGamepadSupportsSystemAction(action) or false end
 function ThorPad.Native:IsBridgeAvailable() return type(WXLThorBridgeGetStatus) == "function" end
 function ThorPad.Native:PublishBridgeSnapshot(json) return type(WXLThorBridgePublishSnapshot) == "function" and WXLThorBridgePublishSnapshot(json) or false end
 function ThorPad.Native:PublishBridgeEvent(kind, json) return type(WXLThorBridgePublishEvent) == "function" and WXLThorBridgePublishEvent(kind, json) or false end
@@ -19,4 +25,3 @@ function ThorPad.Native:RegeneratePairingCode()
     if type(WXLThorBridgeForgetDevice) == "function" then return WXLThorBridgeForgetDevice() end
     return false
 end
-

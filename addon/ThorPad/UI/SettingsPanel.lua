@@ -19,7 +19,7 @@ function Settings:SetStatus(message, errorMessage) self.status:SetText((errorMes
 function Settings:CreateControllerPage(parent)
     local page = CreateFrame("Frame", nil, parent); page:SetAllPoints(parent); page:SetFrameLevel(parent:GetFrameLevel() + 5); self.pages[1] = page
     local title = page:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge"); title:SetPoint("TOPLEFT", page, "TOPLEFT", 18, -15); title:SetText("Controller Mapping")
-    local help = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); help:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8); help:SetText("These slots mirror the three horizontal Blizzard action bars. Drag actions normally.")
+    local help = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); help:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8); help:SetText("Drag WoW actions or ThorPad System Actions onto any controller position.")
     self.layerTabs, self.controllerCells = {}, {}
     for index, layer in ipairs(C.CONTROLLER_LAYERS) do
         local tab = CreateFrame("Button", nil, page, "UIPanelButtonTemplate"); tab:SetSize(104, 24); tab:SetPoint("TOPLEFT", page, "TOPLEFT", 18 + (index - 1) * 112, -66); tab:SetText(C.CONTROLLER_LAYER_LABELS[layer]); tab.layer = layer
@@ -33,6 +33,7 @@ function Settings:CreateControllerPage(parent)
             if InCombatLockdown() then self:SetStatus("Leave combat to edit protected controller actions.", true); return end
             if ThorPad.Controller:TakeAssignment(self.selectedLayer, button.control) then self:RefreshActions() end
         end)
+        cell:SetScript("OnDragStop", function() ThorPad.Controller:ScheduleCursorCancel() end)
         local function drop(button)
             local ok, reason = ThorPad.Controller:DropOn(self.selectedLayer, button.control)
             if not ok then self:SetStatus(reason == "combat" and "Leave combat to edit action slots." or "That cursor payload is not supported.", true) else self:SetStatus("Controller action slot updated.") end
@@ -44,9 +45,22 @@ function Settings:CreateControllerPage(parent)
                 if InCombatLockdown() then self:SetStatus("Leave combat to edit protected controller actions.", true)
                 else ThorPad.Controller:ClearAssignment(self.selectedLayer, button.control); self:SetStatus("Controller action slot cleared.") end
                 self:RefreshActions()
-            elseif GetCursorInfo() then drop(button) end
+            elseif GetCursorInfo() or ThorPad.Controller:HasInternalCursor() then drop(button) end
         end)
     end
+    local systemSection = Widgets:CreateSection(page, "System Actions", 18, -356, 484, 82)
+    self.systemActionCells = {}
+    local function createSystemActionCell(action, index)
+        local cell = Widgets:CreateActionCell(systemSection, nil, 48, "system"); cell:SetPoint("TOPLEFT", systemSection, "TOPLEFT", 18 + (index - 1) * 62, -26); cell.label:Hide(); cell.glyphFrame:Hide(); cell.actionLabel:SetText(action.name)
+        Widgets:SetVisualState(cell, action.icon, 0, true, false, 0, 0, 0, false, nil); cell.systemAction = action.id; self.systemActionCells[action.id] = cell
+        cell:SetScript("OnEnter", function(button) showTooltip(button, { type = "system", name = action.name }) end); cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
+        cell:SetScript("OnDragStart", function(button)
+            local ok, reason = ThorPad.Controller:BeginSystemAction(button.systemAction)
+            if not ok and reason == "combat" then self:SetStatus("Leave combat to edit protected controller actions.", true) end
+        end)
+        cell:SetScript("OnDragStop", function() ThorPad.Controller:ScheduleCursorCancel() end)
+    end
+    local systemIndex = 0; for _, action in pairs(ThorPad.SystemActions:All()) do systemIndex = systemIndex + 1; createSystemActionCell(action, systemIndex) end
 end
 
 function Settings:CreateSecondScreenPage(parent)

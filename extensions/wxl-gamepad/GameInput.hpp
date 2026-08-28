@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ControllerConfig.hpp"
+#include "ThorPadActions.hpp"
 
 #include <cstdint>
 
@@ -14,6 +15,8 @@ namespace wxl_gamepad
     public:
         virtual ~IGameInput() = default;
         virtual bool Foreground() const = 0;
+        virtual void WoWAction(int slot) = 0;
+        virtual void SystemAction(ThorPadSystemAction action, InputState state, uint32_t time) = 0;
         virtual void Movement(MovementControl control, bool down, uint32_t time) = 0;
         virtual void Target(const KeyChord& chord) = 0;
         virtual void Command(GameCommand command) = 0;
@@ -27,6 +30,8 @@ namespace wxl_gamepad
     {
     public:
         bool Foreground() const override;
+        void WoWAction(int slot) override;
+        void SystemAction(ThorPadSystemAction action, InputState state, uint32_t time) override;
         void Movement(MovementControl control, bool down, uint32_t time) override;
         void Target(const KeyChord& chord) override;
         void Command(GameCommand command) override;

@@ -30,6 +30,7 @@ function Widgets:CreateActionCell(parent, name, size, kind)
     cell.cooldown = CreateFrame("Cooldown", nil, cell, "CooldownFrameTemplate"); cell.cooldown:SetAllPoints(cell.icon)
     cell.border = cell:CreateTexture(nil, "OVERLAY"); cell.border:SetTexture([[Interface\Buttons\UI-ActionButton-Border]]); cell.border:SetPoint("CENTER"); cell.border:SetSize(size + 12, size + 12); cell.border:SetBlendMode("ADD"); cell.border:SetVertexColor(.72, .62, .36, .82)
     cell.count = cell:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall"); cell.count:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", -5, 5)
+    cell.actionLabel = cell:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); cell.actionLabel:SetPoint("BOTTOM", cell, "BOTTOM", 0, 5); cell.actionLabel:SetWidth(size - 6); cell.actionLabel:SetJustifyH("CENTER")
     cell.label = cell:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); cell.label:SetPoint("TOP", cell, "BOTTOM", 0, -2)
     local glyphFrame = CreateFrame("Frame", nil, cell); glyphFrame:SetSize(25, 25); glyphFrame:SetPoint("TOP", cell, "TOP", 0, 8); glyphFrame:SetFrameLevel(cell:GetFrameLevel() + 20)
     cell.glyph = glyphFrame:CreateTexture(nil, "OVERLAY"); cell.glyph:SetAllPoints(glyphFrame)
@@ -59,6 +60,7 @@ end
 
 function Widgets:RefreshControllerCell(cell)
     local descriptor = ThorPad.Controller:GetAssignment(cell.layer, cell.control); local state = ThorPad.Controller:GetState(descriptor); self:SetGlyph(cell, cell.control)
+    cell.actionLabel:SetText(descriptor and descriptor.type == "system" and descriptor.name or "")
     if state then self:SetVisualState(cell, state.icon, state.count, state.usable, state.noResource, state.start, state.duration, state.enabled, state.current, state.inRange)
     else self:SetVisualState(cell, nil, 0, false, false, 0, 0, 0, false, nil) end
 end

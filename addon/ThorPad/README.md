@@ -17,7 +17,11 @@ Within every layer the numeric order is `DPadUp`, `DPadDown`, `DPadLeft`, `DPadR
 
 The native action mapping is Default `1-8`, L2 `9-12,49-52`, R2 `53-60`, and L2+R2 `61-68`. These are the MainMenuBar, MultiBarBottomLeft, and MultiBarBottomRight action ranges; WoW itself persists their contents.
 
+ThorPad System Actions are SavedVariables-backed overrides for these logical positions. `JUMP` is the initial registry entry. Assigning it clears the native WoW action slot, while the gamepad extension dispatches native Jump begin/end behavior from the logical controller position. Unknown System Action IDs remain persisted but are inert.
+
 The controller extension is expected to publish the active semantic layer as `WXLGamepadNativeLayer`: `default`, `l2`, `r2`, or `l2r2` (numeric values 1-4 are also accepted for compatibility).
+
+The addon synchronizes overrides through `WXLGamepadResetSystemActions`, `WXLGamepadSetSystemAction(layer, control, id)`, and `WXLGamepadSupportsSystemAction(id)` when those globals are available.
 
 ## Second-screen contract
 

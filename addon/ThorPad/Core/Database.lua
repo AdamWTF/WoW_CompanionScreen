@@ -23,7 +23,12 @@ function ThorPad.Database:Initialize()
     booleanDefault(controller, "enabled", true)
     if controller.glyphFamily ~= "auto" and controller.glyphFamily ~= "xbox" and controller.glyphFamily ~= "playstation" and controller.glyphFamily ~= "aynthor" then controller.glyphFamily = "auto" end
     local assignments = tableValue(controller, "assignments")
-    for _, layer in ipairs(ThorPad.Constants.CONTROLLER_LAYERS) do tableValue(assignments, layer) end
+    for _, layer in ipairs(ThorPad.Constants.CONTROLLER_LAYERS) do
+        local values = tableValue(assignments, layer)
+        for control, assignment in pairs(values) do
+            if type(assignment) ~= "table" or assignment.type ~= "system" or type(assignment.action) ~= "string" then values[control] = nil end
+        end
+    end
 
     local secondScreen = tableValue(ThorPadDB, "secondScreen")
     booleanDefault(secondScreen, "enabled", true)

@@ -2,7 +2,6 @@
 #include "ExtensionApi.hpp"
 #include "Processing.hpp"
 
-#include "game/Action.hpp"
 #include "game/Script.hpp"
 
 #include <cmath>
@@ -14,9 +13,40 @@ namespace wxl_gamepad
     {
         std::string LuaSafe(std::string text) { for (char& c : text) if (c == '\'' || c == '\\' || c == '\r' || c == '\n') c = '_'; return text; }
     }
+    void ControllerGameplay::Dispatch(const ThorPadAction& action, InputState state, uint32_t time)
+    {
+        if (action.type == ThorPadActionType::WoWAction)
+        {
+            if (state == InputState::Pressed) input_.WoWAction(action.wowActionSlot);
+            return;
+        }
+        if (action.type != ThorPadActionType::SystemAction || action.systemAction == ThorPadSystemAction::Unknown) return;
+        if (action.systemAction == ThorPadSystemAction::Jump)
+        {
+            if (state == InputState::Pressed)
+            {
+                if (jumpHolds_++ == 0) input_.SystemAction(action.systemAction, state, time);
+            }
+            else if (jumpHolds_ && --jumpHolds_ == 0) input_.SystemAction(action.systemAction, state, time);
+        }
+    }
+    void ControllerGameplay::ReleaseCapturedActions(uint32_t time)
+    {
+        for (int index = 0; index < 8; ++index) { Dispatch(capturedActions_[index], InputState::Released, time); capturedActions_[index] = {}; capturedSlots_[index] = 0; }
+        jumpHolds_ = 0;
+    }
+    void ControllerGameplay::ResetSystemActions(uint32_t time) { ReleaseCapturedActions(time); actionMap_.Reset(); }
+    bool ControllerGameplay::SetSystemAction(const char* layer, const char* control, const char* action)
+    {
+        if (!layer || !control || !action) return false;
+        const bool supported = actionMap_.SetSystemAction(layer, control, action);
+        if (!supported && g_api) g_api->Log(WXL_LOG_WARN, kTag, "unknown or invalid System Action mapping: layer=%s control=%s action=%s", layer, control, action);
+        return supported;
+    }
+    bool ControllerGameplay::SupportsSystemAction(const char* action) { return action && ParseSystemAction(action) != ThorPadSystemAction::Unknown; }
     void ControllerGameplay::Release(uint32_t time)
     {
-        input_.ReleaseAll(time); forward_ = backward_ = strafeLeft_ = strafeRight_ = false; leftTrigger_ = rightTrigger_ = false; layer_ = 0; reportedLayer_ = -1; touchWasDown_ = touchMoved_ = touchButton_ = twoFingerCandidate_ = twoFingerMoved_ = false; for (bool& action : actions_) action = false; previous_ = {};
+        ReleaseCapturedActions(time); input_.ReleaseAll(time); forward_ = backward_ = strafeLeft_ = strafeRight_ = false; leftTrigger_ = rightTrigger_ = false; layer_ = 0; reportedLayer_ = -1; touchWasDown_ = touchMoved_ = touchButton_ = twoFingerCandidate_ = twoFingerMoved_ = false; for (bool& action : actions_) action = false; previous_ = {};
     }
     void ControllerGameplay::SetActive(bool active, uint32_t time)
     {
@@ -67,7 +97,20 @@ namespace wxl_gamepad
         if (s.start && !previous_.start) input_.Command(GameCommand::ToggleGameMenu); if (s.back && !previous_.back) input_.Command(GameCommand::ToggleAllBags);
         if (s.leftStickButton && !previous_.leftStickButton) input_.Command(GameCommand::NextView); if (s.rightStickButton && !previous_.rightStickButton) input_.Target(config_.nextFriendly);
         const bool buttons[8] = {s.dpadUp,s.dpadDown,s.dpadLeft,s.dpadRight,s.south,s.east,s.west,s.north};
-        for (int i = 0; i < 8; ++i) { const int slot = ControllerActionSlot(layer_, i); if (buttons[i] && !actions_[i] && wxl::game::action::Use(slot)) { lastAction_ = slot; if (config_.debug) g_api->Log(WXL_LOG_INFO, kTag, "action edge: layer=%d slot=%d", layer_ + 1, lastAction_); } actions_[i] = buttons[i]; }
+        for (int i = 0; i < 8; ++i)
+        {
+            if (buttons[i] && !actions_[i])
+            {
+                capturedActions_[i] = actionMap_.Get(layer_, i); capturedSlots_[i] = ControllerActionSlot(layer_, i); Dispatch(capturedActions_[i], InputState::Pressed, time); lastAction_ = capturedSlots_[i];
+                if (config_.debug) g_api->Log(WXL_LOG_INFO, kTag, "control=%d DOWN layer=%d slot=%d action=%s:%s", i, layer_ + 1, lastAction_, capturedActions_[i].type == ThorPadActionType::SystemAction ? "SYSTEM" : "WOW", capturedActions_[i].type == ThorPadActionType::SystemAction ? SystemActionName(capturedActions_[i].systemAction) : "ACTION");
+            }
+            else if (!buttons[i] && actions_[i])
+            {
+                const ThorPadAction released = capturedActions_[i]; const int releasedSlot = capturedSlots_[i]; Dispatch(released, InputState::Released, time); capturedActions_[i] = {}; capturedSlots_[i] = 0;
+                if (config_.debug) g_api->Log(WXL_LOG_INFO, kTag, "control=%d UP slot=%d action=%s:%s", i, releasedSlot, released.type == ThorPadActionType::SystemAction ? "SYSTEM" : "WOW", released.type == ThorPadActionType::SystemAction ? SystemActionName(released.systemAction) : "ACTION");
+            }
+            actions_[i] = buttons[i];
+        }
         Touch(s, time); previous_ = s; if (layer_ != reportedLayer_) { reportedLayer_ = layer_; Publish(snapshot); }
     }
 }

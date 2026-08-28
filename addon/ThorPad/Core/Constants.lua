@@ -2,7 +2,7 @@ local addonName, ThorPad = ...
 _G.ThorPad = ThorPad
 
 ThorPad.Constants = {
-    DB_VERSION = 2,
+    DB_VERSION = 3,
     DEFAULT_PORT = 18423,
     MEDIA = [[Interface\AddOns\ThorPad\media\]],
     CONTROLLER_LAYERS = { "default", "l2", "r2", "l2r2" },

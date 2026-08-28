@@ -5,6 +5,8 @@
 #include "GameInput.hpp"
 
 #include "engine/events/Event.hpp"
+#include "game/Input.hpp"
+#include "game/Script.hpp"
 
 #include <memory>
 #include <cstdio>
@@ -19,10 +21,38 @@ namespace wxl_gamepad
         std::unique_ptr<ControllerManager> manager;
         std::unique_ptr<GameInput> input;
         std::unique_ptr<ControllerGameplay> gameplay;
+        void* luaContext{};
+
+        int __cdecl LuaResetSystemActions(void* state)
+        {
+            const bool ok = gameplay != nullptr; if (gameplay) gameplay->ResetSystemActions(wxl::game::input::ActionTime());
+            wxl::game::script::PushBoolean(state, ok); return 1;
+        }
+        int __cdecl LuaSetSystemAction(void* state)
+        {
+            bool ok = false;
+            if (gameplay && wxl::game::script::ArgCount(state) >= 3 && wxl::game::script::IsString(state, 1) && wxl::game::script::IsString(state, 2) && wxl::game::script::IsString(state, 3))
+                ok = gameplay->SetSystemAction(wxl::game::script::ToString(state, 1), wxl::game::script::ToString(state, 2), wxl::game::script::ToString(state, 3));
+            wxl::game::script::PushBoolean(state, ok); return 1;
+        }
+        int __cdecl LuaSupportsSystemAction(void* state)
+        {
+            const bool ok = wxl::game::script::ArgCount(state) >= 1 && wxl::game::script::IsString(state, 1) && ControllerGameplay::SupportsSystemAction(wxl::game::script::ToString(state, 1));
+            wxl::game::script::PushBoolean(state, ok); return 1;
+        }
+        void RegisterLua()
+        {
+            void* const context = wxl::game::script::Context(); if (!context || context == luaContext) return; luaContext = context;
+            wxl::game::script::Register("WXLGamepadResetSystemActions", &LuaResetSystemActions);
+            wxl::game::script::Register("WXLGamepadSetSystemAction", &LuaSetSystemAction);
+            wxl::game::script::Register("WXLGamepadSupportsSystemAction", &LuaSupportsSystemAction);
+            Log(WXL_LOG_INFO, "registered System Action Lua API in a new FrameScript context");
+        }
 
         void __cdecl OnUpdate(void*, const void* raw)
         {
             const auto& update = *static_cast<const wxl::events::UpdateArgs*>(raw);
+            RegisterLua();
             if (manager && gameplay) gameplay->Update(manager->Snapshot(), update.dt, update.timeMs);
         }
         void __cdecl OnWorldRenderEnd(void*, const void*)
@@ -44,6 +74,11 @@ namespace wxl_gamepad
             std::snprintf(line, sizeof line, "Gameplay: %s  Layer: %d  L2:%s R2:%s  Last action: %d", gameplay->Active() ? "in world" : "inactive", gameplay->Layer() + 1, gameplay->LeftModifier() ? "on" : "off", gameplay->RightModifier() ? "on" : "off", gameplay->LastAction()); g_api->UiText(line);
             std::snprintf(line, sizeof line, "Polling: %d Hz  Debug: %s  Glyph hint: %s", config->pollingRateHz, config->debug ? "on" : "off", snapshot.device.glyphHint.c_str()); g_api->UiText(line);
         }
+    }
+
+    bool IsOwnLuaFunction(uintptr_t function)
+    {
+        return function == reinterpret_cast<uintptr_t>(&LuaResetSystemActions) || function == reinterpret_cast<uintptr_t>(&LuaSetSystemAction) || function == reinterpret_cast<uintptr_t>(&LuaSupportsSystemAction);
     }
 
     bool InstallGamepad()

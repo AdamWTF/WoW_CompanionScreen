@@ -21,7 +21,8 @@ eventFrame:SetScript("OnEvent", function(_, event)
     if not Core.initialized then return end
     if event == "CURSOR_UPDATE" then ThorPad.Controller:CursorChanged(); return end
     ThorPad.Bridge:OnEvent(event)
-    if event == "PLAYER_REGEN_ENABLED" then ThorPad.Controller:ApplyAll(); ThorPad.Display:Apply() end
+    if event == "PLAYER_REGEN_ENABLED" then ThorPad.Controller:ApplyAll(); ThorPad.Controller:MarkSyncDirty(); ThorPad.Display:Apply() end
+    if event == "PLAYER_ENTERING_WORLD" then ThorPad.Controller:MarkSyncDirty() end
     if event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_REGEN_ENABLED" then ThorPad.Display:Reconcile() end
     if event == "PLAYER_REGEN_DISABLED" and ThorPad.Settings.frame:IsShown() then ThorPad.Settings:SetStatus("Configuration changes are locked during combat.", true) end
     Core:RefreshActions()
@@ -29,6 +30,7 @@ end)
 
 eventFrame:SetScript("OnUpdate", function(_, elapsed)
     if not Core.initialized then return end
+    ThorPad.Controller:Tick()
     ThorPad.Bridge:Tick(elapsed)
     Core.layerElapsed = (Core.layerElapsed or 0) + elapsed; Core.reconcileElapsed = (Core.reconcileElapsed or 0) + elapsed
     if Core.layerElapsed >= .12 then
@@ -46,6 +48,6 @@ SlashCmdList.THORPAD = function(message)
     if command == "mode" then
         printLine("Controller: " .. (ThorPadDB.controller.enabled and "Enabled" or "Disabled")); printLine("Second Screen: " .. (ThorPadDB.secondScreen.enabled and "Enabled" or "Disabled")); printLine("Reduced UI: " .. ((ThorPadDB.controller.enabled and ThorPadDB.secondScreen.enabled and ThorPadDB.secondScreen.reduceUI) and "Enabled" or "Disabled")); printLine("Mode: " .. ThorPad.Display:GetMode())
     elseif command == "debug" then ThorPadDB.debug = not ThorPadDB.debug; printLine("Debug logging " .. (ThorPadDB.debug and "enabled" or "disabled") .. ".")
-    elseif command == "reset" then ThorPad.Database:Reset(); ThorPad.Controller:ApplyAll(); ThorPad.Display:Apply(); ThorPad.Settings:RefreshAll(); printLine("Settings and controller assignments reset.")
+    elseif command == "reset" then ThorPad.Controller:ClearInternalCursor(); ThorPad.Database:Reset(); ThorPad.Controller:ApplyAll(); ThorPad.Controller:MarkSyncDirty(); ThorPad.Display:Apply(); ThorPad.Settings:RefreshAll(); printLine("Settings and controller assignments reset.")
     else ThorPad.Settings:Toggle() end
 end

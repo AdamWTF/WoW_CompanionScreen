@@ -17,4 +17,5 @@ namespace wxl_gamepad
     }
 
     bool InstallGamepad();
+    bool IsOwnLuaFunction(uintptr_t function);
 }

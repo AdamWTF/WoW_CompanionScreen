@@ -2,12 +2,13 @@
 ## Title: ThorPad
 ## Notes: Controller and ThorPad second-screen configuration for WarcraftXL
 ## Author: WarcraftXL
-## Version: 1.0.0
+## Version: 1.1.0
 ## SavedVariables: ThorPadDB
 Core\Constants.lua
 Core\Migrations.lua
 Core\Database.lua
 Controller\Glyphs.lua
+Controller\SystemActions.lua
 Controller\ControllerActions.lua
 SecondScreen\SecondScreen.lua
 SecondScreen\Bridge.lua
