@@ -16,6 +16,9 @@ function ThorPad.Migrations:Run(database)
     -- database initializer creates and validates the new assignment tables;
     -- existing WoW action slots need no migration because they remain native.
 
+    -- Version 4 introduces controller UI navigation. The database initializer
+    -- enables it by default for both existing and new controller users.
+
     database.version = ThorPad.Constants.DB_VERSION
     return database
 end

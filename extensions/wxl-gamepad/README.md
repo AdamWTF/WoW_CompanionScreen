@@ -13,8 +13,9 @@
 - L2/R2: Base, L2, R2, and L2+R2 action layers with trigger hysteresis.
 - D-pad plus South/East/West/North: 32 logical ThorPad actions, defaulting to the existing action-bar assignments.
 - DualShock touchpad: relative cursor, one-finger/physical click, and two-finger right-click when supplied by SDL.
+- Supported ThorPad UI panels: D-pad spatial navigation, South confirm, and East back. Gameplay movement, camera, targeting, and actions are suppressed until the panel closes or combat begins.
 
-Controller polling runs at 125 Hz on a worker. WoW movement, action, keyboard, mouse, UI, and camera calls are applied only from the main `OnUpdate` event while the world-render lifecycle is active. Login, realm, character-selection, and loading screens remain diagnostic-only. Disconnects, backend changes, focus loss, and world leave release every input owned by the extension.
+Controller polling runs at 125 Hz on a worker. WoW movement, action, keyboard, mouse, UI, and camera calls are applied only from the main `OnUpdate` event while the world-render lifecycle is active. Login, realm, character-selection, and loading screens remain diagnostic-only. Disconnects, backend changes, focus loss, world leave, and UI/gameplay mode transitions release every input owned by the extension and wait for neutral input before resuming. Pointer requests made by Lua are queued until its current update has returned, preventing reentrant UI-script execution.
 
 The ThorPad addon may override any logical action through the extension's in-process Lua API. `JUMP` uses WoW's native Jump input-control bit on press and release, including swimming/flying ascent; it never synthesizes Space. `INTERACT` runs Smart Interact once per press: it preserves positively identified interactable targets, suppresses automatic replacement in combat, and otherwise scores conservative NPC/GameObject candidates by camera alignment, distance, and verified interaction metadata. Unsupported System Action IDs are retained as inert mappings and logged rather than falling through to a WoW action.
 

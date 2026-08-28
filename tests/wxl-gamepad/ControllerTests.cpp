@@ -16,7 +16,7 @@ namespace
     struct FakeInput final : wxl_gamepad::IGameInput
     {
         struct SystemEvent { wxl_gamepad::ThorPadSystemAction action; wxl_gamepad::InputState state; };
-        bool foreground{true}; bool movement[4]{}; int releases{}; float cameraX{}, cameraY{}; bool camera{}; std::vector<std::string> targets; std::vector<wxl_gamepad::GameCommand> commands; std::vector<int> wowActions; std::vector<SystemEvent> systemActions;
+        bool foreground{true}; bool movement[4]{}; int releases{}; float cameraX{}, cameraY{}, pointerX{}, pointerY{}; bool camera{}; std::vector<std::string> targets; std::vector<wxl_gamepad::GameCommand> commands; std::vector<wxl_gamepad::UINavigationCommand> uiCommands; std::vector<int> wowActions; std::vector<SystemEvent> systemActions;
         bool Foreground() const override { return foreground; }
         void WoWAction(int slot) override { wowActions.push_back(slot); }
         void SystemAction(wxl_gamepad::ThorPadSystemAction action, wxl_gamepad::InputState state, uint32_t) override { systemActions.push_back({action, state}); }
@@ -25,6 +25,8 @@ namespace
         void Command(wxl_gamepad::GameCommand command) override { commands.push_back(command); }
         void Camera(bool active, float dx, float dy) override { camera = active; cameraX += dx; cameraY += dy; }
         void PointerMove(int, int) override {} void PointerClick(bool) override {}
+        void MovePointerNormalized(float x, float y) override { pointerX = x; pointerY = y; }
+        void UINavigation(wxl_gamepad::UINavigationCommand command) override { uiCommands.push_back(command); }
         void ReleaseAll(uint32_t) override { for (bool& value : movement) value = false; camera = false; ++releases; }
     };
 }
@@ -52,7 +54,7 @@ int main()
     ControllerConfig config; ParseChord("SHIFT+TAB", config.previousHostile); ParseChord("TAB", config.nextHostile); ParseChord("CTRL+TAB", config.nextFriendly);
     FakeInput input; ControllerGameplay gameplay(config, input, false); ControllerSnapshot snapshot; snapshot.generation = ~uint64_t{}; snapshot.connected = true;
     snapshot.state.start = snapshot.state.back = snapshot.state.leftStickButton = true; snapshot.state.leftY = -.8f; gameplay.Update(snapshot, .01f, 1); assert(input.commands.empty() && !input.movement[0]);
-    gameplay.SetActive(true, 5); gameplay.Update(snapshot, .01f, 6); assert(input.commands.empty() && input.movement[0]);
+    gameplay.SetActive(true, 5); gameplay.Update(snapshot, .01f, 6); assert(input.commands.empty() && !input.movement[0]);
     snapshot.state = {}; gameplay.Update(snapshot, .01f, 7); assert(!input.movement[0]);
     snapshot.state.leftY = -.8f; snapshot.state.leftX = .8f; gameplay.Update(snapshot, .01f, 10); assert(input.movement[0] && input.movement[3]);
     snapshot.state.leftY = snapshot.state.leftX = 0; gameplay.Update(snapshot, .01f, 20); assert(!input.movement[0] && !input.movement[3]);
@@ -60,15 +62,39 @@ int main()
     snapshot.state.leftTrigger = .44f; gameplay.Update(snapshot, .01f, 41); assert(gameplay.Layer() == 2); snapshot.state.rightTrigger = .44f; gameplay.Update(snapshot, .01f, 42); assert(gameplay.Layer() == 0);
     snapshot.state.leftShoulder = true; gameplay.Update(snapshot, .01f, 50); gameplay.Update(snapshot, .01f, 60); assert(input.targets.size() == 1 && input.targets[0] == "SHIFT+TAB");
     snapshot.state.start = true; snapshot.state.back = true; snapshot.state.leftStickButton = true; gameplay.Update(snapshot, .01f, 61); gameplay.Update(snapshot, .01f, 62);
-    assert(input.commands.size() == 3); assert(input.commands[0] == GameCommand::ToggleGameMenu); assert(input.commands[1] == GameCommand::ToggleAllBags); assert(input.commands[2] == GameCommand::NextView);
-    snapshot.state.start = snapshot.state.back = snapshot.state.leftStickButton = false; gameplay.Update(snapshot, .01f, 63); snapshot.state.start = snapshot.state.back = snapshot.state.leftStickButton = true; gameplay.Update(snapshot, .01f, 64); assert(input.commands.size() == 6);
+    assert(input.commands.size() == 2); assert(input.commands[0] == GameCommand::ToggleGameMenu); assert(input.commands[1] == GameCommand::ToggleAllBags);
+    snapshot.state.start = snapshot.state.back = snapshot.state.leftStickButton = false; gameplay.Update(snapshot, .01f, 63); snapshot.state.start = snapshot.state.back = snapshot.state.leftStickButton = true; gameplay.Update(snapshot, .01f, 64); assert(input.commands.size() == 4);
     snapshot.state.rightStickButton = true; gameplay.Update(snapshot, .01f, 65); assert(input.targets.size() == 2 && input.targets[1] == "CTRL+TAB");
     snapshot.state.start = snapshot.state.back = snapshot.state.leftStickButton = snapshot.state.rightStickButton = false; gameplay.Update(snapshot, .01f, 66);
-    input.foreground = false; snapshot.state.start = snapshot.state.back = snapshot.state.leftStickButton = true; gameplay.Update(snapshot, .01f, 67); input.foreground = true; gameplay.Update(snapshot, .01f, 68); assert(input.commands.size() == 6);
-    snapshot.connected = false; ++snapshot.generation; gameplay.Update(snapshot, .01f, 69); snapshot.connected = true; ++snapshot.generation; gameplay.Update(snapshot, .01f, 70); assert(input.commands.size() == 6);
-    snapshot.state.start = snapshot.state.back = snapshot.state.leftStickButton = false; gameplay.Update(snapshot, .01f, 71); snapshot.state.start = snapshot.state.back = snapshot.state.leftStickButton = true; gameplay.Update(snapshot, .01f, 72); assert(input.commands.size() == 9);
+    input.foreground = false; snapshot.state.start = snapshot.state.back = snapshot.state.leftStickButton = true; gameplay.Update(snapshot, .01f, 67); input.foreground = true; gameplay.Update(snapshot, .01f, 68); assert(input.commands.size() == 4);
+    snapshot.connected = false; ++snapshot.generation; gameplay.Update(snapshot, .01f, 69); snapshot.connected = true; ++snapshot.generation; gameplay.Update(snapshot, .01f, 70); assert(input.commands.size() == 4);
+    snapshot.state.start = snapshot.state.back = snapshot.state.leftStickButton = false; gameplay.Update(snapshot, .01f, 71); snapshot.state.start = snapshot.state.back = snapshot.state.leftStickButton = true; gameplay.Update(snapshot, .01f, 72); assert(input.commands.size() == 6);
     snapshot.state.rightX = 1; gameplay.Update(snapshot, .01f, 70); assert(input.camera && input.cameraX > 0); snapshot.state.rightX = 0; gameplay.Update(snapshot, .01f, 80); assert(!input.camera);
     gameplay.SetActive(false, 90); assert(!gameplay.Active() && input.releases == 5); const size_t commandCount = input.commands.size(); snapshot.state.start = true; gameplay.Update(snapshot, .01f, 91); assert(input.commands.size() == commandCount);
+
+    FakeInput uiInput; ControllerGameplay uiGameplay(config, uiInput, false); ControllerSnapshot uiSnapshot; uiSnapshot.generation = ~uint64_t{}; uiSnapshot.connected = true;
+    uiGameplay.SetActive(true, 300); uiGameplay.Update(uiSnapshot, .01f, 301); assert(!uiGameplay.UINavigationActive());
+    assert(uiGameplay.SetSystemAction("default", "south", "JUMP"));
+    uiSnapshot.state.leftY = -.8f; uiSnapshot.state.south = true; uiGameplay.Update(uiSnapshot, .01f, 302);
+    assert(uiInput.movement[0] && uiInput.systemActions.size() == 1 && uiInput.systemActions.back().state == InputState::Pressed);
+    uiGameplay.SetUINavigationActive(true, 303); assert(uiGameplay.UINavigationActive() && !uiInput.movement[0]);
+    assert(uiInput.systemActions.size() == 2 && uiInput.systemActions.back().state == InputState::Released);
+    uiSnapshot.state.dpadUp = true; uiGameplay.Update(uiSnapshot, .01f, 304); assert(uiInput.uiCommands.empty());
+    uiSnapshot.state = {}; uiGameplay.Update(uiSnapshot, .01f, 305); assert(uiInput.uiCommands.empty());
+    uiSnapshot.state.dpadUp = true; uiGameplay.Update(uiSnapshot, .01f, 306); assert(uiInput.uiCommands.size() == 1 && uiInput.uiCommands.back() == UINavigationCommand::Up);
+    uiGameplay.Update(uiSnapshot, .01f, 655); assert(uiInput.uiCommands.size() == 1); uiGameplay.Update(uiSnapshot, .01f, 656); assert(uiInput.uiCommands.size() == 2 && uiInput.uiCommands.back() == UINavigationCommand::Up);
+    uiGameplay.Update(uiSnapshot, .01f, 756); assert(uiInput.uiCommands.size() == 3);
+    uiSnapshot.state.dpadDown = true; uiGameplay.Update(uiSnapshot, .01f, 757); assert(uiInput.uiCommands.size() == 3);
+    uiSnapshot.state.dpadUp = uiSnapshot.state.dpadDown = false; uiSnapshot.state.south = true; uiGameplay.Update(uiSnapshot, .01f, 758); assert(uiInput.uiCommands.back() == UINavigationCommand::Confirm);
+    uiSnapshot.state.south = false; uiSnapshot.state.east = true; uiGameplay.Update(uiSnapshot, .01f, 759); assert(uiInput.uiCommands.back() == UINavigationCommand::Back);
+    const size_t uiActionCount = uiInput.wowActions.size(), uiTargetCount = uiInput.targets.size(); uiSnapshot.state.leftShoulder = true; uiSnapshot.state.leftY = -.8f; uiSnapshot.state.rightX = 1; uiGameplay.Update(uiSnapshot, .01f, 759);
+    assert(uiInput.wowActions.size() == uiActionCount && uiInput.targets.size() == uiTargetCount && !uiInput.movement[0] && !uiInput.camera);
+    uiSnapshot.state.start = true; uiSnapshot.state.back = true; uiGameplay.Update(uiSnapshot, .01f, 760); assert(uiInput.commands.size() == 2 && uiInput.commands[0] == GameCommand::ToggleGameMenu && uiInput.commands[1] == GameCommand::ToggleAllBags);
+    const size_t uiBeforeFocusLoss = uiInput.uiCommands.size(); uiInput.foreground = false; uiSnapshot.state.dpadRight = true; uiGameplay.Update(uiSnapshot, .01f, 761); uiInput.foreground = true; uiGameplay.Update(uiSnapshot, .01f, 762); assert(uiInput.uiCommands.size() == uiBeforeFocusLoss);
+    uiSnapshot.state = {}; uiGameplay.Update(uiSnapshot, .01f, 763); uiSnapshot.state.dpadRight = true; uiGameplay.Update(uiSnapshot, .01f, 764); assert(uiInput.uiCommands.back() == UINavigationCommand::Right);
+    const size_t uiBeforeDisconnect = uiInput.uiCommands.size(); uiSnapshot.connected = false; ++uiSnapshot.generation; uiGameplay.Update(uiSnapshot, .01f, 765); uiSnapshot.connected = true; ++uiSnapshot.generation; uiGameplay.Update(uiSnapshot, .01f, 766); assert(uiInput.uiCommands.size() == uiBeforeDisconnect);
+    uiSnapshot.state = {}; uiGameplay.Update(uiSnapshot, .01f, 767); uiGameplay.SetUINavigationActive(false, 768); assert(!uiGameplay.UINavigationActive()); uiGameplay.Update(uiSnapshot, .01f, 769);
+    uiSnapshot.state.south = true; uiGameplay.Update(uiSnapshot, .01f, 770); assert(uiInput.systemActions.back().state == InputState::Pressed);
 
     FakeInput actionInput; ControllerGameplay actionGameplay(config, actionInput, false); ControllerSnapshot actionSnapshot; actionSnapshot.generation = 1; actionSnapshot.connected = true;
     actionGameplay.SetActive(true, 100); actionGameplay.Update(actionSnapshot, .01f, 101);

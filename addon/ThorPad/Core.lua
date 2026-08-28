@@ -6,7 +6,7 @@ local function printLine(message) DEFAULT_CHAT_FRAME:AddMessage("|cffffd040ThorP
 
 function Core:Initialize()
     if self.initialized then return end; self.initialized = true
-    ThorPad.Database:Initialize(); ThorPad.Controller:CreateButtons(); ThorPad.ActionOverlay:Create(); ThorPad.Settings:Create(); ThorPad.MinimapButton:Create(); ThorPad.Bridge:Initialize(); ThorPad.Display:Initialize()
+    ThorPad.Database:Initialize(); ThorPad.Controller:CreateButtons(); ThorPad.ActionOverlay:Create(); ThorPad.Settings:Create(); ThorPad.MinimapButton:Create(); ThorPad.Bridge:Initialize(); ThorPad.Display:Initialize(); ThorPad.UINavigation:Initialize()
     self.layer = ThorPad.Native:GetCurrentLayer(); self.glyphSignature = tostring(WXLGamepadConfiguredGlyphStyle) .. ":" .. tostring(WXLGamepadDetectedGlyphStyle); ThorPad.ActionOverlay:SetLayer(self.layer); ThorPad.Display:Apply()
 end
 
@@ -21,6 +21,7 @@ eventFrame:SetScript("OnEvent", function(_, event)
     if not Core.initialized then return end
     if event == "CURSOR_UPDATE" then ThorPad.Controller:CursorChanged(); return end
     ThorPad.Bridge:OnEvent(event)
+    ThorPad.UINavigation:OnEvent(event)
     if event == "PLAYER_REGEN_ENABLED" then ThorPad.Controller:ApplyAll(); ThorPad.Controller:MarkSyncDirty(); ThorPad.Display:Apply() end
     if event == "PLAYER_ENTERING_WORLD" then ThorPad.Controller:MarkSyncDirty() end
     if event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_REGEN_ENABLED" then ThorPad.Display:Reconcile() end
@@ -32,6 +33,7 @@ eventFrame:SetScript("OnUpdate", function(_, elapsed)
     if not Core.initialized then return end
     ThorPad.Controller:Tick()
     ThorPad.Bridge:Tick(elapsed)
+    ThorPad.UINavigation:Tick(elapsed)
     Core.layerElapsed = (Core.layerElapsed or 0) + elapsed; Core.reconcileElapsed = (Core.reconcileElapsed or 0) + elapsed
     if Core.layerElapsed >= .12 then
         Core.layerElapsed = 0; local layer = ThorPad.Native:GetCurrentLayer(); local glyphSignature = tostring(WXLGamepadConfiguredGlyphStyle) .. ":" .. tostring(WXLGamepadDetectedGlyphStyle)

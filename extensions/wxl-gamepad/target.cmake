@@ -11,6 +11,14 @@ if(BUILD_TESTING)
     target_link_libraries(wxl-gamepad-tests PRIVATE user32)
     add_test(NAME wxl-gamepad-processing COMMAND wxl-gamepad-tests)
 
+    find_program(WXL_LUA_EXECUTABLE NAMES lua5.1 lua luajit)
+    if(WXL_LUA_EXECUTABLE)
+        add_test(NAME thorpad-ui-navigation
+            COMMAND "${WXL_LUA_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/wxl-gamepad/UINavigationTests.lua"
+                "${CMAKE_CURRENT_SOURCE_DIR}/addon/ThorPad/UI/UINavigation.lua")
+    endif()
+
     add_executable(wxl-gamepad-smart-interact-tests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/wxl-gamepad/SmartInteractTests.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/extensions/wxl-gamepad/SmartInteract.cpp")

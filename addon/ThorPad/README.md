@@ -23,6 +23,12 @@ The controller extension is expected to publish the active semantic layer as `WX
 
 The addon synchronizes overrides through `WXLGamepadResetSystemActions`, `WXLGamepadSetSystemAction(layer, control, id)`, and `WXLGamepadSupportsSystemAction(id)` when those globals are available.
 
+## Controller UI navigation
+
+UI navigation is enabled by default with controller support and can be disabled independently in ThorPad settings. Out of combat, supported stock panels redirect D-pad input to spatial focus, South to confirm, and East to back while suppressing gameplay controls. The first supported set is the game menu, static confirmation popups, gossip and quest dialogs, merchants, bags, and ThorPad's own settings. Bag confirmation uses the stock right-click use/equip behavior.
+
+The native extension exposes `WXLGamepadSetUINavigationActive(active)`, `WXLGamepadMovePointer(normalizedX, normalizedY)`, and `WXLGamepadClickPointer(button)`. ThorPad supplies `ThorPad.UINavigation:Handle(command)` for the native extension to dispatch `up`, `down`, `left`, `right`, `confirm`, and `back`. Navigation deactivates during combat and whenever no supported panel is visible.
+
 ## Second-screen contract
 
 ThorPad slots 1-24 directly represent WoW action IDs 25-48. They are never duplicated into `ThorPadDB`; WoW remains authoritative. `ThorPad.SecondScreen:GetActionID(slot)` is the public mapping API.

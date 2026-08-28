@@ -10,6 +10,7 @@ namespace wxl_gamepad
 {
     enum class MovementControl { Forward, Backward, StrafeLeft, StrafeRight };
     enum class GameCommand { ToggleGameMenu, ToggleAllBags, NextView };
+    enum class UINavigationCommand { Up, Down, Left, Right, Confirm, Back };
 
     class IGameInput
     {
@@ -24,6 +25,8 @@ namespace wxl_gamepad
         virtual void Camera(bool active, float dx, float dy) = 0;
         virtual void PointerMove(int dx, int dy) = 0;
         virtual void PointerClick(bool right) = 0;
+        virtual void MovePointerNormalized(float x, float y) = 0;
+        virtual void UINavigation(UINavigationCommand command) = 0;
         virtual void ReleaseAll(uint32_t time) = 0;
     };
 
@@ -41,13 +44,17 @@ namespace wxl_gamepad
         void Camera(bool active, float dx, float dy) override;
         void PointerMove(int dx, int dy) override;
         void PointerClick(bool right) override;
+        void MovePointerNormalized(float x, float y) override;
+        void UINavigation(UINavigationCommand command) override;
         void ReleaseAll(uint32_t time) override;
+        void FlushPointerActions();
         const char* LastSmartInteractResult() const;
     private:
         struct SmartInteractState;
         static void* Window(); static intptr_t KeyParameter(unsigned key, bool down); void Key(unsigned key, bool down);
         void MouseButton(bool right, bool down, bool force = false); void Move(float dx, float dy, bool camera);
         bool movement_[4]{}, keys_[256]{}, rightMouse_{}; float cameraRemainderX_{}, cameraRemainderY_{};
+        bool pendingPointerMove_{}, pendingPointerClick_{}, pendingPointerRight_{}; float pendingPointerX_{}, pendingPointerY_{};
         std::unique_ptr<SmartInteractState> smartInteract_;
     };
 }

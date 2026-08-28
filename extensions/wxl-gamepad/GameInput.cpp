@@ -11,6 +11,7 @@
 #include <windows.h>
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 namespace wxl_gamepad
 {
@@ -89,7 +90,7 @@ namespace wxl_gamepad
     {
         switch (command)
         {
-        case GameCommand::ToggleGameMenu: wxl::game::script::Execute("ToggleGameMenu()"); break;
+        case GameCommand::ToggleGameMenu: Key(VK_ESCAPE, true); Key(VK_ESCAPE, false); break;
         case GameCommand::ToggleAllBags: wxl::game::script::Execute("OpenAllBags()"); break;
         case GameCommand::NextView: wxl::game::script::Execute("NextView()"); break;
         }
@@ -115,11 +116,50 @@ namespace wxl_gamepad
     void GameInput::PointerMove(int dx, int dy) { Move(float(dx), float(dy), false); }
     void GameInput::PointerClick(bool right)
     {
-        if (right && rightMouse_) return;
-        HWND h = static_cast<HWND>(Window()); if (!h || GetForegroundWindow() != h) return; POINT p{}; GetCursorPos(&p); ScreenToClient(h, &p); UINT down = right ? WM_RBUTTONDOWN : WM_LBUTTONDOWN, up = right ? WM_RBUTTONUP : WM_LBUTTONUP; WPARAM held = right ? MK_RBUTTON : MK_LBUTTON; SendMessageA(h, down, held, MAKELPARAM(p.x, p.y)); SendMessageA(h, up, 0, MAKELPARAM(p.x, p.y));
+        pendingPointerClick_ = true; pendingPointerRight_ = right;
+    }
+    void GameInput::MovePointerNormalized(float x, float y)
+    {
+        pendingPointerMove_ = true; pendingPointerX_ = (std::clamp)(x, 0.0f, 1.0f); pendingPointerY_ = (std::clamp)(y, 0.0f, 1.0f);
+    }
+    void GameInput::FlushPointerActions()
+    {
+        if (!pendingPointerMove_ && !pendingPointerClick_) return;
+        HWND h = static_cast<HWND>(Window());
+        if (!h || GetForegroundWindow() != h) { pendingPointerMove_ = pendingPointerClick_ = pendingPointerRight_ = false; return; }
+        if (pendingPointerMove_)
+        {
+            RECT r{}; if (GetClientRect(h, &r) && r.right > r.left && r.bottom > r.top)
+            {
+                POINT p{r.left + int(pendingPointerX_ * float(r.right - r.left - 1)), r.top + int((1.0f - pendingPointerY_) * float(r.bottom - r.top - 1))};
+                POINT screen = p; ClientToScreen(h, &screen); SetCursorPos(screen.x, screen.y); SendMessageA(h, WM_MOUSEMOVE, 0, MAKELPARAM(p.x, p.y));
+            }
+        }
+        if (pendingPointerClick_ && (!pendingPointerRight_ || !rightMouse_))
+        {
+            POINT p{}; GetCursorPos(&p); ScreenToClient(h, &p); UINT down = pendingPointerRight_ ? WM_RBUTTONDOWN : WM_LBUTTONDOWN, up = pendingPointerRight_ ? WM_RBUTTONUP : WM_LBUTTONUP; WPARAM held = pendingPointerRight_ ? MK_RBUTTON : MK_LBUTTON;
+            SendMessageA(h, down, held, MAKELPARAM(p.x, p.y)); SendMessageA(h, up, 0, MAKELPARAM(p.x, p.y));
+        }
+        pendingPointerMove_ = pendingPointerClick_ = pendingPointerRight_ = false;
+    }
+    void GameInput::UINavigation(UINavigationCommand command)
+    {
+        if (command == UINavigationCommand::Back) { Key(VK_ESCAPE, true); Key(VK_ESCAPE, false); return; }
+        const char* name = nullptr;
+        switch (command)
+        {
+        case UINavigationCommand::Up: name = "up"; break;
+        case UINavigationCommand::Down: name = "down"; break;
+        case UINavigationCommand::Left: name = "left"; break;
+        case UINavigationCommand::Right: name = "right"; break;
+        case UINavigationCommand::Confirm: name = "confirm"; break;
+        case UINavigationCommand::Back: break;
+        }
+        if (!name) return;
+        char script[128]; std::snprintf(script, sizeof script, "if ThorPad and ThorPad.UINavigation then ThorPad.UINavigation:Handle('%s') end", name); wxl::game::script::Execute(script);
     }
     void GameInput::ReleaseAll(uint32_t time)
     {
-        for (size_t i = 0; i < 4; ++i) Movement(MovementControl(i), false, time); for (unsigned i = 0; i < 256; ++i) if (keys_[i]) Key(i, false); if (rightMouse_) MouseButton(true, false, true); cameraRemainderX_ = cameraRemainderY_ = 0;
+        for (size_t i = 0; i < 4; ++i) Movement(MovementControl(i), false, time); for (unsigned i = 0; i < 256; ++i) if (keys_[i]) Key(i, false); if (rightMouse_) MouseButton(true, false, true); cameraRemainderX_ = cameraRemainderY_ = 0; pendingPointerMove_ = pendingPointerClick_ = pendingPointerRight_ = false;
     }
 }

@@ -85,9 +85,10 @@ end
 
 function Settings:CreateDisplayPage(parent)
     local page = CreateFrame("Frame", nil, parent); page:SetAllPoints(parent); page:SetFrameLevel(parent:GetFrameLevel() + 5); page:Hide(); self.pages[3] = page
-    local controller = Widgets:CreateSection(page, "Controller", 14, -14, 492, 102)
-    self.controllerCheck = Widgets:CreateCheck(controller, "Enable Controller Support", 10, -31, function(value) ThorPadDB.controller.enabled = value; ThorPad.Display:Apply(); self:RefreshDisplayPage() end)
-    self.controllerNative = controller:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); self.controllerNative:SetPoint("TOPLEFT", controller, "TOPLEFT", 15, -72)
+    local controller = Widgets:CreateSection(page, "Controller", 14, -14, 492, 128)
+    self.controllerCheck = Widgets:CreateCheck(controller, "Enable Controller Support", 10, -31, function(value) ThorPadDB.controller.enabled = value; ThorPad.Display:Apply(); ThorPad.UINavigation:Reconcile(); self:RefreshDisplayPage() end)
+    self.navigationCheck = Widgets:CreateCheck(controller, "Enable Controller UI Navigation", 10, -62, function(value) ThorPadDB.controller.uiNavigation = value; ThorPad.UINavigation:Reconcile(); self:RefreshDisplayPage() end)
+    self.controllerNative = controller:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); self.controllerNative:SetPoint("TOPLEFT", controller, "TOPLEFT", 15, -98)
     self.glyphButton = CreateFrame("Button", nil, controller, "UIPanelButtonTemplate"); self.glyphButton:SetSize(180, 24); self.glyphButton:SetPoint("TOPRIGHT", controller, "TOPRIGHT", -14, -36)
     self.glyphButton:SetScript("OnClick", function()
         local nextFamily = { auto = "xbox", xbox = "playstation", playstation = "aynthor", aynthor = "auto" }
@@ -95,11 +96,11 @@ function Settings:CreateDisplayPage(parent)
         self:RefreshAll()
     end)
 
-    local screen = Widgets:CreateSection(page, "Second Screen", 14, -126, 492, 104)
+    local screen = Widgets:CreateSection(page, "Second Screen", 14, -152, 492, 104)
     self.screenCheck = Widgets:CreateCheck(screen, "Enable Second Screen", 10, -31, function(value) ThorPadDB.secondScreen.enabled = value; ThorPad.Display:Apply(); self:RefreshDisplayPage() end)
     self.reduceCheck = Widgets:CreateCheck(screen, "Enable Reduced In-Game UI", 10, -62, function(value) ThorPadDB.secondScreen.reduceUI = value; ThorPad.Display:Apply(); self:RefreshDisplayPage() end)
 
-    local appearance = Widgets:CreateSection(page, "Appearance", 14, -240, 492, 76)
+    local appearance = Widgets:CreateSection(page, "Appearance", 14, -266, 492, 76)
     local scaleDown = CreateFrame("Button", nil, appearance, "UIPanelButtonTemplate"); scaleDown:SetSize(28, 22); scaleDown:SetPoint("TOPLEFT", appearance, "TOPLEFT", 14, -35); scaleDown:SetText("-")
     self.scaleLabel = appearance:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); self.scaleLabel:SetPoint("LEFT", scaleDown, "RIGHT", 12, 0)
     local scaleUp = CreateFrame("Button", nil, appearance, "UIPanelButtonTemplate"); scaleUp:SetSize(28, 22); scaleUp:SetPoint("LEFT", self.scaleLabel, "RIGHT", 12, 0); scaleUp:SetText("+")
@@ -111,16 +112,16 @@ function Settings:CreateDisplayPage(parent)
     local function changeGlyphScale(delta) ThorPadDB.display.glyphScale = math.max(.75, math.min(1.35, ThorPadDB.display.glyphScale + delta)); self:RefreshAll() end
     glyphDown:SetScript("OnClick", function() changeGlyphScale(-.05) end); glyphUp:SetScript("OnClick", function() changeGlyphScale(.05) end)
 
-    local connection = Widgets:CreateSection(page, "Connection", 14, -326, 492, 118)
+    local connection = Widgets:CreateSection(page, "Connection", 14, -352, 492, 92)
     self.connectionStatus = connection:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); self.connectionStatus:SetPoint("TOPLEFT", connection, "TOPLEFT", 14, -34); self.connectionStatus:SetJustifyH("LEFT")
-    self.connectionEndpoint = connection:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); self.connectionEndpoint:SetPoint("TOPLEFT", self.connectionStatus, "BOTTOMLEFT", 0, -7)
-    self.connectionPairing = connection:CreateFontString(nil, "OVERLAY", "GameFontNormal"); self.connectionPairing:SetPoint("TOPLEFT", self.connectionEndpoint, "BOTTOMLEFT", 0, -7)
-    self.regenerate = CreateFrame("Button", nil, connection, "UIPanelButtonTemplate"); self.regenerate:SetSize(178, 24); self.regenerate:SetPoint("BOTTOMRIGHT", connection, "BOTTOMRIGHT", -12, 10); self.regenerate:SetText("Regenerate Pairing Code")
+    self.connectionEndpoint = connection:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); self.connectionEndpoint:SetPoint("TOPLEFT", self.connectionStatus, "BOTTOMLEFT", 0, -6)
+    self.connectionPairing = connection:CreateFontString(nil, "OVERLAY", "GameFontNormal"); self.connectionPairing:SetPoint("TOPLEFT", self.connectionEndpoint, "BOTTOMLEFT", 0, -6)
+    self.regenerate = CreateFrame("Button", nil, connection, "UIPanelButtonTemplate"); self.regenerate:SetSize(160, 22); self.regenerate:SetPoint("BOTTOMRIGHT", connection, "BOTTOMRIGHT", -10, 8); self.regenerate:SetText("Regenerate Pairing Code")
     self.regenerate:SetScript("OnClick", function() if ThorPad.Bridge:RegeneratePairingCode() then self:SetStatus("Pairing code regenerated.") else self:SetStatus("Native bridge is unavailable.", true) end; self:RefreshBridge() end)
 end
 
 function Settings:Create()
-    local frame = CreateFrame("Frame", "ThorPadConfig", UIParent, "UIPanelDialogTemplate"); frame:SetSize(714, 520); frame:SetPoint("CENTER"); frame:SetFrameStrata("DIALOG"); frame:SetToplevel(true); frame:SetMovable(true); frame:EnableMouse(true); frame:RegisterForDrag("LeftButton")
+    local frame = CreateFrame("Frame", "ThorPadConfig", UIParent, "UIPanelDialogTemplate"); frame:SetSize(732, 520); frame:SetPoint("CENTER"); frame:SetFrameStrata("DIALOG"); frame:SetToplevel(true); frame:SetMovable(true); frame:EnableMouse(true); frame:RegisterForDrag("LeftButton")
     frame:SetScript("OnDragStart", function(self) self:StartMoving() end); frame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end); frame:Hide(); frame.title:SetText("ThorPad")
     tinsert(UISpecialFrames, "ThorPadConfig"); self.frame, self.pages, self.navigation = frame, {}, {}
     local nav = CreateFrame("Frame", nil, frame); nav:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -38); nav:SetSize(166, 452); Widgets:SetBackdrop(nav)
@@ -165,7 +166,8 @@ end
 function Settings:RefreshSecondScreenPage() if self.secondScreenCells then for _, cell in ipairs(self.secondScreenCells) do Widgets:RefreshNativeCell(cell) end end end
 function Settings:RefreshDisplayPage()
     if not self.controllerCheck then return end
-    self.controllerCheck:SetChecked(ThorPadDB.controller.enabled); self.screenCheck:SetChecked(ThorPadDB.secondScreen.enabled); self.reduceCheck:SetChecked(ThorPadDB.secondScreen.reduceUI)
+    self.controllerCheck:SetChecked(ThorPadDB.controller.enabled); self.navigationCheck:SetChecked(ThorPadDB.controller.uiNavigation); self.screenCheck:SetChecked(ThorPadDB.secondScreen.enabled); self.reduceCheck:SetChecked(ThorPadDB.secondScreen.reduceUI)
+    if ThorPadDB.controller.enabled and ThorPad.Native:IsUINavigationAvailable() then self.navigationCheck:Enable() else self.navigationCheck:Disable() end
     self.controllerNative:SetText(ThorPad.Native:IsControllerAvailable() and "|cff55ff55Native controller integration available|r" or "|cff888888Native controller integration unavailable|r")
     if ThorPadDB.controller.enabled and ThorPadDB.secondScreen.enabled then self.reduceCheck:Enable() else self.reduceCheck:Disable() end
     local familyLabels = { auto = "Auto", xbox = "Xbox", playstation = "PlayStation", aynthor = "AYN Thor" }

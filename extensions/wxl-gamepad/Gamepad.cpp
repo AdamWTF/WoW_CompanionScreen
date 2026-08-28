@@ -10,6 +10,8 @@
 
 #include <memory>
 #include <cstdio>
+#include <cstring>
+#include <cmath>
 
 namespace wxl_gamepad
 {
@@ -40,13 +42,38 @@ namespace wxl_gamepad
             const bool ok = wxl::game::script::ArgCount(state) >= 1 && wxl::game::script::IsString(state, 1) && ControllerGameplay::SupportsSystemAction(wxl::game::script::ToString(state, 1));
             wxl::game::script::PushBoolean(state, ok); return 1;
         }
+        int __cdecl LuaSetUINavigationActive(void* state)
+        {
+            const bool active = gameplay && wxl::game::script::ArgCount(state) >= 1 && wxl::game::script::IsNumber(state, 1) && wxl::game::script::ToNumber(state, 1) != 0;
+            if (gameplay) gameplay->SetUINavigationActive(active, wxl::game::input::ActionTime());
+            wxl::game::script::PushBoolean(state, gameplay && gameplay->Active()); return 1;
+        }
+        int __cdecl LuaMovePointer(void* state)
+        {
+            const bool valid = input && wxl::game::script::ArgCount(state) >= 2 && wxl::game::script::IsNumber(state, 1) && wxl::game::script::IsNumber(state, 2);
+            const float x = valid ? float(wxl::game::script::ToNumber(state, 1)) : 0.0f, y = valid ? float(wxl::game::script::ToNumber(state, 2)) : 0.0f;
+            const bool ok = valid && std::isfinite(x) && std::isfinite(y);
+            if (ok) input->MovePointerNormalized(x, y);
+            wxl::game::script::PushBoolean(state, ok); return 1;
+        }
+        int __cdecl LuaClickPointer(void* state)
+        {
+            const bool valid = input && wxl::game::script::ArgCount(state) >= 1 && wxl::game::script::IsString(state, 1);
+            const char* button = valid ? wxl::game::script::ToString(state, 1) : nullptr;
+            const bool ok = button && (std::strcmp(button, "left") == 0 || std::strcmp(button, "right") == 0);
+            if (ok) input->PointerClick(std::strcmp(button, "right") == 0);
+            wxl::game::script::PushBoolean(state, ok); return 1;
+        }
         void RegisterLua()
         {
             void* const context = wxl::game::script::Context(); if (!context || context == luaContext) return; luaContext = context;
             wxl::game::script::Register("WXLGamepadResetSystemActions", &LuaResetSystemActions);
             wxl::game::script::Register("WXLGamepadSetSystemAction", &LuaSetSystemAction);
             wxl::game::script::Register("WXLGamepadSupportsSystemAction", &LuaSupportsSystemAction);
-            Log(WXL_LOG_INFO, "registered System Action Lua API in a new FrameScript context");
+            wxl::game::script::Register("WXLGamepadSetUINavigationActive", &LuaSetUINavigationActive);
+            wxl::game::script::Register("WXLGamepadMovePointer", &LuaMovePointer);
+            wxl::game::script::Register("WXLGamepadClickPointer", &LuaClickPointer);
+            Log(WXL_LOG_INFO, "registered controller Lua API in a new FrameScript context");
         }
 
         void __cdecl OnUpdate(void*, const void* raw)
@@ -54,6 +81,7 @@ namespace wxl_gamepad
             const auto& update = *static_cast<const wxl::events::UpdateArgs*>(raw);
             RegisterLua();
             if (manager && gameplay) gameplay->Update(manager->Snapshot(), update.dt, update.timeMs);
+            if (input) input->FlushPointerActions();
         }
         void __cdecl OnWorldRenderEnd(void*, const void*)
         {
@@ -79,7 +107,8 @@ namespace wxl_gamepad
 
     bool IsOwnLuaFunction(uintptr_t function)
     {
-        return function == reinterpret_cast<uintptr_t>(&LuaResetSystemActions) || function == reinterpret_cast<uintptr_t>(&LuaSetSystemAction) || function == reinterpret_cast<uintptr_t>(&LuaSupportsSystemAction);
+        return function == reinterpret_cast<uintptr_t>(&LuaResetSystemActions) || function == reinterpret_cast<uintptr_t>(&LuaSetSystemAction) || function == reinterpret_cast<uintptr_t>(&LuaSupportsSystemAction) ||
+            function == reinterpret_cast<uintptr_t>(&LuaSetUINavigationActive) || function == reinterpret_cast<uintptr_t>(&LuaMovePointer) || function == reinterpret_cast<uintptr_t>(&LuaClickPointer);
     }
 
     bool InstallGamepad()
