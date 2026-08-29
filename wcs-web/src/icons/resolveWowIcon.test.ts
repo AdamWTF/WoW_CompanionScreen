@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { resolveWowIcon } from "./resolveWowIcon";
 
 describe("resolveWowIcon", () => {
@@ -9,5 +9,14 @@ describe("resolveWowIcon", () => {
 
   it("uses the fallback for an empty path", () => {
     expect(resolveWowIcon("")).toBe("/icons/action-fallback.svg");
+  });
+
+  it("honours the configured deployment base path", async () => {
+    vi.stubEnv("NEXT_PUBLIC_BASE_PATH", "/WoW_CompanionScreen");
+    vi.resetModules();
+    const { resolveWowIcon: resolveProjectIcon } = await import("./resolveWowIcon");
+    expect(resolveProjectIcon("Interface\\Icons\\Spell_Fire_FlameBolt")).toBe("/WoW_CompanionScreen/assets/wow-icons/spell_fire_flamebolt.webp");
+    vi.unstubAllEnvs();
+    vi.resetModules();
   });
 });

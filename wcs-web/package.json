@@ -1,10 +1,11 @@
 {
   "name": "wcs-web",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "icons:brand": "node scripts/generate-brand-icons.mjs",
     "icons:import": "node scripts/import-wow-icons.mjs",
     "start": "npx serve@latest out",
     "lint": "tsc --noEmit",

@@ -1,0 +1,123 @@
+name: Client CI and Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['client-v*']
+    paths:
+      - '.github/workflows/client.yml'
+      - 'addon/**'
+      - 'deps/**'
+      - 'docs/CLIENT_INSTALL.md'
+      - 'extensions/**'
+      - 'include/**'
+      - 'scripts/package-client-release.ps1'
+      - 'src/**'
+      - 'tests/**'
+      - 'CMakeLists.txt'
+      - 'LICENSE'
+      - 'NOTICE.md'
+      - 'README.md'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/client.yml'
+      - 'addon/**'
+      - 'deps/**'
+      - 'docs/CLIENT_INSTALL.md'
+      - 'extensions/**'
+      - 'include/**'
+      - 'scripts/package-client-release.ps1'
+      - 'src/**'
+      - 'tests/**'
+      - 'CMakeLists.txt'
+      - 'LICENSE'
+      - 'NOTICE.md'
+      - 'README.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  build:
+    name: Build and test Win32 client
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate release tag
+        id: version
+        run: |
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $tagMatch = [regex]::Match($env:GITHUB_REF_NAME, '^client-v(\d+\.\d+\.\d+)$')
+            if (-not $tagMatch.Success) {
+              throw "Client release tags must match client-vX.Y.Z."
+            }
+            $version = $tagMatch.Groups[1].Value
+            git fetch origin main:refs/remotes/origin/main
+            git merge-base --is-ancestor $env:GITHUB_SHA origin/main
+            if ($LASTEXITCODE -ne 0) { throw "Client releases must point to a commit on main." }
+          } else {
+            $version = "dev-$($env:GITHUB_SHA.Substring(0, 7))"
+          }
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Version: $version"
+
+      - name: Configure Win32 build
+        run: cmake -S . -B build -A Win32
+
+      - name: Build native components and tests
+        run: cmake --build build --config Release --target wcs-core wcs-patcher wcs-gamepad wcs-bridge wcs-gamepad-tests wcs-gamepad-smart-interact-tests wcs-bridge-tests wcs-bridge-websocket-tests --parallel
+
+      - name: Run native tests
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Package release
+        if: github.ref_type == 'tag'
+        run: ./scripts/package-client-release.ps1 -Version '${{ steps.version.outputs.version }}'
+
+      - name: Upload release assets
+        if: github.ref_type == 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-release-${{ steps.version.outputs.version }}
+          path: |
+            dist/wow-companion-screen-client-${{ steps.version.outputs.version }}.zip
+            dist/wow-companion-screen-client-${{ steps.version.outputs.version }}.zip.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish client release
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release assets
+        uses: actions/download-artifact@v5
+        with:
+          name: client-release-${{ needs.build.outputs.version }}
+          path: release
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release/* \
+            --verify-tag \
+            --title "WoW Companion Screen Client v${{ needs.build.outputs.version }}" \
+            --generate-notes

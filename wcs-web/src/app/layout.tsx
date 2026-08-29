@@ -1,12 +1,21 @@
 import type { Metadata, Viewport } from "next";
+import { withBasePath } from "@/deployment/basePath";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "WoW Companion Screen",
   description: "Controller-friendly companion screen for World of Warcraft 3.3.5a",
   applicationName: "WoW Companion Screen",
-  manifest: "/manifest.webmanifest",
-  icons: { icon: "/icons/wcs.svg", apple: "/icons/wcs.svg" },
+  manifest: withBasePath("/manifest.webmanifest"),
+  icons: {
+    icon: [
+      { url: withBasePath("/icons/favicon-32.png"), sizes: "32x32", type: "image/png" },
+      { url: withBasePath("/icons/wcs-192.png"), sizes: "192x192", type: "image/png" },
+    ],
+    apple: [
+      { url: withBasePath("/icons/apple-touch-icon-180.png"), sizes: "180x180", type: "image/png" },
+    ],
+  },
 };
 
 export const viewport: Viewport = {

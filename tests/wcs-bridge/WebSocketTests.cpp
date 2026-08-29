@@ -55,7 +55,10 @@ int main()
 {
     using namespace wcs_bridge;
     WSADATA winsock{}; Check(WSAStartup(MAKEWORD(2, 2), &winsock) == 0, "client Winsock startup");
-    const std::string pairingPath = "build\\thor-obj\\pairing-test.dat"; DeleteFileA(pairingPath.c_str());
+    char tempDirectory[MAX_PATH]{};
+    Check(GetTempPathA(MAX_PATH, tempDirectory) > 0, "locate temporary directory");
+    const std::string pairingPath = std::string(tempDirectory) + "wcs-bridge-pairing-test-" + std::to_string(GetCurrentProcessId()) + ".dat";
+    DeleteFileA(pairingPath.c_str());
     PairingManager persistent(pairingPath); Check(persistent.Initialise(true), "pairing manager starts unpaired");
     const std::string code = persistent.PairingCode(); std::string token;
     Check(!code.empty() && persistent.Pair(code, "device-id", "Test device", token), "pairing code exchanges for token");

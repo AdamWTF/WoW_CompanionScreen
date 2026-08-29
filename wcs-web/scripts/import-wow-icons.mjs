@@ -25,7 +25,8 @@ const ICON_SUBDIRECTORIES = [
 ];
 
 export function iconOutputName(sourcePath) {
-  return `${path.basename(sourcePath, path.extname(sourcePath)).toLowerCase()}.webp`;
+  const normalized = sourcePath.replaceAll("\\", "/");
+  return `${path.posix.basename(normalized, path.posix.extname(normalized)).toLowerCase()}.webp`;
 }
 
 export function findIconDirectory(inputPath) {

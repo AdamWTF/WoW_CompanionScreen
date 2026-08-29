@@ -1,3 +1,5 @@
+import { withBasePath } from "@/deployment/basePath";
+
 export function resolveWowIcon(iconPath: string) {
   const filename = iconPath
     .replace(/\\/g, "/")
@@ -6,5 +8,5 @@ export function resolveWowIcon(iconPath: string) {
     .at(-1)
     ?.toLowerCase()
     .replace(/[^a-z0-9_-]/g, "");
-  return filename ? `/assets/wow-icons/${filename}.webp` : "/icons/action-fallback.svg";
+  return filename ? withBasePath(`/assets/wow-icons/${filename}.webp`) : withBasePath("/icons/action-fallback.svg");
 }

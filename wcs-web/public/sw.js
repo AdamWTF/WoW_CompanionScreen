@@ -1,5 +1,16 @@
-const CACHE = "wcs-shell-v2";
-const SHELL = ["/", "/manifest.webmanifest", "/icons/wcs.svg", "/icons/action-fallback.svg"];
+const scope = new URL(self.registration.scope);
+const scoped = (path = "") => new URL(path.replace(/^\/+/, ""), scope).toString();
+const CACHE = `wcs-shell-v4-${scope.pathname}`;
+const SHELL = [
+  "",
+  "manifest.webmanifest",
+  "icons/favicon-32.png",
+  "icons/apple-touch-icon-180.png",
+  "icons/wcs-192.png",
+  "icons/wcs-512.png",
+  "icons/wcs-maskable-512.png",
+  "icons/action-fallback.svg",
+].map(scoped);
 
 self.addEventListener("install", (event) => event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting())));
 self.addEventListener("activate", (event) => event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)))).then(() => self.clients.claim())));
@@ -9,7 +20,7 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(fetch(event.request).then((response) => {
       if (response.ok) caches.open(CACHE).then((cache) => cache.put(event.request, response.clone()));
       return response;
-    }).catch(() => caches.match(event.request).then((cached) => cached || caches.match("/"))));
+    }).catch(() => caches.match(event.request).then((cached) => cached || caches.match(scoped()))));
     return;
   }
   event.respondWith(caches.match(event.request).then((cached) => cached || fetch(event.request).then((response) => {
