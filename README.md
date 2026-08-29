@@ -22,6 +22,11 @@ The native runtime still exposes the inherited `wxl::` namespaces and `WXL_*` ex
 names are retained deliberately so the upstream SDK boundary remains recognizable and stable; they
 are not the product name.
 
+WoW Companion Screen is based on [WarcraftXL 1.1](https://github.com/WarcraftXL/wxl-core/tree/v1.1)
+and intentionally retains that release's extension ABI. Modules built for WarcraftXL 1.1 **SHOULD**
+therefore work with WoW Companion Screen without modification. Compatibility cannot be guaranteed
+for modules that depend on undocumented core internals or target another WarcraftXL release.
+
 ## Build the native components
 
 Requirements:
