@@ -43,6 +43,7 @@ describe("WoW icon importer", () => {
       const localeDirectory = path.join(root, "Data", "enUS");
       const output = path.join(root, "output");
       await mkdir(localeDirectory, { recursive: true });
+      expect(iconOutputName("Interface\\Icons\\Ability_Test_Blue.blp")).toBe("ability_test_blue.webp");
 
       const png = await sharp({
         create: { width: 64, height: 64, channels: 4, background: { r: 20, g: 100, b: 210, alpha: 1 } },
@@ -53,8 +54,8 @@ describe("WoW icon importer", () => {
       archive.free();
 
       const result = await importWowIconsFromMpqs({ wowRoot: root, output });
-      const webp = await readFile(path.join(output, "ability_test_blue.webp"));
       expect(result).toMatchObject({ found: 1, converted: 1, skipped: 0, failed: 0 });
+      const webp = await readFile(path.join(output, "ability_test_blue.webp"));
       expect(await sharp(webp).metadata()).toMatchObject({ format: "webp", width: 64, height: 64 });
     } finally {
       await rm(root, { recursive: true, force: true });
