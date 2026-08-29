@@ -43,7 +43,7 @@ namespace wcs_bridge
 
 const WXL_PluginInfo* __cdecl WXL_Query(void)
 {
-    static const WXL_PluginInfo info = {sizeof(WXL_PluginInfo), WXL_API_VERSION, "wcs-bridge", 0x000100, WXL_CLIENT_BUILD}; return &info;
+    static const WXL_PluginInfo info = {sizeof(WXL_PluginInfo), WXL_API_VERSION, "wcs-bridge", 0x010000, WXL_CLIENT_BUILD}; return &info;
 }
 
 int __cdecl WXL_Load(const WXL_Api* api)
@@ -58,7 +58,7 @@ int __cdecl WXL_Load(const WXL_Api* api)
         if (!api->HookAttachByName("World.LoadingScreenEnable", reinterpret_cast<void*>(&LoadingEnableDetour), &g_loadingEnableOriginal, WXL_HOOK_DEFAULT_PRIORITY)) return 0;
         api->Subscribe(uint32_t(wxl::events::Event::OnUpdate), &Update, nullptr); api->Subscribe(uint32_t(wxl::events::Event::OnWorldEnter), &WorldEnter, nullptr);
         api->Subscribe(uint32_t(wxl::events::Event::OnWorldLeave), &WorldLeave, nullptr); api->UiAddPanel("wcs-bridge", &Panel, nullptr);
-        Log(WXL_LOG_INFO, "initialising WoW Companion Screen bridge 0.1.0 for WoW 3.3.5a build 12340"); return bridge.Initialise() ? 1 : 0;
+        Log(WXL_LOG_INFO, "initialising WoW Companion Screen bridge 1.0.0 for WoW 3.3.5a build 12340"); return bridge.Initialise() ? 1 : 0;
     }
     catch (...) { Log(WXL_LOG_ERROR, "initialisation failed with an internal exception"); return 0; }
 }

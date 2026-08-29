@@ -11,7 +11,7 @@
 namespace wcs_bridge
 {
     inline constexpr int kProtocolVersion = 1;
-    inline constexpr const char* kBridgeVersion = "0.1.0";
+    inline constexpr const char* kBridgeVersion = "1.0.0";
     inline constexpr size_t kMaxMessageBytes = 64 * 1024;
 
     enum class CommandKind

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Action, emptyBridgeState, PopulatedAction } from "@/bridge/protocol";
+import { withBasePath } from "@/deployment/basePath";
 import { resolveWowIcon } from "@/icons/resolveWowIcon";
 import { useCompanionScreen } from "@/state/CompanionScreenContext";
 
@@ -27,7 +28,7 @@ function ActionSlot({ action, enabled }: { action: Action; enabled: boolean }) {
   const classes = ["action-slot", !action.usable && "unusable", action.insufficientResource && "no-resource", action.inRange === false && "out-of-range", action.current && "current", action.equipped && "equipped"].filter(Boolean).join(" ");
   return (
     <button className={classes} disabled={!enabled} onClick={() => { pressAction(action.slot); if (preferences.hapticsEnabled) navigator.vibrate?.(12); }} aria-label={`${action.name}, slot ${action.slot}`}>
-      <img src={fallback ? "/icons/action-fallback.svg" : resolveWowIcon(action.icon)} onError={() => setFallback(true)} alt="" draggable={false} />
+      <img src={fallback ? withBasePath("/icons/action-fallback.svg") : resolveWowIcon(action.icon)} onError={() => setFallback(true)} alt="" draggable={false} />
       <span className="slot-number">{action.slot}</span>
       {action.count > 0 && <b className="count-badge">{action.count}</b>}
       {action.equipped && <span className="equipped-mark">◆</span>}
