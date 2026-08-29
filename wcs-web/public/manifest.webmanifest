@@ -1,0 +1,14 @@
+{
+  "name": "WoW Companion Screen",
+  "short_name": "WCS",
+  "description": "Controller-friendly companion screen for World of Warcraft 3.3.5a",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#100d09",
+  "theme_color": "#100d09",
+  "icons": [
+    { "src": "/icons/wcs.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

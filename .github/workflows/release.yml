@@ -1,11 +1,10 @@
-# Builds WarcraftXL.dll + wxl-patcher.exe and publishes them as a GitHub Release on every push to
+# Builds the native components and companion web app, then publishes one installable bundle on every push to
 # v1.1 (the current SDK line). The job runs the exact same commands a developer runs locally
 # (test-ci-build.ps1 / build.ps1) -- nothing here knows anything the local build recipe does not, so a
 # green run means the documented local build works, not that some parallel CI-only path does.
 #
-# d3d9.dll (the render proxy) is a separate, feature-specific injection mechanism and is not part of
-# this release: the base install is wxl-patcher.exe adding the WarcraftXL.dll import to a user's own
-# client copy. No client binary (Wow.exe, patched or not) is ever built or published here.
+# d3d9.dll remains an optional development injection mechanism and is not part of the bundle: the
+# supported install uses wcs-patcher.exe. No client binary (Wow.exe, patched or not) is published.
 #
 # Versioning is automatic and nothing has to be tagged by hand. SERIES is the only number anyone
 # edits, and only when a release is worth calling a new one; the patch number is the commit count.
@@ -53,24 +52,38 @@ jobs:
       - name: Configure (Win32)
         run: cmake -S . -B build -A Win32
 
-      - name: Build WarcraftXL
-        run: cmake --build build --config Release --target WarcraftXL --parallel
+      - name: Build native components
+        run: cmake --build build --config Release --target wcs-core wcs-patcher wcs-gamepad wcs-bridge wcs-gamepad-tests wcs-gamepad-smart-interact-tests wcs-bridge-tests wcs-bridge-websocket-tests --parallel
 
-      - name: Build wxl-patcher
-        run: cmake --build build --config Release --target wxl-patcher --parallel
+      - name: Test native components
+        run: ctest --test-dir build -C Release --output-on-failure
 
-      - name: Stage dist/
+      - name: Install web dependencies
+        working-directory: wcs-web
+        run: npm ci
+
+      - name: Test and build web app
+        working-directory: wcs-web
         run: |
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item "build\Release\WarcraftXL.dll" -Destination "dist\WarcraftXL.dll"
-          Copy-Item "build\Release\wxl-patcher.exe" -Destination "dist\wxl-patcher.exe"
+          npm test
+          npm run build
+
+      - name: Stage release bundle
+        run: |
+          $bundle = "dist\wow-companion-screen-${{ steps.v.outputs.version }}"
+          New-Item -ItemType Directory -Force -Path "$bundle\Extensions\wcs-gamepad", "$bundle\Extensions\wcs-bridge", "$bundle\Interface\AddOns", "$bundle\web" | Out-Null
+          Copy-Item "build\Release\wcs-core.dll", "build\Release\wcs-patcher.exe" -Destination $bundle
+          Copy-Item "build\Release\wcs-gamepad.dll", "extensions\wcs-gamepad\wcs-gamepad.cfg.example", "extensions\wcs-gamepad\gamecontrollerdb.txt", "extensions\wcs-gamepad\gamecontrollerdb.LICENSE.txt" -Destination "$bundle\Extensions\wcs-gamepad"
+          Copy-Item "build\Release\wcs-bridge.dll", "extensions\wcs-bridge\wcs-bridge.cfg.example" -Destination "$bundle\Extensions\wcs-bridge"
+          Copy-Item "addon\WoWCompanionScreen" -Destination "$bundle\Interface\AddOns" -Recurse
+          Copy-Item "wcs-web\out\*" -Destination "$bundle\web" -Recurse
+          Copy-Item "README.md", "NOTICE.md", "LICENSE" -Destination $bundle
+          Compress-Archive -Path "$bundle\*" -DestinationPath "$bundle.zip"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: wxl-core-${{ steps.v.outputs.version }}
-          path: |
-            dist/WarcraftXL.dll
-            dist/wxl-patcher.exe
+          name: wow-companion-screen-${{ steps.v.outputs.version }}
+          path: dist/wow-companion-screen-${{ steps.v.outputs.version }}.zip
           if-no-files-found: error
 
   # Every push to v1.1 becomes a release, tag included. The tag is created by this job from the
@@ -87,17 +100,15 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: wxl-core-*
+          pattern: wow-companion-screen-*
           merge-multiple: true
 
       - name: Publish
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ needs.build.outputs.version }}
-          name: WarcraftXL v${{ needs.build.outputs.version }}
+          name: WoW Companion Screen v${{ needs.build.outputs.version }}
           body: Built from ${{ github.sha }}
-          files: |
-            WarcraftXL.dll
-            wxl-patcher.exe
+          files: wow-companion-screen-${{ needs.build.outputs.version }}.zip
           generate_release_notes: true
           prerelease: false

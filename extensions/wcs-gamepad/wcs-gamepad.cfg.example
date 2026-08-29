@@ -1,0 +1,29 @@
+# Copy to wcs-gamepad.cfg beside wcs-gamepad.dll.
+# WCS_GAMEPAD_* environment variables override matching values.
+[Controller]
+Enabled=1
+Backend=Auto
+GlyphStyle=Auto
+LeftStickDeadzone=0.20
+RightStickDeadzone=0.15
+TriggerPressThreshold=0.55
+TriggerReleaseThreshold=0.45
+CameraSensitivityX=1.0
+CameraSensitivityY=1.0
+CameraResponseCurve=1.5
+InvertCameraY=0
+ControllerDebug=0
+SmartInteractDebug=0
+
+# Advanced defaults
+MovementPressThreshold=0.35
+MovementReleaseThreshold=0.25
+CameraMaxPixelsPerSecond=900
+PollingRateHz=125
+PreviousHostileChord=SHIFT+TAB
+NextHostileChord=TAB
+NextFriendlyChord=CTRL+TAB
+
+# Equivalent flat aliases are also accepted, for example:
+# WCS_GAMEPAD_BACKEND=XInput
+# WCS_GAMEPAD_CONTROLLER_DEBUG=1

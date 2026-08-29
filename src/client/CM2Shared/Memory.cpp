@@ -112,7 +112,7 @@ namespace
 
     bool M2ArenaEnabled()
     {
-        static const bool enabled = wxl::config::Flag("WXL_M2_ARENA", "WarcraftXL_m2_arena.disable");
+        static const bool enabled = wxl::config::Flag("WXL_M2_ARENA", "wcs_m2_arena.disable");
         return enabled;
     }
 

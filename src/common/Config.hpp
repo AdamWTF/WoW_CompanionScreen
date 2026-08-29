@@ -1,4 +1,4 @@
-// Environment/flag-file configuration helpers shared by every WarcraftXL binary.
+// Environment/flag-file configuration helpers shared by every WoW Companion Screen binary.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -35,7 +35,7 @@ namespace wxl::config
     bool Truthy(const char* raw, bool fallback);
 
     /**
-     * @brief Copies a knob's raw string value into buf: environment first, then WarcraftXL.cfg.
+     * @brief Copies a knob's raw string value into buf: environment first, then wcs-core.cfg.
      * @param name  knob name (the WXL_* key).
      * @param buf   receives the NUL-terminated value.
      * @param cap   buffer capacity.
@@ -53,7 +53,7 @@ namespace wxl::config
     /**
      * @brief Feature toggle: an env var and a .disable sentinel file, defaulting to ON.
      *
-     * Matches the historical semantics of every WarcraftXL_*.disable pair: an explicitly falsy
+     * Matches the historical semantics of every wcs_*.disable pair: an explicitly falsy
      * env value disables; otherwise the presence of the sentinel file disables; otherwise on.
      * @param envName      environment variable name (falsy value disables).
      * @param disableFile  sentinel file name whose presence disables, may be null.

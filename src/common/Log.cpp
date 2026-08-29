@@ -1,4 +1,4 @@
-// Leveled logging engine shared by every WarcraftXL binary.
+// Leveled logging engine shared by every WoW Companion Screen binary.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify

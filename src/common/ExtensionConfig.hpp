@@ -1,6 +1,6 @@
 // Env-var + per-extension .cfg-file config reader. Header-only: extensions have no object file to
 // link core's own common/Config.cpp against, so each extension DLL that includes this compiles its
-// own copy instead. Same "KEY=value", '#'/';' comment, trimmed format as the core's WarcraftXL.cfg;
+// own copy instead. Same "KEY=value", '#'/';' comment, trimmed format as the core's wcs-core.cfg;
 // env var always wins, matching the core's own precedence.
 // Copyright (C) 2026 WarcraftXL
 //

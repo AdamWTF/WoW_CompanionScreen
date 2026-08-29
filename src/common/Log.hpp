@@ -1,4 +1,4 @@
-// Leveled logging engine shared by every WarcraftXL binary (DLL, proxy, patcher).
+// Leveled logging engine shared by every WoW Companion Screen binary (DLL, proxy, patcher).
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -51,7 +51,7 @@ namespace wxl::log
 
     /**
      * @brief Enables the console sink (for CLI tools): Warn+ to stderr, below to stdout.
-     * @param prefix  optional tag prepended to every console line (e.g. "[WarcraftXL] "), may be null.
+     * @param prefix  optional tag prepended to every console line (e.g. "[WCS] "), may be null.
      */
     void EnableConsole(const char* prefix);
 

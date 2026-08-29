@@ -1,6 +1,0 @@
-# wxl-thor-bridge.cfg - copy to wxl-thor-bridge.cfg beside wxl-thor-bridge.dll.
-# Environment variables with the same names override this file.
-WXL_THOR_ENABLED=1
-WXL_THOR_BIND_ADDRESS=0.0.0.0
-WXL_THOR_PORT=18423
-WXL_THOR_REQUIRE_PAIRING=1

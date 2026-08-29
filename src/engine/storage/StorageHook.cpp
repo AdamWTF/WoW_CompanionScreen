@@ -168,8 +168,8 @@ namespace
     }
 
     // Deliberately not assets::common::env::VerboseAssetLogs(): that helper is getenv-only so
-    // extensions (no WarcraftXL.cfg reader linked) can share it, while this core-only file wants the
-    // same WXL_VERBOSE_ASSET_LOGS/WXL_ASSET_LOGS keys to also fall back through WarcraftXL.cfg, plus
+    // extensions (no wcs-core.cfg reader linked) can share it, while this core-only file wants the
+    // same WXL_VERBOSE_ASSET_LOGS/WXL_ASSET_LOGS keys to also fall back through wcs-core.cfg, plus
     // its own WXL_CLIENT_STORAGE_LOGS. Each wxl::config::Env only falls through when its own variable
     // is unset, so an explicit falsy value on an earlier key short-circuits the rest.
     bool VerboseStorageLogs()

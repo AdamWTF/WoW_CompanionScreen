@@ -1,4 +1,4 @@
-// Environment/flag-file configuration helpers shared by every WarcraftXL binary.
+// Environment/flag-file configuration helpers shared by every WoW Companion Screen binary.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -39,8 +39,8 @@ namespace
         static const std::unordered_map<std::string, std::string> entries = [] {
             std::unordered_map<std::string, std::string> map;
             FILE* f = nullptr;
-            if (fopen_s(&f, "WarcraftXL.cfg", "rb") != 0 || !f)
-                if (fopen_s(&f, "..\\WarcraftXL.cfg", "rb") != 0 || !f)
+            if (fopen_s(&f, "wcs-core.cfg", "rb") != 0 || !f)
+                if (fopen_s(&f, "..\\wcs-core.cfg", "rb") != 0 || !f)
                     return map;
             char line[512];
             while (fgets(line, sizeof line, f))
@@ -67,7 +67,7 @@ namespace
     }
 
     /**
-     * @brief Resolves a knob's raw value: environment first, then the WarcraftXL.cfg file.
+     * @brief Resolves a knob's raw value: environment first, then the wcs-core.cfg file.
      * @return true when a non-empty value was found and copied into buf.
      */
     bool ReadEnv(const char* name, char* buf, DWORD cap)

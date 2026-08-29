@@ -1,4 +1,4 @@
-// wxl-patcher: add the WarcraftXL import to the client PE and run every registered PatchScript.
+// wcs-patcher: add the WoW Companion Screen core import to the client PE and run every registered PatchScript.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -28,9 +28,9 @@
 
 namespace
 {
-    constexpr char kDllName[]  = "WarcraftXL.dll";
-    constexpr char kFuncName[] = "WarcraftXL";
-    constexpr char kTagSection[] = ".wxl";
+    constexpr char kDllName[]  = "wcs-core.dll";
+    constexpr char kFuncName[] = "WCSCore";
+    constexpr char kTagSection[] = ".wcs";
 
     /**
      * @brief Reads an entire file into a byte buffer.
@@ -61,7 +61,7 @@ namespace
      */
     bool WriteAll(const char* path, const std::vector<uint8_t>& data)
     {
-        const std::string tmp = std::string(path) + ".wxltmp";
+        const std::string tmp = std::string(path) + ".wcstmp";
         FILE* f = nullptr;
         if (fopen_s(&f, tmp.c_str(), "wb") != 0 || !f) return false;
         const bool written = fwrite(data.data(), 1, data.size(), f) == data.size()
@@ -77,7 +77,7 @@ namespace
 
 /**
  * @brief Patches the target PE: sets large-address-aware, runs every registered PatchScript, and adds the
- *        WarcraftXL import, writing a backup of the original.
+ *        WoW Companion Screen core import, writing a backup of the original.
  * @param argc  argument count.
  * @param argv  argument values; argv[1] is the target path, defaulting to "Wow.exe".
  * @return 0 on success, 1 on failure.
@@ -85,7 +85,7 @@ namespace
 int main(int argc, char** argv)
 {
     setvbuf(stdout, nullptr, _IONBF, 0);
-    wxl::log::EnableConsole("[WarcraftXL] "); // progress to stdout, failures to stderr
+    wxl::log::EnableConsole("[WCS] "); // progress to stdout, failures to stderr
     const char* target = argc > 1 ? argv[1] : "Wow.exe";
     WLOG_INFO("patcher start, target='%s'", target);
 
@@ -95,7 +95,7 @@ int main(int argc, char** argv)
     wxl::patcher::PeImage pe(file);
     if (!pe.valid()) { WLOG_ERROR("'%s' is not a 32-bit PE", target); return 1; }
 
-    // Always ensure 4 GB address space, even when an older patcher already injected the .wxl section.
+    // Always ensure 4 GB address space, even when an older patcher already injected the .wcs section.
     pe.SetLargeAddressAware();
     if (pe.HasSection(kTagSection))
     {

@@ -26,7 +26,7 @@
 /**
  * @brief IAT anchor; the patcher imports this symbol so the loader maps the DLL.
  */
-extern "C" __declspec(dllexport) void WarcraftXL() {}
+extern "C" __declspec(dllexport) void WCSCore() {}
 
 namespace
 {
@@ -54,7 +54,7 @@ namespace
         wxl::hook::EnableAll();
         wxl::hook::InstallRegisteredFeatures(wxl::hook::Phase::PostEnable);
 
-        WLOG_INFO("wxl-core ready");
+        WLOG_INFO("wcs-core ready");
         return 0;
     }
 }
@@ -72,8 +72,8 @@ BOOL WINAPI DllMain(HINSTANCE module, DWORD reason, LPVOID)
         DisableThreadLibraryCalls(module);
 
         CreateDirectoryA("Logs", nullptr);
-        wxl::log::Open("Logs\\wxl-core.log");
-        WLOG_INFO("wxl-core starting (build %s %s)", __DATE__, __TIME__);
+        wxl::log::Open("Logs\\wcs-core.log");
+        WLOG_INFO("wcs-core starting (build %s %s)", __DATE__, __TIME__);
 
         wxl::hook::Init();
 

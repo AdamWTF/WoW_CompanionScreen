@@ -1,0 +1,21 @@
+// wcs-gamepad: SDL3 controller input for WoW Companion Screen.
+// Copyright (C) 2026 WarcraftXL contributors. GPL-3.0-or-later.
+#pragma once
+
+#include "wxl/PluginApi.h"
+
+#include <cstdint>
+
+namespace wcs_gamepad
+{
+    inline constexpr const char* kTag = "wcs-gamepad";
+    extern const WXL_Api* g_api;
+
+    inline void Log(int level, const char* message)
+    {
+        if (g_api && g_api->Log) g_api->Log(level, kTag, "%s", message);
+    }
+
+    bool InstallGamepad();
+    bool IsOwnLuaFunction(uintptr_t function);
+}

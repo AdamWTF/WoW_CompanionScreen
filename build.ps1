@@ -1,7 +1,7 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-    Build + deploy WarcraftXL: WarcraftXL.dll (injected), d3d9.dll (proxy) and wxl-patcher.exe (32-bit).
+    Build + deploy WoW Companion Screen: wcs-core.dll (injected), d3d9.dll (proxy) and wcs-patcher.exe (32-bit).
 
 .PARAMETER Config
     Build configuration. Default: Release.
@@ -13,7 +13,7 @@
     Delete the build directory before configuring (forces a from-scratch build).
 
 .PARAMETER AutoPatch
-    After the build, run wxl-patcher on the client's Wow.exe. The patcher is idempotent
+    After the build, run wcs-patcher on the client's Wow.exe. The patcher is idempotent
     (it skips an already-patched exe and backs the original up to Wow.exe.orig on first run).
 
 .EXAMPLE
@@ -72,7 +72,7 @@ function Invoke-Native([string]$exe, [string[]]$cmdArgs) {
 }
 
 function Build-Dll {
-    Write-Host "=== WarcraftXL.dll (32-bit) ===" -ForegroundColor Green
+    Write-Host "=== wcs-core.dll (32-bit) ===" -ForegroundColor Green
 
     if ($Clean -and (Test-Path $buildDir)) {
         Write-Host "Clean $buildDir" -ForegroundColor Yellow
@@ -91,10 +91,10 @@ function Build-Dll {
 }
 
 function Invoke-AutoPatch {
-    $patcher = Join-Path $buildDir "$Config\wxl-patcher.exe"
-    if (-not (Test-Path $patcher)) { $patcher = Join-Path $ClientPath "wxl-patcher.exe" }
+    $patcher = Join-Path $buildDir "$Config\wcs-patcher.exe"
+    if (-not (Test-Path $patcher)) { $patcher = Join-Path $ClientPath "wcs-patcher.exe" }
     if (-not (Test-Path $patcher)) {
-        throw "wxl-patcher.exe not found. Build first (.\build.ps1)."
+        throw "wcs-patcher.exe not found. Build first (.\build.ps1)."
     }
     $wow = Join-Path $ClientPath "Wow.exe"
     if (-not (Test-Path $wow)) { throw "Wow.exe not found: $wow" }

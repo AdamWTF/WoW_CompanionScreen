@@ -135,7 +135,7 @@ namespace wxl::game::script
     { Native<off::FrameScriptRegisterFunctionFn>(off::kFrameScriptRegisterFunction)(name, function); }
 
     /// Executes a non-protected FrameScript statement in the active context. Callers must never use
-    /// this to invoke protected gameplay actions; wxl-gamepad uses it for diagnostic state and
+    /// this to invoke protected gameplay actions; wcs-gamepad uses it for diagnostic state and
     /// unprotected controller UI/camera commands.
     inline void Execute(const char* source)
     {

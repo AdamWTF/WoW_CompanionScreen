@@ -1,11 +1,11 @@
-# WarcraftXL. Everything builds Win32: the target client is a 32-bit process, and every archive an
+# WoW Companion Screen. Everything builds Win32: the target client is a 32-bit process, and every archive an
 # extension needs -- named, loose-directory, or a Patch-* the client's own patch-name scan finds --
 # now mounts and reads natively (see docs/host-retirement-m3.md; there is no 64-bit asset host anymore).
-# Copyright (C) 2026 WarcraftXL. GPLv3 (see source headers).
+# Built with gratitude on WarcraftXL. GPLv3 (see source headers and NOTICE.md).
 
 cmake_minimum_required(VERSION 3.20)
 # C is enabled for the vendored C libraries pulled in via add_subdirectory (MinHook).
-project(WarcraftXL LANGUAGES CXX C)
+project(WoWCompanionScreen LANGUAGES CXX C)
 include(CTest)
 
 # Static CRT: the DLLs load inside the player's Wow.exe, which has no reason to carry the toolset's
@@ -53,7 +53,7 @@ if(WXL_BOUNDARY_COUNT GREATER 0)
 endif()
 
 # =============================================================================
-# 32-bit family (injected into the client): WarcraftXL.dll + wxl-patcher.exe + d3d9.dll
+# 32-bit family (injected into the client): wcs-core.dll + wcs-patcher.exe + d3d9.dll
 # =============================================================================
 if(CMAKE_SIZEOF_VOID_P EQUAL 4)
     # --- Automatic, recursive source discovery (no hand-written paths) -----------------------------
@@ -64,12 +64,12 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
     # models/m2, models/m3, textures/blp and textures/dds are each owned by exactly one extension target
     # (wxl-m2, wxl-modern-m3, wxl-modern-blp -- added to their own target below); none of them has a
     # consumer in the plain DLL, so excluding them here is what keeps that true instead of shipping
-    # four unused cross-target .cpp files inside WarcraftXL.dll by glob accident.
+    # four unused cross-target .cpp files inside wcs-core.dll by glob accident.
     list(FILTER WXL_CORE_SRC EXCLUDE REGEX
          "/src/patcher/|/src/engine/gpu/|/src/engine/assets/shared/(models/m2|models/m3|textures/blp|textures/dds)/")
 
     # =========================================================================
-    # Target 1: WarcraftXL.dll  (32-bit, injected) = engine + features + assets pipelines
+    # Target 1: wcs-core.dll  (32-bit, injected) = engine + features + assets pipelines
     #   The modern-assets DLL + cross-target-shared halves now live in src/engine/assets/ and are caught
     #   by the src/*.cpp glob above.
     # =========================================================================
@@ -83,9 +83,9 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
         "${CMAKE_CURRENT_SOURCE_DIR}/deps/imgui/backends/imgui_impl_dx9.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/deps/imgui/backends/imgui_impl_win32.cpp")
 
-    add_library(WarcraftXL SHARED ${WXL_CORE_SRC} ${WXL_IMGUI})
-    set_target_properties(WarcraftXL PROPERTIES OUTPUT_NAME "WarcraftXL" PREFIX "")
-    target_include_directories(WarcraftXL PRIVATE
+    add_library(wcs-core SHARED ${WXL_CORE_SRC} ${WXL_IMGUI})
+    set_target_properties(wcs-core PROPERTIES OUTPUT_NAME "wcs-core" PREFIX "")
+    target_include_directories(wcs-core PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/src"
         "${CMAKE_CURRENT_SOURCE_DIR}/include"   # the extension ABI, shared verbatim with extensions
         "${CMAKE_CURRENT_SOURCE_DIR}/deps/minhook/include"
@@ -93,20 +93,20 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
         "${CMAKE_CURRENT_SOURCE_DIR}/deps/imgui/backends")
 
     add_subdirectory(deps/minhook)
-    target_link_libraries(WarcraftXL PRIVATE minhook d3d9 shell32)
-    target_compile_definitions(WarcraftXL PRIVATE ${WXL_DEFS})
+    target_link_libraries(wcs-core PRIVATE minhook d3d9 shell32)
+    target_compile_definitions(wcs-core PRIVATE ${WXL_DEFS})
 
     source_group(TREE "${CMAKE_CURRENT_SOURCE_DIR}" FILES ${WXL_CORE_SRC})
 
     # Deploy: copy the freshly linked DLL into the client folder.
     if(CLIENT_PATH)
-        add_custom_command(TARGET WarcraftXL POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:WarcraftXL>" "${CLIENT_PATH}/WarcraftXL.dll"
-            COMMENT "Deploy WarcraftXL.dll -> ${CLIENT_PATH}")
+        add_custom_command(TARGET wcs-core POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:wcs-core>" "${CLIENT_PATH}/wcs-core.dll"
+            COMMENT "Deploy wcs-core.dll -> ${CLIENT_PATH}")
     endif()
 
     # =========================================================================
-    # Target 2: wxl-patcher.exe  = the offline PE patcher (incl. the ex-wxl-no-gluexml example under
+    # Target 2: wcs-patcher.exe  = the offline PE patcher (incl. the ex-wxl-no-gluexml example under
     #   src/patcher/, now caught by the src/patcher glob below).
     # =========================================================================
     file(GLOB_RECURSE WXL_PATCHER_CORE CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/patcher/*.cpp")
@@ -115,10 +115,10 @@ if(CMAKE_SIZEOF_VOID_P EQUAL 4)
     # proxy do not link the engine, so the shared infrastructure is object-level, not a link dependency.
     file(GLOB WXL_COMMON_SRC CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/common/*.cpp")
 
-    add_executable(wxl-patcher ${WXL_PATCHER_CORE} ${WXL_COMMON_SRC})
-    set_target_properties(wxl-patcher PROPERTIES OUTPUT_NAME "wxl-patcher")
-    target_include_directories(wxl-patcher PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
-    target_compile_definitions(wxl-patcher PRIVATE ${WXL_DEFS})
+    add_executable(wcs-patcher ${WXL_PATCHER_CORE} ${WXL_COMMON_SRC})
+    set_target_properties(wcs-patcher PROPERTIES OUTPUT_NAME "wcs-patcher")
+    target_include_directories(wcs-patcher PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_compile_definitions(wcs-patcher PRIVATE ${WXL_DEFS})
 
     # =========================================================================
     # Target 3: d3d9.dll  = the native proxy (system-d3d9 passthrough + runtime loader)

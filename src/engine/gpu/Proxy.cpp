@@ -1,4 +1,4 @@
-// The d3d9.dll proxy: pass Direct3DCreate9(Ex) through to the system d3d9 and load WarcraftXL.dll.
+// The d3d9.dll proxy: pass Direct3DCreate9(Ex) through to the system d3d9 and load wcs-core.dll.
 // Copyright (C) 2026 WarcraftXL
 //
 // This program is free software: you can redistribute it and/or modify
@@ -16,7 +16,7 @@
 
 // The client LoadLibrary's "d3d9.dll" from its own folder first, so this proxy loads ahead of the system
 // one. It does exactly two things: forward the factory-create exports to the real system d3d9, and load
-// WarcraftXL.dll into the process. All rendering runs on the client's native D3D9 device.
+// wcs-core.dll into the process. All rendering runs on the client's native D3D9 device.
 
 #include <windows.h>
 #include <d3d9.h>
@@ -35,7 +35,7 @@ namespace
     /**
      * @brief Writes one Info line to the proxy's own log sink, opening it on first use.
      *
-     * The proxy is a distinct module from WarcraftXL.dll and owns a separate log instance. Lines are
+     * The proxy is a distinct module from wcs-core.dll and owns a separate log instance. Lines are
      * sparse boot/crash diagnostics and are flushed immediately -- the DLL has no orderly close on exit.
      * @param fmt  printf-style format string followed by its arguments.
      */
@@ -81,10 +81,10 @@ namespace
     }
 
     /**
-     * @brief Loads WarcraftXL.dll once, from the first Direct3DCreate9* call.
+     * @brief Loads wcs-core.dll once, from the first Direct3DCreate9* call.
      *
      * Deliberately NOT done in DllMain: calling LoadLibrary under the loader lock can deadlock against
-     * WarcraftXL.dll's own attach work. The engine creates its factory long before the runtime is needed,
+     * wcs-core.dll's own attach work. The engine creates its factory long before the runtime is needed,
      * so first-create is early enough and runs outside the loader lock.
      */
     void EnsureRuntimeLoaded()
@@ -92,8 +92,8 @@ namespace
         static bool attempted = false;
         if (attempted) return;
         attempted = true;
-        if (!LoadLibraryA("WarcraftXL.dll"))
-            Log("d3d9proxy: WarcraftXL.dll not loaded (win32=%lu)", GetLastError());
+        if (!LoadLibraryA("wcs-core.dll"))
+            Log("d3d9proxy: wcs-core.dll not loaded (win32=%lu)", GetLastError());
     }
 }
 
@@ -127,7 +127,7 @@ extern "C" HRESULT WINAPI Direct3DCreate9Ex(UINT sdkVersion, IDirect3D9Ex** out)
 /**
  * @brief Process-attach entry point. Intentionally does no work.
  *
- * Loading the real d3d9 and WarcraftXL.dll happens lazily in Direct3DCreate9(Ex): a LoadLibrary issued
+ * Loading the real d3d9 and wcs-core.dll happens lazily in Direct3DCreate9(Ex): a LoadLibrary issued
  * here would run under the loader lock and can deadlock against the loaded DLL's attach.
  * @param reason  DLL notification reason.
  * @return TRUE.
