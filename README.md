@@ -1,11 +1,33 @@
 # WoW Companion Screen
 
-**Controller-first play and a local companion display for World of Warcraft 3.3.5a (build 12340).**
+**Controller-first play and a second-screen companion display for World of Warcraft 3.3.5a (build 12340).**
 
 WoW Companion Screen combines native controller support, an in-game configuration add-on, and a
-touch-friendly web display. The web app connects directly to the game over the local network, showing
+touch-friendly web display. The web app connects directly to the game on the same device or over the local network, showing
 live character and action state while providing action buttons, shortcuts, a touchpad, and keyboard
 input. No cloud service or desktop middleware is required.
+
+## Install and set up
+
+WoW Companion Screen supports the 32-bit World of Warcraft 3.3.5a client, build 12340. Use a client installation you are permitted to modify, and keep an untouched backup.
+
+1. Download the latest `wow-companion-screen-client-X.Y.Z.zip` from [GitHub Releases](https://github.com/AdamWTF/WoW_CompanionScreen/releases).
+2. Close World of Warcraft and extract the contents of the ZIP directly into the client folder, alongside `Wow.exe`. This installs `wcs-core.dll`, the gamepad and bridge extensions, and `Interface\AddOns\WoWCompanionScreen` in one step.
+3. Open PowerShell in the client folder and run:
+
+   ```powershell
+   .\wcs-patcher.exe .\Wow.exe
+   ```
+
+   The patcher creates `Wow.exe.orig` before changing the client and safely skips a client that is already patched.
+4. Start WoW normally, enter the world, and open the mod from its minimap button or by typing `/wcs`.
+5. Open **Display & Connection** and confirm that the bridge is listening. **Enable Controller Support** and **Enable Second Screen** are on by default and can be changed here.
+6. On the AYN Thor, open [the hosted companion app](https://adamwtf.github.io/WoW_CompanionScreen/) on the second screen. Use the browser menu to choose **Install app** or **Add to Home screen**, then open the installed app.
+7. In the companion app, set **WoW PC IPv4 address** to `127.0.0.1` and select **Save & Connect**. Enter the pairing code shown on WoW's **Display & Connection** page (or the F9 diagnostics panel).
+
+The hosted app works live on an AYN Thor because WoW and the second-screen PWA run on the same Windows device: the PWA assets come from GitHub Pages, while its bridge connection goes straight back to the local WoW process through `ws://127.0.0.1:18423/wcs`. It does not send game state or controls through GitHub.
+
+For a phone, tablet, or other separate companion device, see [Other companion devices](#other-companion-devices). For configuration, troubleshooting, manual installation, and updates, see the [complete client installation guide](docs/CLIENT_INSTALL.md).
 
 ## Components
 
@@ -18,13 +40,14 @@ input. No cloud service or desktop middleware is required.
 | `addon/WoWCompanionScreen` | In-game settings, mappings, action overlay, and bridge state. |
 | `wcs-web` | Installable static companion web app. |
 
-## Downloads and hosted demo
+## Downloads and hosted app
 
 - Download versioned client and PWA archives from [GitHub Releases](https://github.com/AdamWTF/WoW_CompanionScreen/releases).
-- Try the [public PWA demo](https://adamwtf.github.io/WoW_CompanionScreen/?demo). The Pages site is an HTTPS demo/install preview and cannot connect to the current plaintext LAN bridge because browsers block mixed `ws://` content.
-- For a live LAN connection, run the PWA container or serve the static PWA release over HTTP on the trusted network.
+- Open or install the [public PWA](https://adamwtf.github.io/WoW_CompanionScreen/) for live use on the same device as WoW. Set its WoW PC address to `127.0.0.1`.
+- Try the [public PWA demo](https://adamwtf.github.io/WoW_CompanionScreen/?demo) without installing the mod or running WoW.
+- For live use from a separate device, run the PWA container or serve the static PWA release over HTTP on the trusted local network.
 
-WoW Companion Screen's current product version is **1.0.0**, independently of the inherited WarcraftXL ABI version. Client and PWA releases can be shipped independently: `client-v1.0.0` publishes the first Windows client bundle, while `pwa-v1.0.0` publishes the first static PWA ZIP and matching container image. Later releases follow the same `client-vX.Y.Z` and `pwa-vX.Y.Z` conventions. Every successful `main` PWA build updates the Pages demo and the `edge` container image; stable PWA tags also update `latest`.
+WoW Companion Screen's current product version is **1.0.0**, independently of the inherited WarcraftXL ABI version. Client and PWA releases can be shipped independently: `client-v1.0.0` publishes the first Windows client bundle, while `pwa-v1.0.0` publishes the first static PWA ZIP and matching container image. Later releases follow the same `client-vX.Y.Z` and `pwa-vX.Y.Z` conventions. Every successful `main` PWA build updates the hosted Pages app and the `edge` container image; stable PWA tags also update `latest`.
 
 The native runtime still exposes the inherited `wxl::` namespaces and `WXL_*` extension ABI. Those
 names are retained deliberately so the upstream SDK boundary remains recognizable and stable; they
@@ -81,7 +104,21 @@ examples are provided in `docs/wcs-core.cfg.example` and beside each extension.
 
 For a packaged release, extract the ZIP directly into the client directory and follow [the client installation guide](docs/CLIENT_INSTALL.md). Releases do not include `Wow.exe`, a patched client executable, or the optional `d3d9.dll` development proxy.
 
-## Run the companion web app
+## Other companion devices
+
+An HTTPS-hosted page generally cannot open the bridge's plaintext `ws://` connection to another device on the LAN. If the companion display is a phone, tablet, or separate computer, host the PWA over HTTP on the trusted LAN and connect it to the WoW PC's local IPv4 address.
+
+After the GitHub Container Registry package has been made public, the ready-made container can run on the WoW PC or another machine:
+
+```powershell
+docker run --rm -p 8080:80 ghcr.io/adamwtf/wow-companion-screen-pwa:latest
+```
+
+Open `http://<PWA-host-IP>:8080` from the companion device, then set **WoW PC IPv4 address** to the WoW PC's address, for example `192.168.1.50`. Keep TCP port 18423 on a trusted LAN and never expose it to the public Internet; pairing authenticates a device, but the transport is plaintext.
+
+HTTP LAN hosting supports live bridge control. Installable/offline PWA features normally require HTTPS or localhost, so they may not be available to a separate device in this mode.
+
+## Develop the companion web app
 
 ```powershell
 cd wcs-web
@@ -92,16 +129,7 @@ npm run dev
 Open `http://localhost:3000/?demo` to use representative data without a running game client. A
 production static export is generated in `wcs-web/out` by `npm run build`.
 
-The browser connects to `ws://<WoW-PC-IP>:18423/wcs`. Keep port 18423 on a trusted LAN and never
-expose it to the public Internet; pairing authenticates a device but the transport is plaintext.
-
-For a ready-made LAN server, after the GitHub Container Registry package has been made public:
-
-```powershell
-docker run --rm -p 8080:80 ghcr.io/adamwtf/wow-companion-screen-pwa:latest
-```
-
-Open `http://<WoW-PC-IP>:8080` from the companion device. Live bridge control works in this HTTP/LAN mode, but browsers require HTTPS or localhost for service-worker installation and offline support.
+The browser connects to `ws://<WoW-PC-IP>:18423/wcs`; use `127.0.0.1` when the PWA and WoW run on the same device.
 
 ## Release automation setup
 

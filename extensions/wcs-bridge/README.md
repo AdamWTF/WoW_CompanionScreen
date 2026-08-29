@@ -4,11 +4,13 @@ WoW Companion Screen bridge is an in-process WoW Companion Screen extension for 
 It exposes a single paired companion device at `ws://<computer>:18423/wcs`; no helper executable,
 service, HTTP asset server, or middleware process is used.
 
+For same-device use, including the AYN Thor's second screen, install the GitHub Pages PWA and configure `127.0.0.1`; the hosted app then connects directly to the local bridge. A separate LAN device must use the WoW PC's local IPv4 address and a PWA served over HTTP on that trusted network. See [the complete installation guide](../../docs/CLIENT_INSTALL.md).
+
 ## Install
 
 Build the Win32 `wcs-bridge` target and deploy it through the normal `CLIENT_PATH` workflow, or
 copy the DLL to `Extensions\wcs-bridge\wcs-bridge.dll`. Copy `addon\WoWCompanionScreen` into the
-client's `Interface\AddOns` directory. The WoW Companion Screen F9 panel and WoW Companion Screen's Bridge tab display the
+client's `Interface\AddOns` directory. The F9 diagnostics panel and WoW Companion Screen's **Display & Connection** page show the
 endpoint, pairing code, connection state, paired device, and forget control.
 
 Configuration is read from `Extensions\wcs-bridge\wcs-bridge.cfg`, with environment
@@ -38,6 +40,4 @@ Required input commands are `key.press`, `key.down`, `key.up`, `text.insert`, `p
 1-24 map directly to native WoW action slots 25-48. Keyboard/text messages target WoW's window even
 in the background; pointer input is rejected unless WoW is foreground.
 
-The endpoint is plaintext LAN WebSocket transport. Pairing prevents casual unauthorized control but
-does not protect traffic from an attacker able to observe the local network; do not expose the port
-to the public Internet.
+The endpoint is plaintext WebSocket transport. A `127.0.0.1` connection remains on the local device. For a LAN connection, pairing prevents casual unauthorized control but does not protect traffic from an attacker able to observe the network; do not expose the port to the public Internet.

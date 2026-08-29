@@ -42,10 +42,11 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
           <div className="settings-scroll">
             <SettingsSection title="Connection">
               <form className="connection-form" onSubmit={saveHost}>
-                <label>WoW PC IPv4 address<input value={host} onChange={(event) => setHost(event.target.value)} inputMode="decimal" placeholder="192.168.1.50" /></label>
+                <label>WoW PC IPv4 address<input value={host} onChange={(event) => setHost(event.target.value)} inputMode="decimal" placeholder="127.0.0.1" /></label>
                 <button className="gold-button" type="submit">Save & Connect</button>
               </form>
               {hostError && <p className="field-error">{hostError}</p>}
+              <p className="security-note">Use 127.0.0.1 when WoW runs on this device. Use the WoW PC's local address only for a separate device on the same trusted network.</p>
               <div className="connection-details"><span>Status <b>{runtime.connectionState}</b></span><span>Session <b>{runtime.sessionState.replace("-", " ")}</b></span><span>Game <b>{runtime.hasSnapshot ? runtime.bridgeState.game.state : "unavailable"}</b></span><span>Authentication <b>{runtime.sessionState === "pairing" ? "pairing required" : runtime.sessionState === "ready" ? "authenticated" : runtime.sessionState}</b></span></div>
               <button className="secondary-button" onClick={retry}>Reconnect</button>
               <p className="security-note">LAN only · ws://{preferences.hostIp ?? "WoW-PC"}:18423/wcs · Never expose this port publicly.</p>

@@ -16,7 +16,7 @@ export function ConnectionOverlay({ openSettings }: { openSettings(): void }) {
 
   if (runtime.connectionState === "unconfigured") {
     title = "Connect to continue";
-    description = "WoW Companion Screen needs the local IPv4 address of the PC running World of Warcraft before you can use the application.";
+    description = "Enter 127.0.0.1 when this app and WoW run on the same device, or enter the WoW PC's local IPv4 address for a separate companion device.";
   }
   if (runtime.connectionState === "connecting" || runtime.connectionState === "reconnecting") {
     title = runtime.connectionState === "reconnecting" ? "Reconnecting to your WoW PC" : "Connecting to your WoW PC";
@@ -32,7 +32,7 @@ export function ConnectionOverlay({ openSettings }: { openSettings(): void }) {
   }
   if (runtime.connectionState === "disconnected" || (runtime.connectionState === "error" && !["protocol-mismatch", "auth-missing", "auth-failed"].includes(runtime.sessionState))) {
     title = "Unable to connect";
-    description = "WoW Companion Screen could not reach the WoW PC. Check that WoW and the WoW Companion Screen bridge are running and that both devices are on the same local network.";
+    description = "WoW Companion Screen could not reach the WoW PC. Check that WoW and the bridge are running. Use 127.0.0.1 on the same device, or confirm that both devices are on the same local network.";
     showRetry = true;
   }
   if (runtime.sessionState === "pairing") {

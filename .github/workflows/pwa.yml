@@ -115,7 +115,7 @@ jobs:
           path: wcs-web/out
 
   pages:
-    name: Deploy public PWA demo
+    name: Deploy public PWA
     if: github.ref == 'refs/heads/main'
     needs: validate
     runs-on: ubuntu-latest
