@@ -7,7 +7,15 @@ export const metadata: Metadata = {
   description: "Controller-friendly companion screen for World of Warcraft 3.3.5a",
   applicationName: "WoW Companion Screen",
   manifest: withBasePath("/manifest.webmanifest"),
-  icons: { icon: withBasePath("/icons/wcs.svg"), apple: withBasePath("/icons/wcs.svg") },
+  icons: {
+    icon: [
+      { url: withBasePath("/icons/favicon-32.png"), sizes: "32x32", type: "image/png" },
+      { url: withBasePath("/icons/wcs-192.png"), sizes: "192x192", type: "image/png" },
+    ],
+    apple: [
+      { url: withBasePath("/icons/apple-touch-icon-180.png"), sizes: "180x180", type: "image/png" },
+    ],
+  },
 };
 
 export const viewport: Viewport = {

@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "icons:brand": "node scripts/generate-brand-icons.mjs",
     "icons:import": "node scripts/import-wow-icons.mjs",
     "start": "npx serve@latest out",
     "lint": "tsc --noEmit",
