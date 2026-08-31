@@ -1,29 +1,22 @@
-name: PWA CI and Delivery
+name: PWA CI and Pages
 
 on:
   push:
     branches: [main]
-    tags: ['pwa-v*']
     paths:
       - '.github/workflows/pwa.yml'
       - 'wcs-web/**'
-      - 'LICENSE'
-      - 'NOTICE.md'
-      - 'CHANGELOG.md'
-      - 'docs/RELEASING.md'
-      - 'README.md'
       - 'scripts/validate-version.ps1'
+      - '!wcs-web/*.md'
+      - '!wcs-web/**/*.md'
   pull_request:
     branches: [main]
     paths:
       - '.github/workflows/pwa.yml'
       - 'wcs-web/**'
-      - 'LICENSE'
-      - 'NOTICE.md'
-      - 'CHANGELOG.md'
-      - 'docs/RELEASING.md'
-      - 'README.md'
       - 'scripts/validate-version.ps1'
+      - '!wcs-web/*.md'
+      - '!wcs-web/**/*.md'
   workflow_dispatch:
 
 permissions:
@@ -31,46 +24,19 @@ permissions:
 
 concurrency:
   group: pwa-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+  cancel-in-progress: true
 
 jobs:
   validate:
-    name: Test and build static PWA
+    name: Test and build PWA
     runs-on: ubuntu-latest
-    outputs:
-      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Check out source
         uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Validate release tag
-        id: version
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            if [[ ! "$GITHUB_REF_NAME" =~ ^pwa-v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-              echo "PWA release tags must match pwa-vX.Y.Z." >&2
-              exit 1
-            fi
-            version="${BASH_REMATCH[1]}"
-            git fetch origin main:refs/remotes/origin/main
-            git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
-              echo "PWA releases must point to a commit on main." >&2
-              exit 1
-            }
-          else
-            version="dev-${GITHUB_SHA:0:7}"
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Version: $version"
 
       - name: Validate committed component versions
         shell: pwsh
-        run: |
-          if ($env:GITHUB_REF_TYPE -eq 'tag') { ./scripts/validate-version.ps1 -Version '${{ steps.version.outputs.version }}' }
-          else { ./scripts/validate-version.ps1 }
+        run: ./scripts/validate-version.ps1
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -91,27 +57,11 @@ jobs:
         working-directory: wcs-web
         run: npm run typecheck
 
-      - name: Build and verify root-hosted PWA
-        working-directory: wcs-web
-        run: |
-          npm run build
-          node scripts/verify-static-build.mjs
-
-      - name: Upload root-hosted release files
-        if: github.ref_type == 'tag'
-        uses: actions/upload-artifact@v4
-        with:
-          name: pwa-static-${{ steps.version.outputs.version }}
-          path: wcs-web/out
-          if-no-files-found: error
-          retention-days: 7
-
       - name: Build and verify GitHub Pages PWA
         working-directory: wcs-web
         env:
           NEXT_PUBLIC_BASE_PATH: /WoW_CompanionScreen
         run: |
-          rm -rf out
           npm run build
           node scripts/verify-static-build.mjs /WoW_CompanionScreen
           touch out/.nojekyll
@@ -144,104 +94,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
-  image:
-    name: Publish and smoke-test LAN image
-    if: github.ref == 'refs/heads/main' || github.ref_type == 'tag'
-    needs: validate
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    env:
-      IMAGE_NAME: ghcr.io/adamwtf/wow-companion-screen-pwa
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v6
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
-
-      - name: Generate image metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_NAME }}
-          tags: |
-            type=sha,prefix=sha-
-            type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
-            type=match,pattern=pwa-v(.*),group=1
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/pwa-v') }}
-          labels: |
-            org.opencontainers.image.title=WoW Companion Screen PWA
-            org.opencontainers.image.description=LAN-hosted companion interface for WoW Companion Screen
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build image
-        uses: docker/build-push-action@v6
-        with:
-          context: wcs-web
-          load: true
-          push: false
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Smoke-test image
-        shell: bash
-        run: |
-          smoke_tag="$IMAGE_NAME:sha-${GITHUB_SHA:0:7}"
-          docker run --detach --name wcs-pwa-smoke --publish 8080:80 "$smoke_tag"
-          trap 'docker rm --force wcs-pwa-smoke >/dev/null 2>&1 || true' EXIT
-          for attempt in {1..15}; do
-            curl --fail --silent http://127.0.0.1:8080/ >/dev/null && break
-            if [[ "$attempt" == 15 ]]; then exit 1; fi
-            sleep 1
-          done
-          curl --fail --silent http://127.0.0.1:8080/not-a-route | grep --quiet 'WoW Companion Screen'
-          curl --fail --silent --head http://127.0.0.1:8080/sw.js | grep --ignore-case --quiet 'cache-control: no-cache'
-
-      - name: Push image tags
-        shell: bash
-        run: docker image push --all-tags "$IMAGE_NAME"
-
-  release:
-    name: Publish static PWA release
-    if: github.ref_type == 'tag'
-    needs: [validate, image]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download root-hosted PWA
-        uses: actions/download-artifact@v5
-        with:
-          name: pwa-static-${{ needs.validate.outputs.version }}
-          path: pwa
-
-      - name: Create archive and checksum
-        shell: bash
-        run: |
-          archive="wow-companion-screen-pwa-${{ needs.validate.outputs.version }}.zip"
-          (cd pwa && zip -9 -r "../$archive" .)
-          sha256sum "$archive" > "$archive.sha256"
-
-      - name: Publish GitHub Release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          gh release create "$GITHUB_REF_NAME" \
-            "wow-companion-screen-pwa-${{ needs.validate.outputs.version }}.zip" \
-            "wow-companion-screen-pwa-${{ needs.validate.outputs.version }}.zip.sha256" \
-            --verify-tag \
-            --title "WoW Companion Screen PWA v${{ needs.validate.outputs.version }}" \
-            --generate-notes

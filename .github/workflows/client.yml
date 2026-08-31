@@ -8,8 +8,6 @@ on:
       - '.github/workflows/client.yml'
       - 'addon/**'
       - 'deps/**'
-      - 'docs/CLIENT_INSTALL.md'
-      - 'docs/RELEASING.md'
       - 'extensions/**'
       - 'include/**'
       - 'scripts/package-client-release.ps1'
@@ -17,18 +15,13 @@ on:
       - 'src/**'
       - 'tests/**'
       - 'CMakeLists.txt'
-      - 'LICENSE'
-      - 'NOTICE.md'
-      - 'CHANGELOG.md'
-      - 'README.md'
+      - '!**/*.md'
   pull_request:
     branches: [main]
     paths:
       - '.github/workflows/client.yml'
       - 'addon/**'
       - 'deps/**'
-      - 'docs/CLIENT_INSTALL.md'
-      - 'docs/RELEASING.md'
       - 'extensions/**'
       - 'include/**'
       - 'scripts/package-client-release.ps1'
@@ -36,10 +29,7 @@ on:
       - 'src/**'
       - 'tests/**'
       - 'CMakeLists.txt'
-      - 'LICENSE'
-      - 'NOTICE.md'
-      - 'CHANGELOG.md'
-      - 'README.md'
+      - '!**/*.md'
   workflow_dispatch:
 
 permissions:

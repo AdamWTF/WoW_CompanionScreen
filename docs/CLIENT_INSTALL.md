@@ -1,27 +1,17 @@
 # Installation and setup
 
-WoW Companion Screen is built for the **32-bit World of Warcraft 3.3.5a client, build 12340**.
-
-Keep an untouched copy of your client before you start. It makes updates, troubleshooting and removing the mod much easier.
+For the 32-bit World of Warcraft 3.3.5a client, build 12340. Keep an untouched client copy.
 
 > [!WARNING]
->
-> WoW Companion Screen modifies the client and loads native DLLs into the game process. Do not use it with Retail WoW or any private server running Warden or another client-integrity/anti-cheat system. Assume it can be detected and that using it there could get the account banned.
+> The project modifies the client and loads native DLLs. Do not use it with Retail WoW or servers running Warden or another client-integrity system.
 
-## Install the mod
+## Install
 
-1. Download the latest `wow-companion-screen-client-X.Y.Z.zip` from [GitHub Releases](https://github.com/AdamWTF/WoW_CompanionScreen/releases).
-
-   If you're using the hosted companion app, you do not need the separate PWA ZIP.
-
-2. Close WoW.
-
-3. Extract the **contents** of the client ZIP directly into the WoW folder alongside `Wow.exe`.
-
-   You should end up with:
+1. Download `wow-companion-screen-client-X.Y.Z.zip` from [GitHub Releases](https://github.com/AdamWTF/WoW_CompanionScreen/releases).
+2. Close WoW and extract the ZIP contents beside `Wow.exe`.
+3. Confirm these paths exist:
 
    ```text
-   Wow.exe
    wcs-core.dll
    wcs-patcher.exe
    Extensions\wcs-gamepad\wcs-gamepad.dll
@@ -29,125 +19,48 @@ Keep an untouched copy of your client before you start. It makes updates, troubl
    Interface\AddOns\WoWCompanionScreen\WoWCompanionScreen.toc
    ```
 
-   If those files are inside another `wow-companion-screen-client-X.Y.Z` folder, you've extracted the ZIP one level too deep.
+4. Run `wcs-patcher.exe`. It saves the original as `Wow.exe.orig` and safely skips an already-patched client.
+5. Start WoW, log into a character, and open the settings with the minimap button, `/wcs`, or `/wowcompanionscreen`.
 
-4. Run `wcs-patcher.exe`.
+The defaults require no configuration files. For advanced settings, copy the relevant `.cfg.example` file without the `.example` suffix. Copy `docs\wcs-core.cfg.example` beside `Wow.exe` as `wcs-core.cfg`.
 
-   Before changing anything, the patcher saves the original executable as `Wow.exe.orig`. Running it again is safe; it will detect an already-patched client and skip it.
+## Controller
 
-5. Start WoW and log into a character.
+Controller support is enabled under **Display & Connection**. Configure the four layers under **Controller Mapping** by dragging actions into the eight slots; right-click to clear a slot. Mappings can only change out of combat.
 
-6. Open WoW Companion Screen from the minimap button or type:
+See the [controller guide](CONTROLLER.md) for layouts, backends, UI navigation, Jump, Smart Interact, and advanced settings. Press **F9** for native diagnostics.
 
-   ```text
-   /wcs
-   ```
+## Same-device companion screen
 
-   `/wowcompanionscreen` works as well.
+1. Under **Display & Connection**, enable the second screen and confirm the bridge is listening.
+2. Under **Second Screen**, assign its 24 slots. They map to WoW action IDs 25–48.
+3. Open and install the [hosted companion app](https://adamwtf.github.io/WoW_CompanionScreen/) on the same Windows device.
+4. Set the WoW PC address to `127.0.0.1`, connect, and enter the pairing code shown in WoW or the F9 panel.
 
-You don't need to create any configuration files for a normal setup. The included defaults are ready to use.
+The app connects directly to `ws://127.0.0.1:18423/wcs`. GitHub only serves the app files. The bridge accepts one paired device at a time; forget the current device in WoW before pairing another.
 
-If you do want to change advanced settings:
+## Separate LAN device
 
-* copy `Extensions\wcs-gamepad\wcs-gamepad.cfg.example` to `wcs-gamepad.cfg`
-* copy `Extensions\wcs-bridge\wcs-bridge.cfg.example` to `wcs-bridge.cfg`
-* copy `docs\wcs-core.cfg.example` alongside `Wow.exe` as `wcs-core.cfg`
+The hosted HTTPS app cannot connect to a plaintext WebSocket on another LAN machine. Build and serve the PWA from source over HTTP instead; see [`wcs-web/README.md`](../wcs-web/README.md).
 
-## Set up the controller
+Open the local PWA on the companion device and enter the WoW PC's LAN IPv4 address. Allow inbound TCP port `18423` on private networks if required. Never forward or expose this plaintext endpoint to the Internet.
 
-Open **Display & Connection** in `/wcs`.
+## Update or remove
 
-**Enable Controller Support** is on by default. If the controller is connected but nothing happens, press **F9** and check which backend detected it.
+To update, close WoW, replace the WCS files with a newer client ZIP, and run the patcher again. Addon settings and `Extensions\wcs-bridge\pairing.dat` remain unless deleted.
 
-Open **Controller Mapping** to set up the four action layers. Pick a layer, then drag spells, items, macros or existing WoW actions into its eight slots. You can also place **Jump** and **Interact** like normal actions. Right-click a slot to clear it.
+To remove WCS, close WoW, restore `Wow.exe.orig` as `Wow.exe`, then remove:
 
-Mappings can only be changed out of combat.
-
-See the [controller guide](CONTROLLER.md) for the full layout, supported devices, UI navigation and advanced settings.
-
-## Set up the AYN Thor second screen
-
-1. In `/wcs`, open **Display & Connection**.
-
-   Make sure **Enable Second Screen** is selected and the bridge says it is listening.
-
-2. Open **Second Screen** and drag actions into the 24 available slots. These use WoW's normal action slots 25–48, so WoW saves the assignments.
-
-3. On the Thor's second screen, open the [hosted companion app](https://adamwtf.github.io/WoW_CompanionScreen/).
-
-4. Use the browser menu to choose **Install app** or **Add to Home screen**, then open the installed app.
-
-5. Select **Set up connection** and enter:
-
-   ```text
-   127.0.0.1
-   ```
-
-6. Select **Save & Connect**.
-
-7. Enter the pairing code shown on WoW's **Display & Connection** page or the F9 diagnostics panel, then select **Pair Device**.
-
-Although the app is loaded from GitHub Pages, the live connection stays on the Thor. The app connects straight to WoW through:
-
-```text
-ws://127.0.0.1:18423/wcs
-```
-
-GitHub does not receive your game state or control input.
-
-The bridge accepts one companion device at a time. To use a different one, forget the current device in WoW and pair again.
-
-## Use a phone, tablet or another computer
-
-`127.0.0.1` only works when the companion app and WoW are on the same machine.
-
-For another physical device, run the PWA over HTTP on your trusted local network. You can serve the static PWA release yourself or run the container:
-
-```powershell
-docker run --rm -p 8080:80 ghcr.io/adamwtf/wow-companion-screen-pwa:latest
-```
-
-Open `http://<PWA-host-IP>:8080` on the companion device, then enter the local IPv4 address of the PC running WoW, for example `192.168.1.50`.
-
-Allow inbound TCP port `18423` on private networks if Windows Firewall asks. Do not forward that port or expose it to the Internet. Pairing prevents casual access, but the WebSocket traffic is not encrypted.
-
-## Update the mod
-
-1. Close WoW.
-2. Extract the newer client ZIP into the same WoW folder and replace the old WCS files.
-3. Run the patcher again.
-
-Your addon settings and paired device are kept unless you delete WoW's saved variables or `Extensions\wcs-bridge\pairing.dat`.
-
-## Remove the mod
-
-Close WoW, then replace `Wow.exe` with the untouched `Wow.exe.orig` created by the patcher.
-
-To remove the remaining files, delete:
-
-* `wcs-core.dll`
-* `Extensions\wcs-gamepad`
-* `Extensions\wcs-bridge`
-* `Interface\AddOns\WoWCompanionScreen`
+- `wcs-core.dll`
+- `Extensions\wcs-gamepad`
+- `Extensions\wcs-bridge`
+- `Interface\AddOns\WoWCompanionScreen`
 
 ## Troubleshooting
 
-### The addon doesn't appear
+- **Addon missing:** confirm the `.toc` path above, client build 12340, and that the ZIP was not extracted into an extra directory.
+- **Controller inactive:** log into a character, check **Enable Controller Support**, and inspect the active backend with F9.
+- **Second screen offline:** keep WoW running, confirm the bridge is listening, and use `127.0.0.1` only for a same-device connection.
+- **Pairing fails after browser data was cleared:** forget the paired device in WoW, reconnect, and enter the new code.
 
-Check that `Interface\AddOns\WoWCompanionScreen\WoWCompanionScreen.toc` exists and that you're using client build 12340. The most common mistake is extracting the release into an extra folder.
-
-### The controller doesn't respond
-
-Log into a character first. Controller input is deliberately disabled on login, realm, character-selection and loading screens. Check **Enable Controller Support**, then press **F9** to see which backend is active.
-
-### The second screen can't connect
-
-Keep WoW running and make sure the bridge says it is listening.
-
-On an AYN Thor, use `127.0.0.1`. On another device, use the WoW PC's LAN address and check the private-network firewall rule for TCP port `18423`.
-
-### Pairing stopped working
-
-This can happen after clearing browser data or reinstalling the PWA. Forget the paired device in WoW, reconnect and enter the new pairing code.
-
-Packaged releases do not contain `Wow.exe`, a pre-patched executable, Blizzard assets or the optional `d3d9.dll` development proxy.
+Client releases exclude `Wow.exe`, pre-patched executables, Blizzard assets, and the optional development `d3d9.dll` proxy.

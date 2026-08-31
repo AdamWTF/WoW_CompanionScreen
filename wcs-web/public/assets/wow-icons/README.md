@@ -1,17 +1,13 @@
 # WoW icon assets
 
-WoW Companion Screen deliberately does not redistribute Blizzard's artwork. Import the icons directly from your own WoW 3.3.5a installation before building the PWA.
+Import icons from a legally owned WoW 3.3.5a client; this project does not redistribute Blizzard artwork.
 
-## Import directly from the MPQs
-
-From `wcs-web`, point the importer at the directory containing `Wow.exe` and `Data`:
+From `wcs-web`:
 
 ```powershell
-npm run icons:import -- "E:\\WoW 3.3.5a"
+npm run icons:import -- "E:\WoW 3.3.5a"
 ```
 
-The importer reads the base and patch MPQs in precedence order, selects the final version of each `Interface\\Icons` BLP, converts it to WebP, and writes the lowercase files expected by the PWA into this directory. It skips outputs newer than their source archive; pass `--force` to rebuild every icon. If the installation contains multiple locales, select one with `--locale enUS`.
+The importer reads base and patch MPQs, converts the final `Interface\Icons` BLPs to lowercase WebP files, and skips outputs newer than their source. Use `--force` to rebuild or `--locale enUS` to select a locale. Exported `BlizzardInterfaceArt` or `Interface\Icons` directories are also accepted.
 
-An already-exported `BlizzardInterfaceArt` or `Interface\\Icons` directory is still accepted. After importing, run `npm run build` as usual.
-
-The bridge path `Interface\\Icons\\Spell_Fire_FlameBolt` resolves to `spell_fire_flamebolt.webp`. WoW Companion Screen falls back to its packaged neutral action icon if a requested asset is unavailable.
+For example, `Interface\Icons\Spell_Fire_FlameBolt` becomes `spell_fire_flamebolt.webp`. Missing assets use the neutral fallback.

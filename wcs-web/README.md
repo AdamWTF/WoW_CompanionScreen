@@ -1,58 +1,39 @@
 # WoW Companion Screen PWA
 
-This is the touch-friendly companion app used by WoW Companion Screen.
+Touch-friendly companion app for WoW Companion Screen.
 
-## Run it locally
+## Develop
+
+From `wcs-web`:
 
 ```powershell
-npm install
+npm ci
+npm test
+npm run typecheck
 npm run dev
 ```
 
-Open `http://localhost:3000/?demo` to work on the interface without running WoW. Demo mode uses representative character and action data and does not try to connect to the bridge.
+Open `http://localhost:3000/?demo` for representative data without WoW. `npm run build` creates the static site in `out/`.
 
-Run `npm run build` to create a production build in `out/`. The included Dockerfile serves that build through Nginx.
+## GitHub Pages
 
-## Hosted app
+The maintained deployment is the [hosted companion app](https://adamwtf.github.io/WoW_CompanionScreen/); append `?demo` for demo mode. Install it on the same Windows device as WoW and use `127.0.0.1`.
 
-The public app lives at:
+Pages builds use `/WoW_CompanionScreen` as their base path. The app then connects directly to `ws://127.0.0.1:18423/wcs`; game state and controls are not relayed through GitHub.
 
-```text
-https://adamwtf.github.io/WoW_CompanionScreen/
-```
+## Self-host on a LAN
 
-Add `?demo` to open it with demo data.
+A separate device cannot normally connect from the hosted HTTPS app to a plaintext LAN WebSocket. Build and serve the PWA over HTTP on a trusted network.
 
-The hosted app works live when it runs on the same Windows device as WoW, including the AYN Thor's second screen. Install it from the browser and set **WoW PC IPv4 address** to `127.0.0.1`.
-
-GitHub Pages serves the app files, but the live connection goes straight back to WoW through:
-
-```text
-ws://127.0.0.1:18423/wcs
-```
-
-Game state and controls are not sent through GitHub.
-
-GitHub Pages builds use `/WoW_CompanionScreen` as their base path. Static release and Docker builds use `/`.
-
-## Use it from another device
-
-An HTTPS page generally can't open a plaintext `ws://` connection to another machine on your LAN. For a phone, tablet or separate computer, serve the PWA over HTTP on your trusted local network.
-
-You can run the published container with:
+The retained Docker setup is source-only and unsupported as a published distribution:
 
 ```powershell
-docker run --rm -p 8080:80 ghcr.io/adamwtf/wow-companion-screen-pwa:latest
+docker build -t wcs-pwa-local .
+docker run --rm -p 8080:80 wcs-pwa-local
 ```
 
-Open `http://<PWA-host-IP>:8080` on the companion device, then enter the local IPv4 address of the PC running WoW.
-
-The browser connects to `ws://<WoW-PC-IP>:18423/wcs`. Keep that port on your trusted network and never expose it to the Internet.
-
-Live control works over HTTP. Installation and offline PWA features may not, because browsers normally require HTTPS or localhost for those features.
+Open `http://<PWA-host-IP>:8080`, then configure the WoW PC's LAN IPv4 address. Never expose TCP port `18423` to the Internet. HTTP supports live control, but install/offline features may require HTTPS or localhost.
 
 ## WoW icons
 
-The app expects a legally sourced 3.3.5a icon library in `public/assets/wow-icons`, using lowercase WebP filenames.
-
-If an icon is missing, the app uses its neutral fallback instead.
+Place a legally sourced 3.3.5a icon library in `public/assets/wow-icons` using lowercase WebP filenames. Missing icons use the neutral fallback.

@@ -1,116 +1,60 @@
 # Native controller support
 
-WoW Companion Screen handles controller input inside the 32-bit WoW 3.3.5a client. It isn't a keyboard mapper, so you don't need JoyToKey or another remapping tool running in the background.
+Controller input runs inside the 32-bit WoW 3.3.5a client.
 
-Movement, camera control, actions, Jump, Smart Interact and supported menu navigation all go straight through the game.
+## Default layout
 
-## Default controls
-
-| Control | What it does |
+| Control | Action |
 |---|---|
-| Left stick | Move and strafe, including diagonals |
-| Right stick | Turn and move the camera |
-| L1 / left shoulder | Previous hostile target |
-| R1 / right shoulder | Next hostile target |
-| L3 / left-stick click | Cycle WoW's camera views |
-| R3 / right-stick click | Next friendly target |
-| Start / Menu / Options | Open or close the WoW game menu |
-| Select / View / Share | Open or close the world map |
-| L2 and R2 | Switch between the Default, L2, R2 and L2+R2 action layers |
-| D-pad and face buttons | Use one of eight actions in the current layer |
+| Left stick | Move and strafe |
+| Right stick | Camera |
+| L1 / R1 | Previous / next hostile target |
+| L3 / R3 | Cycle camera view / next friendly target |
+| Start / Select | Game menu / world map |
+| L2 / R2 | Select Default, L2, R2, or L2+R2 layer |
+| D-pad + face buttons | Eight actions in the active layer |
 
-Face buttons are named by position so the guide works across different controllers:
+Face buttons use positional names: South (A/Cross), East (B/Circle), West (X/Square), and North (Y/Triangle).
 
-* **South:** A or Cross
-* **East:** B or Circle
-* **West:** X or Square
-* **North:** Y or Triangle
-
-The 32 controller actions use WoW's existing action slots:
-
-| Layer | WoW action slots |
+| Layer | WoW action IDs |
 |---|---|
-| Default | The live ActionButton 1–8 slots for the current page/form |
-| L2 | 9–12 and 49–52 |
+| Default | Live ActionButton 1–8 slots for the current page/form |
+| L2 | 9–12, 49–52 |
 | R2 | 53–60 |
-| L2 + R2 | 61–68 |
+| L2+R2 | 61–68 |
 
-Within each layer, the order is D-pad Up, Down, Left and Right, followed by South, East, West and North.
+Each layer orders D-pad Up, Down, Left, Right, then South, East, West, North.
 
-The in-game overlay shows the active layer and its assignments. Separate trigger press and release thresholds stop the layer from flickering when a trigger is held near its activation point.
+## Mapping actions
 
-## Change the mappings
+Open **Controller Mapping** with `/wcs`, select a layer, and drag spells, items, macros, or existing actions into its slots. Right-click to clear. Protected mappings can only change out of combat.
 
-Open WoW Companion Screen using the minimap button or:
+The **System Actions** palette provides:
 
-```text
-/wcs
-```
+- **Jump:** uses WoW's native jump control, including swimming and flying ascent.
+- **Interact:** preserves valid targets, including lootable and skinnable corpses; avoids automatic retargeting in combat; and otherwise selects a nearby NPC or game object using distance and camera direction.
 
-On **Controller Mapping**, choose a layer and drag a spell, item, macro or existing WoW action into any of its eight slots. Right-click a slot to clear it.
+Smart Interact defaults to 12 yards and a 60-degree horizontal half-cone. Set `SmartInteractDebug=1` in `wcs-gamepad.cfg` to log candidate scoring.
 
-WoW only allows protected action changes out of combat.
+## UI navigation
 
-## Jump and Smart Interact
+When enabled, out of combat, and a supported panel is open:
 
-The **System Actions** palette contains two actions that can be dragged onto the controller like spells:
+- D-pad moves focus.
+- South confirms and East goes back by default.
+- **Menu Confirm** under **Display & Connection** reverses those menu controls without changing combat assignments.
+- Gameplay controls pause until the panel closes or combat starts.
 
-* **Jump** uses WoW's real jump control. It also handles swimming and flying ascent; it does not fake a Space key press.
-* **Interact** runs one Smart Interact attempt. It keeps a valid interactable target, avoids replacing targets automatically during combat, and otherwise looks for a suitable NPC or game object based on distance and camera direction.
+Supported panels include the game menu, confirmation popups, gossip, quests, merchants, bags, and WCS settings. Bag confirmation uses WoW's normal right-click action.
 
-By default, Smart Interact searches up to 12 yards away and 60 degrees either side of the camera direction.
+## Backends
 
-If it picks the wrong target, enable `SmartInteractDebug=1` in `Extensions\wcs-gamepad\wcs-gamepad.cfg` and check the native log for its candidate scores.
+- **XInput:** Xbox-compatible controllers; no extra runtime.
+- **SDL3 Gamepad:** mapped PlayStation and handheld controllers; requires a 32-bit SDL3 runtime beside `Wow.exe`.
+- **SDL3 Joystick:** diagnostics for devices without a verified `gamecontrollerdb.txt` mapping.
 
-## Navigate WoW's interface
+`Backend=Auto` selects an available backend. Glyphs can be automatic or forced to Xbox, PlayStation, or Thor. Supported DualShock touchpads provide cursor, left-click, and two-finger right-click.
 
-Controller UI navigation can be switched on or off separately under **Display & Connection**.
+For advanced settings, copy `Extensions\wcs-gamepad\wcs-gamepad.cfg.example` to `wcs-gamepad.cfg`. It controls deadzones, camera response, inversion, trigger thresholds, polling, targeting keys, and diagnostics.
 
-When a supported panel is open and you're out of combat:
-
-* the D-pad moves the highlight
-* **South** confirms or activates the highlighted item by default
-* **East** goes back by default
-* movement, camera, targeting and action inputs pause until you close the panel or enter combat
-
-The **Menu Confirm** option under **Display & Connection** reverses South and East for menus only. It never changes combat action assignments.
-
-Supported panels include the game menu, confirmation popups, gossip and quest windows, merchants, bags and WoW Companion Screen's own settings.
-
-Using a highlighted bag item follows WoW's normal right-click behaviour.
-
-## Controllers and backends
-
-`Backend=Auto` tries the available backends in the most sensible order.
-
-* **XInput** works without any extra runtime and covers Xbox-compatible controllers.
-* **SDL3 Gamepad** supports mapped PlayStation and handheld controllers when a 32-bit SDL3 runtime is placed beside `Wow.exe`.
-* **SDL3 Joystick** is a diagnostic mode for devices that do not yet have a verified mapping in `gamecontrollerdb.txt`.
-
-Button glyphs can be detected automatically or forced to Xbox, PlayStation or AYN Thor style.
-
-On supported DualShock controllers, the touchpad moves the cursor. A normal click produces a left-click, and a two-finger click produces a right-click.
-
-## Advanced settings
-
-Copy:
-
-```text
-Extensions\wcs-gamepad\wcs-gamepad.cfg.example
-```
-
-to:
-
-```text
-Extensions\wcs-gamepad\wcs-gamepad.cfg
-```
-
-The file lets you adjust deadzones, camera sensitivity, response curve, Y-axis inversion, trigger thresholds, polling rate and targeting key combinations.
-
-Press **F9** to open the native diagnostics. Use `/wcs` for normal controller mappings, glyphs and display settings.
-
-## When controller input is active
-
-The extension can detect controllers on the login, realm, character-selection and loading screens, but it will not send gameplay input there.
-
-Input only becomes active once your character is in the rendered world. Disconnecting the controller, changing backend, switching windows, loading into another area or moving between UI and gameplay modes releases any held input. The controls must return to neutral before input resumes, which helps prevent stuck movement or accidental actions.
+Controller discovery works before entering the world, but gameplay input does not. Disconnects, focus loss, loading, backend changes, and UI-mode changes release held inputs and require neutral controls before resuming.

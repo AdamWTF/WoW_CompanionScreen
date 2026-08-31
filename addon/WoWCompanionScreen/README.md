@@ -1,34 +1,30 @@
 # WoW Companion Screen add-on
 
-WoW Companion Screen targets World of Warcraft 3.3.5a build 12340. Open its native-style configuration window with the minimap button, `/wcs`, or `/wowcompanionscreen`.
+Configuration UI for WoW 3.3.5a build 12340. Open it with the minimap button, `/wcs`, or `/wowcompanionscreen`.
 
-## Native controller integration contract
+## Controller contract
 
-Controller mappings mirror Blizzard's action bars and are exposed through globally named `SecureActionButtonTemplate` frames. The Default layer follows the live primary page/form action slots; modifier layers remain fixed. Controls use positional names (`DPadUp`, `DPadDown`, `DPadLeft`, `DPadRight`, `South`, `East`, `West`, and `North`) through `WCS.Controller:GetButton(layer, control)`.
+Mappings use globally named `SecureActionButtonTemplate` frames. The Default layer follows the live primary page/form; modifier layers remain fixed. Use `WCS.Controller:GetButton(layer, control)` with `DPadUp`, `DPadDown`, `DPadLeft`, `DPadRight`, `South`, `East`, `West`, or `North`; do not depend on numeric indices.
 
-The deterministic global button names are:
+Secure button globals are:
 
-- `WCSControllerDefault1` through `WCSControllerDefault8`
-- `WCSControllerL2_1` through `WCSControllerL2_8`
-- `WCSControllerR2_1` through `WCSControllerR2_8`
-- `WCSControllerL2R2_1` through `WCSControllerL2R2_8`
+- `WCSControllerDefault1`–`WCSControllerDefault8`
+- `WCSControllerL2_1`–`WCSControllerL2_8`
+- `WCSControllerR2_1`–`WCSControllerR2_8`
+- `WCSControllerL2R2_1`–`WCSControllerL2R2_8`
 
-Within every layer the numeric order is `DPadUp`, `DPadDown`, `DPadLeft`, `DPadRight`, `Y`, `X`, `B`, `A`. Native integration should use the semantic API rather than depending on these indices.
+The index order is D-pad Up, Down, Left, Right, Y, X, B, A. Modifier action IDs are L2 `9-12,49-52`, R2 `53-60`, and L2+R2 `61-68`.
 
-The native action mapping is Default `1-8`, L2 `9-12,49-52`, R2 `53-60`, and L2+R2 `61-68`. These are the MainMenuBar, MultiBarBottomLeft, and MultiBarBottomRight action ranges; WoW itself persists their contents.
+System Action overrides are stored in SavedVariables. `JUMP` and `INTERACT` clear the corresponding WoW action; unknown IDs remain stored but inert. The add-on synchronizes through `WCSGamepadResetSystemActions`, `WCSGamepadSetSystemAction(layer, control, id)`, and `WCSGamepadSupportsSystemAction(id)`.
 
-WCS System Actions are SavedVariables-backed overrides for these logical positions. The ordered palette contains `JUMP` followed by `INTERACT`. Assigning one clears the native WoW action slot; the gamepad extension dispatches native Jump begin/end behavior or one Smart Interact attempt on press from the logical controller position. Unknown System Action IDs remain persisted but are inert.
+The extension publishes `WCSGamepadNativeLayer` as `default`, `l2`, `r2`, or `l2r2`; numeric values 1–4 remain compatible.
 
-The controller extension is expected to publish the active semantic layer as `WCSGamepadNativeLayer`: `default`, `l2`, `r2`, or `l2r2` (numeric values 1-4 are also accepted for compatibility).
+## UI navigation contract
 
-The addon synchronizes overrides through `WCSGamepadResetSystemActions`, `WCSGamepadSetSystemAction(layer, control, id)`, and `WCSGamepadSupportsSystemAction(id)` when those globals are available.
+The extension exposes `WCSGamepadSetUINavigationActive(active)`, `WCSGamepadMovePointer(normalizedX, normalizedY)`, and `WCSGamepadClickPointer(button)`. It dispatches `up`, `down`, `left`, `right`, `confirm`, and `back` through `WCS.UINavigation:Handle(command)`.
 
-## Controller UI navigation
-
-UI navigation is enabled by default with controller support and can be disabled independently in WCS settings. Out of combat, supported stock panels redirect D-pad input to spatial focus, South to confirm, and East to back while suppressing gameplay controls. The confirm/back orientation can be reversed without changing combat mappings. The first supported set is the game menu, static confirmation popups, gossip and quest dialogs, merchants, bags, and WCS's own settings. Bag confirmation uses the stock right-click use/equip behavior.
-
-The native extension exposes `WCSGamepadSetUINavigationActive(active)`, `WCSGamepadMovePointer(normalizedX, normalizedY)`, and `WCSGamepadClickPointer(button)`. WCS supplies `WCS.UINavigation:Handle(command)` for the native extension to dispatch `up`, `down`, `left`, `right`, `confirm`, and `back`. Navigation deactivates during combat and whenever no supported panel is visible.
+Navigation is out-of-combat only. D-pad moves focus; South confirms and East returns by default. The orientation can be reversed without changing combat mappings. Gameplay input is suppressed while a supported panel is active.
 
 ## Second-screen contract
 
-WCS slots 1-24 directly represent WoW action IDs 25-48. They are never duplicated into `WCSDB`; WoW remains authoritative. `WCS.SecondScreen:GetActionID(slot)` is the public mapping API.
+Slots 1–24 map directly to WoW action IDs 25–48 and are not duplicated into `WCSDB`. Use `WCS.SecondScreen:GetActionID(slot)`.
