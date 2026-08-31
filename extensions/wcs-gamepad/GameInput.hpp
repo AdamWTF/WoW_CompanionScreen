@@ -9,7 +9,7 @@
 namespace wcs_gamepad
 {
     enum class MovementControl { Forward, Backward, StrafeLeft, StrafeRight };
-    enum class GameCommand { ToggleGameMenu, ToggleAllBags, NextView };
+    enum class GameCommand { ToggleGameMenu, ToggleWorldMap, NextView };
     enum class UINavigationCommand { Up, Down, Left, Right, Confirm, Back };
 
     class IGameInput

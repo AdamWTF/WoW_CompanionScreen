@@ -160,8 +160,13 @@ namespace wcs_bridge
     bool WebSocketServer::Send(const json::Value& message, bool replaceable)
     {
         if (!connected_.load()) return true;
+        const auto* typeValue = message.Find("type");
+        const auto* type = typeValue ? typeValue->String() : nullptr;
+        const bool snapshot = replaceable && type && *type == "state.snapshot";
         const std::string encoded = json::Dump(message); std::lock_guard lock(outboundMutex_);
-        if (replaceable && outbound_.size() > 192)
+        if (snapshot)
+            outbound_.erase(std::remove_if(outbound_.begin(), outbound_.end(), [](const Outbound& item) { return item.replaceable; }), outbound_.end());
+        else if (replaceable && outbound_.size() > 192)
         {
             const auto it = std::find_if(outbound_.rbegin(), outbound_.rend(), [](const Outbound& item) { return item.replaceable; });
             if (it != outbound_.rend()) outbound_.erase(std::next(it).base());
@@ -197,6 +202,7 @@ namespace wcs_bridge
         {
             if (client != INVALID_SOCKET) { SendFrame(client, 8, {}); shutdown(client, SD_BOTH); closesocket(client); client = INVALID_SOCKET; }
             if (connected_.exchange(false)) commands_(Command{CommandKind::ReleaseAll});
+            { std::lock_guard lock(outboundMutex_); outbound_.clear(); }
             phase = Phase::Hello; reader = {}; disconnect_ = false;
         };
         auto sendJson = [&](const json::Value& value) { return client != INVALID_SOCKET && SendFrame(client, 1, json::Dump(value)); };

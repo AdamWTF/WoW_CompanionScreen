@@ -96,12 +96,12 @@ There is also a more detailed [client installation guide](docs/CLIENT_INSTALL.md
 * You can also try the [PWA demo](https://adamwtf.github.io/WoW_CompanionScreen/?demo) without installing anything or running WoW.
 * If the companion screen is another physical device, you can run the PWA container or serve the static PWA release over HTTP on your local network.
 
-WoW Companion Screen currently uses its own **1.0.0** versioning separately from the WarcraftXL ABI it is built on.
+WoW Companion Screen currently uses its own **1.0.1** versioning separately from the WarcraftXL ABI it is built on.
 
-Client and PWA releases are also versioned separately:
+Client and PWA artifacts use coordinated versions with component-specific tags:
 ```text
-client-v1.0.0
-pwa-v1.0.0
+client-v1.0.1
+pwa-v1.0.1
 ```
 
 Future releases follow the same:
@@ -134,7 +134,7 @@ The default layout is:
 | Right stick          | Camera control                                                            |
 | L1 / R1              | Previous / next hostile target                                            |
 | L3 / R3              | Cycle camera view / next friendly target                                  |
-| Start / Select       | Game menu / bags                                                          |
+| Start / Select       | Game menu / world map                                                     |
 | L2 / R2              | Switch between Default, L2, R2 and L2+R2 action layers                    |
 | D-pad + face buttons | Eight actions per layer, giving 32 directly assignable controller actions |
 
@@ -145,7 +145,7 @@ The action mappings use WoW's existing action bars and can be configured in-game
 
 Jump and Smart Interact can also be placed onto the controller like normal actions rather than being permanently tied to a particular button.
 
-WoW panels that support controller navigation can be controlled using the D-pad, with **South** used to confirm and **East** used to go back. Gameplay controls are temporarily suppressed while navigating the UI so the same inputs don't also trigger actions in-game.
+WoW panels that support controller navigation can be controlled using the D-pad. **South** confirms and **East** goes back by default; this orientation can be reversed under **Display & Connection** without changing combat actions. Gameplay controls are temporarily suppressed while navigating the UI so the same inputs don't also trigger actions in-game.
 
 XInput controllers work without any additional runtime.
 

@@ -162,7 +162,13 @@ end
 
 function Bridge:Tick(elapsed)
     self.elapsed = (self.elapsed or 0) + elapsed; self.statusElapsed = (self.statusElapsed or 0) + elapsed
-    if self.elapsed >= 1 then self.elapsed = 0; local available = WCS.Native:IsBridgeAvailable(); if available and not self.wasAvailable then self:PublishSnapshot() elseif available then self:ReconcileActions() end; self.wasAvailable = available end
+    if self.elapsed >= 1 then
+        self.elapsed = 0
+        local available = WCS.Native:IsBridgeAvailable()
+        if available and (not self.wasAvailable or self:GetStatus().connected) then self:PublishSnapshot()
+        elseif available then self:ReconcileActions() end
+        self.wasAvailable = available
+    end
     if self.statusElapsed >= 2 then self.statusElapsed = 0; if WCS.Settings and WCS.Settings.RefreshBridge then WCS.Settings:RefreshBridge() end end
 end
 

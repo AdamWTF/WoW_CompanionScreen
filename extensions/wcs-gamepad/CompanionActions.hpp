@@ -76,6 +76,14 @@ namespace wcs_gamepad
             return parsed != CompanionSystemAction::Unknown;
         }
 
+        bool SetWoWAction(std::string_view layer, std::string_view control, int slot)
+        {
+            const int layerIndex = ControllerLayer(layer), controlIndex = ControllerControl(control);
+            if (layerIndex < 0 || controlIndex < 0 || slot < 1 || slot > 120) return false;
+            actions_[layerIndex][controlIndex] = CompanionAction::WoW(slot);
+            return true;
+        }
+
         const CompanionAction& Get(int layer, int control) const
         {
             static const CompanionAction none;

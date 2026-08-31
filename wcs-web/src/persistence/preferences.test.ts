@@ -24,4 +24,16 @@ describe("preferences", () => {
     expect(preferences.shortcutVisibility.Settings).toBe(false);
     expect(preferences.shortcutVisibility.Player).toBe(true);
   });
+
+  it("migrates only the legacy plain-B bags binding to Shift+B", () => {
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("localStorage", { getItem: () => JSON.stringify({ shortcutBindings: { Bags: { key: "B", modifiers: [] } } }) });
+    expect(loadPreferences().shortcutBindings.Bags).toEqual({ key: "B", modifiers: ["SHIFT"] });
+  });
+
+  it("preserves a customized bags binding", () => {
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("localStorage", { getItem: () => JSON.stringify({ shortcutBindings: { Bags: { key: "F8", modifiers: ["CTRL"] } } }) });
+    expect(loadPreferences().shortcutBindings.Bags).toEqual({ key: "F8", modifiers: ["CTRL"] });
+  });
 });

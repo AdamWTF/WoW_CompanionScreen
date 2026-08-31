@@ -23,4 +23,14 @@ describe("bridgeReducer", () => {
     expect(result.hasSnapshot).toBe(false);
     expect(result.bridgeState.player).toBeNull();
   });
+
+  it("uses a later full snapshot to repair stale incremental state", () => {
+    const first = { ...emptyBridgeState(), game: { state: "world" as const } };
+    const ready = bridgeReducer(initialRuntimeState, { type: "message", message: { type: "state.snapshot", data: first } });
+    const stale = { slot: 3, empty: false as const, kind: "spell", id: 7, name: "Stale", icon: "", text: "", count: 0, usable: true, insufficientResource: false, inRange: true, current: false, equipped: false, cooldown: { active: false, durationMs: 0, remainingMs: 0 } };
+    const incremented = bridgeReducer(ready, { type: "message", message: { type: "action.updated", data: stale } });
+    const repaired = bridgeReducer(incremented, { type: "message", message: { type: "state.snapshot", data: first } });
+    expect(repaired.bridgeState.actions.slots[2]).toEqual({ slot: 3, empty: true });
+    expect(repaired.bridgeState.actions.slots).toHaveLength(24);
+  });
 });

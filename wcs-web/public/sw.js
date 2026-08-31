@@ -1,6 +1,6 @@
 const scope = new URL(self.registration.scope);
 const scoped = (path = "") => new URL(path.replace(/^\/+/, ""), scope).toString();
-const CACHE = `wcs-shell-v4-${scope.pathname}`;
+const CACHE = `wcs-shell-v5-${scope.pathname}`;
 const SHELL = [
   "",
   "manifest.webmanifest",

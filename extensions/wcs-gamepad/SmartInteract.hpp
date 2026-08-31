@@ -9,7 +9,7 @@ namespace wcs_gamepad
 {
     struct SmartInteractVec3 { float x{}, y{}, z{}; };
     enum class SmartInteractKind { Unit, GameObject };
-    enum class SmartInteractPriority { GenericNpc, GameObject, ServiceNpc, QuestAvailable, QuestTurnIn };
+    enum class SmartInteractPriority { GenericNpc, GameObject, ServiceNpc, QuestAvailable, QuestTurnIn, SkinnableCorpse, LootableCorpse };
     enum class SmartInteractResult { Success, TargetSelected, TargetOutOfRange, NoTarget, BlockedInCombat, InvalidTarget };
 
     const char* SmartInteractResultName(SmartInteractResult result);
@@ -27,6 +27,8 @@ namespace wcs_gamepad
         float serviceNpcBonus{30.0f};
         float genericNpcBonus{20.0f};
         float gameObjectBonus{15.0f};
+        float skinnableCorpseBonus{45.0f};
+        float lootableCorpseBonus{50.0f};
         bool debug{};
     };
 

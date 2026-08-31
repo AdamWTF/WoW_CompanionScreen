@@ -64,6 +64,13 @@ namespace wcs_gamepad
         if (!supported && g_api) g_api->Log(WXL_LOG_WARN, kTag, "unknown or invalid System Action mapping: layer=%s control=%s action=%s", layer, control, action);
         return supported;
     }
+    bool ControllerGameplay::SetWoWAction(const char* layer, const char* control, int slot)
+    {
+        if (!layer || !control) return false;
+        const bool supported = actionMap_.SetWoWAction(layer, control, slot);
+        if (!supported && g_api) g_api->Log(WXL_LOG_WARN, kTag, "invalid WoW action mapping: layer=%s control=%s slot=%d", layer, control, slot);
+        return supported;
+    }
     bool ControllerGameplay::SupportsSystemAction(const char* action) { return action && ParseSystemAction(action) != CompanionSystemAction::Unknown; }
     void ControllerGameplay::Release(uint32_t time)
     {
@@ -111,10 +118,14 @@ namespace wcs_gamepad
         if (opposing) { uiDirection_ = -1; uiRepeatAt_ = 0; }
         if (uiDirection_ >= 0 && static_cast<int32_t>(time - uiRepeatAt_) >= 0) { input_.UINavigation(commands[uiDirection_]); uiRepeatAt_ = time + 100; }
         for (int i = 0; i < 4; ++i) uiDirections_[i] = directions[i];
-        if (s.south && !previous_.south) input_.UINavigation(UINavigationCommand::Confirm);
-        if (s.east && !previous_.east) { input_.UINavigation(UINavigationCommand::Back); if (!uiNavigation_) return; }
+        const bool confirm = menuConfirmEast_ ? s.east : s.south;
+        const bool previousConfirm = menuConfirmEast_ ? previous_.east : previous_.south;
+        const bool back = menuConfirmEast_ ? s.south : s.east;
+        const bool previousBack = menuConfirmEast_ ? previous_.south : previous_.east;
+        if (confirm && !previousConfirm) input_.UINavigation(UINavigationCommand::Confirm);
+        if (back && !previousBack) { input_.UINavigation(UINavigationCommand::Back); if (!uiNavigation_) return; }
         if (s.start && !previous_.start) { input_.Command(GameCommand::ToggleGameMenu); if (!uiNavigation_) return; }
-        if (s.back && !previous_.back) input_.Command(GameCommand::ToggleAllBags);
+        if (s.back && !previous_.back) input_.Command(GameCommand::ToggleWorldMap);
     }
     void ControllerGameplay::Update(const ControllerSnapshot& snapshot, float dt, uint32_t time)
     {
@@ -139,7 +150,7 @@ namespace wcs_gamepad
         if (s.leftShoulder && !previous_.leftShoulder) input_.Target(config_.previousHostile); if (s.rightShoulder && !previous_.rightShoulder) input_.Target(config_.nextHostile);
         bool toggledInterface = false;
         if (s.start && !previous_.start) { input_.Command(GameCommand::ToggleGameMenu); toggledInterface = true; }
-        if (s.back && !previous_.back) { input_.Command(GameCommand::ToggleAllBags); toggledInterface = true; }
+        if (s.back && !previous_.back) { input_.Command(GameCommand::ToggleWorldMap); toggledInterface = true; }
         if (toggledInterface || uiNavigation_) { previous_ = s; return; }
         if (s.leftStickButton && !previous_.leftStickButton) input_.Command(GameCommand::NextView); if (s.rightStickButton && !previous_.rightStickButton) input_.Target(config_.nextFriendly);
         const bool buttons[8] = {s.dpadUp,s.dpadDown,s.dpadLeft,s.dpadRight,s.south,s.east,s.west,s.north};

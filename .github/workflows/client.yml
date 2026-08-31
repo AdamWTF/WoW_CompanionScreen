@@ -9,14 +9,17 @@ on:
       - 'addon/**'
       - 'deps/**'
       - 'docs/CLIENT_INSTALL.md'
+      - 'docs/RELEASING.md'
       - 'extensions/**'
       - 'include/**'
       - 'scripts/package-client-release.ps1'
+      - 'scripts/validate-version.ps1'
       - 'src/**'
       - 'tests/**'
       - 'CMakeLists.txt'
       - 'LICENSE'
       - 'NOTICE.md'
+      - 'CHANGELOG.md'
       - 'README.md'
   pull_request:
     branches: [main]
@@ -25,14 +28,17 @@ on:
       - 'addon/**'
       - 'deps/**'
       - 'docs/CLIENT_INSTALL.md'
+      - 'docs/RELEASING.md'
       - 'extensions/**'
       - 'include/**'
       - 'scripts/package-client-release.ps1'
+      - 'scripts/validate-version.ps1'
       - 'src/**'
       - 'tests/**'
       - 'CMakeLists.txt'
       - 'LICENSE'
       - 'NOTICE.md'
+      - 'CHANGELOG.md'
       - 'README.md'
   workflow_dispatch:
 
@@ -72,6 +78,11 @@ jobs:
           }
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           Write-Host "Version: $version"
+
+      - name: Validate committed component versions
+        run: |
+          if ($env:GITHUB_REF_TYPE -eq 'tag') { ./scripts/validate-version.ps1 -Version '${{ steps.version.outputs.version }}' }
+          else { ./scripts/validate-version.ps1 }
 
       - name: Configure Win32 build
         run: cmake -S . -B build -A Win32

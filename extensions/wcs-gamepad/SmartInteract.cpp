@@ -54,6 +54,8 @@ namespace wcs_gamepad
         config.serviceNpcBonus = std::clamp(finite(config.serviceNpcBonus, defaults.serviceNpcBonus), 0.0f, 1000.0f);
         config.genericNpcBonus = std::clamp(finite(config.genericNpcBonus, defaults.genericNpcBonus), 0.0f, 1000.0f);
         config.gameObjectBonus = std::clamp(finite(config.gameObjectBonus, defaults.gameObjectBonus), 0.0f, 1000.0f);
+        config.skinnableCorpseBonus = std::clamp(finite(config.skinnableCorpseBonus, defaults.skinnableCorpseBonus), 0.0f, 1000.0f);
+        config.lootableCorpseBonus = std::clamp(finite(config.lootableCorpseBonus, defaults.lootableCorpseBonus), 0.0f, 1000.0f);
         return config;
     }
 
@@ -64,6 +66,8 @@ namespace wcs_gamepad
         case SmartInteractPriority::QuestTurnIn: return config_.questTurnInBonus;
         case SmartInteractPriority::QuestAvailable: return config_.questAvailableBonus;
         case SmartInteractPriority::ServiceNpc: return config_.serviceNpcBonus;
+        case SmartInteractPriority::SkinnableCorpse: return config_.skinnableCorpseBonus;
+        case SmartInteractPriority::LootableCorpse: return config_.lootableCorpseBonus;
         case SmartInteractPriority::GameObject: return config_.gameObjectBonus;
         default: return config_.genericNpcBonus;
         }
