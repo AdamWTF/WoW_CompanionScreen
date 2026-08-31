@@ -60,4 +60,7 @@ Use focused tests while iterating, then run the relevant complete set before fin
 - GitHub Pages from `main` is the only maintained PWA publication channel.
 - Do not add PWA release archives, PWA release tags, or published container-image workflows.
 - The retained Docker files are for unsupported source-based LAN self-hosting only.
-- Native client releases remain tag-driven through `.github/workflows/client.yml`.
+- Prepare version changes on a focused branch and merge them through a pull request. Update every version-bearing native, add-on, and PWA file plus `CHANGELOG.md` in the same branch.
+- Run `./scripts/validate-version.ps1` before merging a version change.
+- A validated version merged to `main` must automatically create its missing `client-vX.Y.Z` tag and GitHub Release through `.github/workflows/client.yml` after native tests pass.
+- Do not create the normal client release manually. A manually pushed `client-vX.Y.Z` tag is a recovery path only and requires an explicit user request.
