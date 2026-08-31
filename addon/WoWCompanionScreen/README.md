@@ -4,7 +4,7 @@ WoW Companion Screen targets World of Warcraft 3.3.5a build 12340. Open its nati
 
 ## Native controller integration contract
 
-Controller mappings directly mirror the three horizontal Blizzard action bars and are exposed through globally named `SecureActionButtonTemplate` frames. Controls use positional names (`DPadUp`, `DPadDown`, `DPadLeft`, `DPadRight`, `South`, `East`, `West`, and `North`) through `WCS.Controller:GetButton(layer, control)`.
+Controller mappings mirror Blizzard's action bars and are exposed through globally named `SecureActionButtonTemplate` frames. The Default layer follows the live primary page/form action slots; modifier layers remain fixed. Controls use positional names (`DPadUp`, `DPadDown`, `DPadLeft`, `DPadRight`, `South`, `East`, `West`, and `North`) through `WCS.Controller:GetButton(layer, control)`.
 
 The deterministic global button names are:
 
@@ -25,7 +25,7 @@ The addon synchronizes overrides through `WCSGamepadResetSystemActions`, `WCSGam
 
 ## Controller UI navigation
 
-UI navigation is enabled by default with controller support and can be disabled independently in WCS settings. Out of combat, supported stock panels redirect D-pad input to spatial focus, South to confirm, and East to back while suppressing gameplay controls. The first supported set is the game menu, static confirmation popups, gossip and quest dialogs, merchants, bags, and WCS's own settings. Bag confirmation uses the stock right-click use/equip behavior.
+UI navigation is enabled by default with controller support and can be disabled independently in WCS settings. Out of combat, supported stock panels redirect D-pad input to spatial focus, South to confirm, and East to back while suppressing gameplay controls. The confirm/back orientation can be reversed without changing combat mappings. The first supported set is the game menu, static confirmation popups, gossip and quest dialogs, merchants, bags, and WCS's own settings. Bag confirmation uses the stock right-click use/equip behavior.
 
 The native extension exposes `WCSGamepadSetUINavigationActive(active)`, `WCSGamepadMovePointer(normalizedX, normalizedY)`, and `WCSGamepadClickPointer(button)`. WCS supplies `WCS.UINavigation:Handle(command)` for the native extension to dispatch `up`, `down`, `left`, `right`, `confirm`, and `back`. Navigation deactivates during combat and whenever no supported panel is visible.
 

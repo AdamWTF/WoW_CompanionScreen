@@ -79,12 +79,24 @@ int main()
     Check(ReceiveFrame(client).find("\"type\":\"auth.ok\"") != std::string::npos, "auth ok second");
     Check(ReceiveFrame(client).find("\"type\":\"state.snapshot\"") != std::string::npos, "snapshot third");
 
+    for (int slot = 1; slot <= 32; ++slot)
+        Check(server.Send(json::Value::Object{{"type", "action.updated"}, {"data", json::Value::Object{{"slot", slot}}}}, true), "queue replaceable delta");
+    StateStore repairedState;
+    Check(server.Send(repairedState.SnapshotMessage(), true), "queue authoritative snapshot");
+    Check(ReceiveFrame(client).find("\"type\":\"state.snapshot\"") != std::string::npos, "snapshot supersedes queued deltas");
+
     Check(SendAll(client, MaskedFrame("not-json")), "send malformed JSON");
     Check(ReceiveFrame(client).find("invalid-message") != std::string::npos, "malformed JSON rejected");
     Check(SendAll(client, MaskedFrame("ping", 9)), "send ping"); unsigned char opcode = 0; Check(ReceiveFrame(client, &opcode) == "ping" && opcode == 10, "pong mirrors payload");
 
     SOCKET second = Connect(); Upgrade(second); Check(ReceiveFrame(second).find("client-busy") != std::string::npos, "second client rejected"); closesocket(second);
     Check(SendAll(client, std::string("\x81\x02{}", 4)), "send unmasked frame"); ReceiveFrame(client, &opcode); Check(opcode == 8, "unmasked frame closes session");
+    closesocket(client);
+    for (int i = 0; i < 100 && server.Connected(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    client = Connect(); Upgrade(client); Check(SendAll(client, MaskedFrame(hello)), "send reconnect hello");
+    Check(ReceiveFrame(client).find("\"type\":\"hello\"") != std::string::npos, "reconnect server hello");
+    Check(ReceiveFrame(client).find("auth.ok") != std::string::npos, "reconnect authenticates");
+    Check(ReceiveFrame(client).find("state.snapshot") != std::string::npos, "reconnect receives authoritative snapshot");
     closesocket(client); server.Stop();
 
     PairingManager wirePairing(pairingPath); Check(wirePairing.Initialise(true), "wire pairing starts unpaired"); const std::string wireCode = wirePairing.PairingCode();

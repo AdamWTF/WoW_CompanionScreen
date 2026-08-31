@@ -91,7 +91,7 @@ namespace wcs_gamepad
         switch (command)
         {
         case GameCommand::ToggleGameMenu: Key(VK_ESCAPE, true); Key(VK_ESCAPE, false); break;
-        case GameCommand::ToggleAllBags: wxl::game::script::Execute("OpenAllBags()"); break;
+        case GameCommand::ToggleWorldMap: wxl::game::script::Execute("ToggleWorldMap()"); break;
         case GameCommand::NextView: wxl::game::script::Execute("NextView()"); break;
         }
     }

@@ -43,12 +43,18 @@ namespace wcs_gamepad
         if ((type & wxl::game::world::kTypeMaskUnit) != 0 && (type & wxl::game::world::kTypeMaskPlayer) == 0)
         {
             const uint32_t npcFlags = wxl::game::interaction::UnitNpcFlags(object);
+            const uint32_t unitFlags = wxl::game::interaction::UnitFlags(object);
+            const uint32_t dynamicFlags = wxl::game::interaction::UnitDynamicFlags(object);
             const bool friendlyOrNeutral = wxl::game::unit::Reaction(player, object) >= 3;
+            const bool lootable = (dynamicFlags & wxl::game::interaction::off::kUnitDynamicFlagLootable) != 0;
+            const bool skinnable = (unitFlags & wxl::game::interaction::off::kUnitFlagSkinnable) != 0;
             candidate.kind = SmartInteractKind::Unit;
             candidate.selectable = candidate.active && wxl::game::interaction::Selectable(object);
-            candidate.interactable = friendlyOrNeutral && npcFlags != 0;
+            candidate.interactable = lootable || skinnable || (friendlyOrNeutral && npcFlags != 0);
             // NPC_FLAG_QUESTGIVER establishes eligibility, but not verified available/turn-in state.
-            if (npcFlags & (kNpcGossip | kNpcServiceMask)) candidate.priority = SmartInteractPriority::ServiceNpc;
+            if (lootable) candidate.priority = SmartInteractPriority::LootableCorpse;
+            else if (skinnable) candidate.priority = SmartInteractPriority::SkinnableCorpse;
+            else if (npcFlags & (kNpcGossip | kNpcServiceMask)) candidate.priority = SmartInteractPriority::ServiceNpc;
             else candidate.priority = SmartInteractPriority::GenericNpc;
             return candidate;
         }

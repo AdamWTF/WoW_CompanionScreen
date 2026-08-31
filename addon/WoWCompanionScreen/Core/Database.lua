@@ -22,6 +22,7 @@ function WCS.Database:Initialize()
     local controller = tableValue(WCSDB, "controller")
     booleanDefault(controller, "enabled", true)
     booleanDefault(controller, "uiNavigation", true)
+    if controller.menuConfirm ~= "south" and controller.menuConfirm ~= "east" then controller.menuConfirm = "south" end
     if controller.glyphFamily ~= "auto" and controller.glyphFamily ~= "xbox" and controller.glyphFamily ~= "playstation" and controller.glyphFamily ~= "aynthor" then controller.glyphFamily = "auto" end
     local assignments = tableValue(controller, "assignments")
     for _, layer in ipairs(WCS.Constants.CONTROLLER_LAYERS) do

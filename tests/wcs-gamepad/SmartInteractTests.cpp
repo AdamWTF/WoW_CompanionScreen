@@ -109,10 +109,16 @@ int main()
     const auto service = resolver.Score(Unit(2, 4, 0, SmartInteractPriority::ServiceNpc), {}, {1, 0, 0});
     const auto available = resolver.Score(Unit(3, 4, 0, SmartInteractPriority::QuestAvailable), {}, {1, 0, 0});
     const auto turnIn = resolver.Score(Unit(4, 4, 0, SmartInteractPriority::QuestTurnIn), {}, {1, 0, 0});
-    assert(generic && service && available && turnIn);
+    const auto skinnable = resolver.Score(Unit(5, 4, 0, SmartInteractPriority::SkinnableCorpse), {}, {1, 0, 0});
+    const auto lootable = resolver.Score(Unit(6, 4, 0, SmartInteractPriority::LootableCorpse), {}, {1, 0, 0});
+    assert(generic && service && available && turnIn && skinnable && lootable);
     assert(std::abs(service->total - generic->total - 10.0f) < .001f);
     assert(std::abs(available->total - generic->total - 15.0f) < .001f);
     assert(std::abs(turnIn->total - generic->total - 20.0f) < .001f);
+    assert(skinnable->total > turnIn->total && lootable->total > skinnable->total);
+
+    best = resolver.FindBest({Unit(30, 4, 0, SmartInteractPriority::GenericNpc), Unit(31, 4, 0, SmartInteractPriority::LootableCorpse)}, {}, {1, 0, 0});
+    assert(best && best->candidate.guid == 31);
 
     FakeWorld world;
     SmartInteractExecutor executor(world);
@@ -120,6 +126,11 @@ int main()
     world.current = Unit(10, 3, 0);
     assert(executor.Execute() == SmartInteractResult::Success);
     assert(world.interactions == std::vector<uint64_t>{10} && world.targets.empty());
+
+    world = {}; world.current = Unit(22, 3, 0, SmartInteractPriority::LootableCorpse);
+    SmartInteractExecutor targetedCorpse(world);
+    assert(targetedCorpse.Execute() == SmartInteractResult::Success);
+    assert(world.interactions == std::vector<uint64_t>{22} && world.targets.empty());
 
     world = {}; world.current = Unit(11, 7, 0);
     SmartInteractExecutor outOfRange(world);

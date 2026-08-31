@@ -2,7 +2,7 @@ local addonName, WCS = ...
 _G.WCS = WCS
 
 WCS.Constants = {
-    DB_VERSION = 4,
+    DB_VERSION = 5,
     DEFAULT_PORT = 18423,
     MEDIA = [[Interface\AddOns\WoWCompanionScreen\media\]],
     CONTROLLER_LAYERS = { "default", "l2", "r2", "l2r2" },
@@ -15,8 +15,8 @@ WCS.Constants = {
     CONTROLLER_BUTTON_PREFIXES = {
         default = "WCSControllerDefault", l2 = "WCSControllerL2_", r2 = "WCSControllerR2_", l2r2 = "WCSControllerL2R2_",
     },
-    -- The three horizontal Blizzard bars: MainMenuBar (1-12),
-    -- MultiBarBottomLeft (49-60), and MultiBarBottomRight (61-72).
+    -- Default is resolved through the live Blizzard main/bonus bar. Modifier
+    -- layers stay on the fixed MainMenuBar and lower multi-bar slots below.
     CONTROLLER_ACTIONS = {
         default = { 1, 2, 3, 4, 5, 6, 7, 8 },
         l2 = { 9, 10, 11, 12, 49, 50, 51, 52 },

@@ -15,7 +15,7 @@ Movement, camera control, actions, Jump, Smart Interact and supported menu navig
 | L3 / left-stick click | Cycle WoW's camera views |
 | R3 / right-stick click | Next friendly target |
 | Start / Menu / Options | Open or close the WoW game menu |
-| Select / View / Share | Open or close all bags |
+| Select / View / Share | Open or close the world map |
 | L2 and R2 | Switch between the Default, L2, R2 and L2+R2 action layers |
 | D-pad and face buttons | Use one of eight actions in the current layer |
 
@@ -30,7 +30,7 @@ The 32 controller actions use WoW's existing action slots:
 
 | Layer | WoW action slots |
 |---|---|
-| Default | 1–8 |
+| Default | The live ActionButton 1–8 slots for the current page/form |
 | L2 | 9–12 and 49–52 |
 | R2 | 53–60 |
 | L2 + R2 | 61–68 |
@@ -69,9 +69,11 @@ Controller UI navigation can be switched on or off separately under **Display & 
 When a supported panel is open and you're out of combat:
 
 * the D-pad moves the highlight
-* **South** confirms or activates the highlighted item
-* **East** goes back
+* **South** confirms or activates the highlighted item by default
+* **East** goes back by default
 * movement, camera, targeting and action inputs pause until you close the panel or enter combat
+
+The **Menu Confirm** option under **Display & Connection** reverses South and East for menus only. It never changes combat action assignments.
 
 Supported panels include the game menu, confirmation popups, gossip and quest windows, merchants, bags and WoW Companion Screen's own settings.
 

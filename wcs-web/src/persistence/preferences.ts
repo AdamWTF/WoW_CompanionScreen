@@ -5,7 +5,7 @@ export type ShortcutName = typeof shortcutNames[number];
 
 export const defaultBindings: Record<ShortcutName, ShortcutBinding> = {
   Player: { key: "C", modifiers: [] },
-  Bags: { key: "B", modifiers: [] },
+  Bags: { key: "B", modifiers: ["SHIFT"] },
   "Spell Book": { key: "P", modifiers: [] },
   Talents: { key: "N", modifiers: [] },
   Achievements: { key: "Y", modifiers: [] },
@@ -42,11 +42,15 @@ export function loadPreferences(): CompanionScreenPreferences {
   if (typeof window === "undefined") return defaults;
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
+    const savedBindings = { ...(saved.shortcutBindings ?? {}) };
+    const legacyBags = savedBindings.Bags;
+    if (legacyBags?.key === "B" && Array.isArray(legacyBags.modifiers) && legacyBags.modifiers.length === 0)
+      savedBindings.Bags = defaultBindings.Bags;
     return {
       ...defaults,
       ...saved,
       authToken: null,
-      shortcutBindings: { ...defaultBindings, ...(saved.shortcutBindings ?? {}) },
+      shortcutBindings: { ...defaultBindings, ...savedBindings },
       shortcutVisibility: { ...defaultShortcutVisibility, ...(saved.shortcutVisibility ?? {}) },
     };
   } catch { return defaults; }

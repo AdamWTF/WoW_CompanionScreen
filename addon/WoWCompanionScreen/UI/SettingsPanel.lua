@@ -70,7 +70,7 @@ function Settings:CreateSecondScreenPage(parent)
     self.secondScreenCells = {}
     for logical = 1, C.SECOND_SCREEN_SLOT_COUNT do
         local actionID = WCS.SecondScreen:GetActionID(logical); local cell = Widgets:CreateActionCell(page, "WCSSecondScreenButton" .. logical, 50, "native")
-        local column, row = (logical - 1) % 8, math.floor((logical - 1) / 8); cell:SetPoint("TOPLEFT", page, "TOPLEFT", 20 + column * 62, -106 - row * 94)
+        local column, row = (logical - 1) % 6, math.floor((logical - 1) / 6); cell:SetPoint("TOPLEFT", page, "TOPLEFT", 74 + column * 62, -92 - row * 78)
         cell.logical, cell.actionID = logical, actionID; cell.label:SetText(logical); self.secondScreenCells[logical] = cell
         cell:SetScript("OnEnter", function(button) if HasAction(button.actionID) then showTooltip(button) end end); cell:SetScript("OnLeave", function() GameTooltip:Hide() end)
         cell:SetScript("OnDragStart", function(button) if not InCombatLockdown() and HasAction(button.actionID) then PickupAction(button.actionID) else if InCombatLockdown() then self:SetStatus("Leave combat to edit action slots.", true) end end end)
@@ -85,22 +85,27 @@ end
 
 function Settings:CreateDisplayPage(parent)
     local page = CreateFrame("Frame", nil, parent); page:SetAllPoints(parent); page:SetFrameLevel(parent:GetFrameLevel() + 5); page:Hide(); self.pages[3] = page
-    local controller = Widgets:CreateSection(page, "Controller", 14, -14, 492, 128)
+    local controller = Widgets:CreateSection(page, "Controller", 14, -14, 492, 140)
     self.controllerCheck = Widgets:CreateCheck(controller, "Enable Controller Support", 10, -31, function(value) WCSDB.controller.enabled = value; WCS.Display:Apply(); WCS.UINavigation:Reconcile(); self:RefreshDisplayPage() end)
     self.navigationCheck = Widgets:CreateCheck(controller, "Enable Controller UI Navigation", 10, -62, function(value) WCSDB.controller.uiNavigation = value; WCS.UINavigation:Reconcile(); self:RefreshDisplayPage() end)
-    self.controllerNative = controller:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); self.controllerNative:SetPoint("TOPLEFT", controller, "TOPLEFT", 15, -98)
+    self.controllerNative = controller:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); self.controllerNative:SetPoint("TOPLEFT", controller, "TOPLEFT", 15, -116)
     self.glyphButton = CreateFrame("Button", nil, controller, "UIPanelButtonTemplate"); self.glyphButton:SetSize(180, 24); self.glyphButton:SetPoint("TOPRIGHT", controller, "TOPRIGHT", -14, -36)
     self.glyphButton:SetScript("OnClick", function()
         local nextFamily = { auto = "xbox", xbox = "playstation", playstation = "aynthor", aynthor = "auto" }
         WCSDB.controller.glyphFamily = nextFamily[WCSDB.controller.glyphFamily] or "auto"
         self:RefreshAll()
     end)
+    self.confirmButton = CreateFrame("Button", nil, controller, "UIPanelButtonTemplate"); self.confirmButton:SetSize(180, 24); self.confirmButton:SetPoint("TOPRIGHT", controller, "TOPRIGHT", -14, -68)
+    self.confirmButton:SetScript("OnClick", function()
+        WCSDB.controller.menuConfirm = WCSDB.controller.menuConfirm == "east" and "south" or "east"
+        WCS.Native:SetMenuConfirm(WCSDB.controller.menuConfirm); WCS.Controller:MarkSyncDirty(); self:RefreshDisplayPage()
+    end)
 
-    local screen = Widgets:CreateSection(page, "Second Screen", 14, -152, 492, 104)
+    local screen = Widgets:CreateSection(page, "Second Screen", 14, -164, 492, 84)
     self.screenCheck = Widgets:CreateCheck(screen, "Enable Second Screen", 10, -31, function(value) WCSDB.secondScreen.enabled = value; WCS.Display:Apply(); self:RefreshDisplayPage() end)
     self.reduceCheck = Widgets:CreateCheck(screen, "Enable Reduced In-Game UI", 10, -62, function(value) WCSDB.secondScreen.reduceUI = value; WCS.Display:Apply(); self:RefreshDisplayPage() end)
 
-    local appearance = Widgets:CreateSection(page, "Appearance", 14, -266, 492, 76)
+    local appearance = Widgets:CreateSection(page, "Appearance", 14, -258, 492, 76)
     local scaleDown = CreateFrame("Button", nil, appearance, "UIPanelButtonTemplate"); scaleDown:SetSize(28, 22); scaleDown:SetPoint("TOPLEFT", appearance, "TOPLEFT", 14, -35); scaleDown:SetText("-")
     self.scaleLabel = appearance:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); self.scaleLabel:SetPoint("LEFT", scaleDown, "RIGHT", 12, 0)
     local scaleUp = CreateFrame("Button", nil, appearance, "UIPanelButtonTemplate"); scaleUp:SetSize(28, 22); scaleUp:SetPoint("LEFT", self.scaleLabel, "RIGHT", 12, 0); scaleUp:SetText("+")
@@ -112,7 +117,7 @@ function Settings:CreateDisplayPage(parent)
     local function changeGlyphScale(delta) WCSDB.display.glyphScale = math.max(.75, math.min(1.35, WCSDB.display.glyphScale + delta)); self:RefreshAll() end
     glyphDown:SetScript("OnClick", function() changeGlyphScale(-.05) end); glyphUp:SetScript("OnClick", function() changeGlyphScale(.05) end)
 
-    local connection = Widgets:CreateSection(page, "Connection", 14, -352, 492, 92)
+    local connection = Widgets:CreateSection(page, "Connection", 14, -344, 492, 94)
     self.connectionStatus = connection:CreateFontString(nil, "OVERLAY", "GameFontHighlight"); self.connectionStatus:SetPoint("TOPLEFT", connection, "TOPLEFT", 14, -34); self.connectionStatus:SetJustifyH("LEFT")
     self.connectionEndpoint = connection:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"); self.connectionEndpoint:SetPoint("TOPLEFT", self.connectionStatus, "BOTTOMLEFT", 0, -6)
     self.connectionPairing = connection:CreateFontString(nil, "OVERLAY", "GameFontNormal"); self.connectionPairing:SetPoint("TOPLEFT", self.connectionEndpoint, "BOTTOMLEFT", 0, -6)
@@ -174,6 +179,7 @@ function Settings:RefreshDisplayPage()
     if WCSGamepadConfiguredGlyphStyle and WCSGamepadConfiguredGlyphStyle ~= "Auto" then
         self.glyphButton:SetText("Glyphs: " .. WCSGamepadConfiguredGlyphStyle .. " (config)"); self.glyphButton:Disable()
     else self.glyphButton:SetText("Glyphs: " .. (familyLabels[WCSDB.controller.glyphFamily] or "Auto")); self.glyphButton:Enable() end
+    self.confirmButton:SetText(WCSDB.controller.menuConfirm == "east" and "Menu Confirm: East" or "Menu Confirm: South")
     self.scaleLabel:SetText(string.format("Action: %d%%", math.floor(WCSDB.display.actionScale * 100 + .5))); self.glyphScaleLabel:SetText(string.format("Glyph: %d%%", math.floor(WCSDB.display.glyphScale * 100 + .5))); self:RefreshBridge()
 end
 function Settings:RefreshBridge()

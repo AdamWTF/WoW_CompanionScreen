@@ -1,7 +1,7 @@
 local addonName, WCS = ...
 local C = WCS.Constants
 
-WCS.Controller = { buttons = {}, pending = false, syncDirty = true, unknownLogged = {} }
+WCS.Controller = { buttons = {}, pending = false, syncDirty = true, unknownLogged = {}, resolvedMain = {}, pageElapsed = 0 }
 local Controller = WCS.Controller
 
 function Controller:ButtonName(layer, control)
@@ -12,7 +12,29 @@ end
 function Controller:GetActionID(layer, control)
     local actions = C.CONTROLLER_ACTIONS[layer]
     if not actions then return nil end
-    for index, candidate in ipairs(C.CONTROLLER_CONTROLS) do if candidate == control then return actions[index] end end
+    for index, candidate in ipairs(C.CONTROLLER_CONTROLS) do
+        if candidate == control then return layer == "default" and (self.resolvedMain[control] or actions[index]) or actions[index] end
+    end
+end
+
+function Controller:ResolveMainActions()
+    local changed = false
+    for index, control in ipairs(C.CONTROLLER_CONTROLS) do
+        local frame, resolved = _G["ActionButton" .. index], nil
+        if frame and type(ActionButton_CalculateAction) == "function" then
+            local ok, value = pcall(ActionButton_CalculateAction, frame)
+            if ok then resolved = tonumber(value) end
+        end
+        resolved = resolved or (frame and tonumber(frame.action)) or C.CONTROLLER_ACTIONS.default[index]
+        if resolved < 1 or resolved > 120 then resolved = C.CONTROLLER_ACTIONS.default[index] end
+        if self.resolvedMain[control] ~= resolved then self.resolvedMain[control] = resolved; changed = true end
+    end
+    if changed then
+        self:MarkSyncDirty()
+        if WCS.ActionOverlay and WCS.ActionOverlay.frame then WCS.ActionOverlay:Refresh() end
+        if WCS.Settings and WCS.Settings.frame and WCS.Settings.frame:IsShown() then WCS.Settings:RefreshActions() end
+    end
+    return changed
 end
 
 function Controller:GetOverride(layer, control)
@@ -22,6 +44,7 @@ function Controller:GetOverride(layer, control)
 end
 
 function Controller:CreateButtons()
+    self:ResolveMainActions()
     for _, layer in ipairs(C.CONTROLLER_LAYERS) do
         self.buttons[layer] = {}
         for index, control in ipairs(C.CONTROLLER_CONTROLS) do
@@ -37,7 +60,7 @@ end
 function Controller:Apply(button)
     if InCombatLockdown() then self.pending = true; return false end
     if self:GetOverride(button.layer, button.control) then button:SetAttribute("type", nil); button:SetAttribute("action", nil)
-    else button:SetAttribute("type", "action"); button:SetAttribute("action", button.actionID) end
+    else button:SetAttribute("type", "action"); button:SetAttribute("action", self:GetActionID(button.layer, button.control)) end
     return true
 end
 
@@ -153,13 +176,19 @@ function Controller:SyncSystemActions()
                     self.unknownLogged[assignment.action] = true
                     DEFAULT_CHAT_FRAME:AddMessage("|cffff5050[WCS] Unknown System Action: " .. assignment.action .. "|r")
                 end
+            else
+                local supported = WCS.Native:SetWoWAction(layer, control, self:GetActionID(layer, control))
+                if supported ~= true then return false end
             end
         end
     end
+    if WCS.Native:SetMenuConfirm(WCSDB.controller.menuConfirm) ~= true then return false end
     self.syncDirty = false; return true
 end
 
-function Controller:Tick()
+function Controller:Tick(elapsed)
+    self.pageElapsed = self.pageElapsed + (elapsed or 0)
+    if self.pageElapsed >= .1 then self.pageElapsed = 0; self:ResolveMainActions() end
     if self.cancelCursorNextFrame then self:ClearInternalCursor() end
     if self.syncDirty then self:SyncSystemActions() end
 end

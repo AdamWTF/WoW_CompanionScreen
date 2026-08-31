@@ -49,6 +49,9 @@ int main()
     CompanionActionMap defaults; for (int layer = 0; layer < 4; ++layer) for (int control = 0; control < 8; ++control) { const CompanionAction& action = defaults.Get(layer, control); assert(action.type == CompanionActionType::WoWAction); assert(action.wowActionSlot == ControllerActionSlot(layer, control)); }
     CompanionActionMap interactLayers; const char* layerNames[] = {"default", "l2", "r2", "l2r2"};
     for (int layer = 0; layer < 4; ++layer) { assert(interactLayers.SetSystemAction(layerNames[layer], "east", "INTERACT")); assert(interactLayers.Get(layer, 5).systemAction == CompanionSystemAction::Interact); }
+    assert(interactLayers.SetWoWAction("default", "south", 73)); assert(interactLayers.Get(0, 4).wowActionSlot == 73);
+    assert(interactLayers.Get(1, 4).wowActionSlot == 49); assert(interactLayers.Get(2, 4).wowActionSlot == 57); assert(interactLayers.Get(3, 4).wowActionSlot == 65);
+    assert(!interactLayers.SetWoWAction("default", "south", 121));
     interactLayers.Reset(); for (int layer = 0; layer < 4; ++layer) assert(interactLayers.Get(layer, 5).type == CompanionActionType::WoWAction);
 
     ControllerConfig config; ParseChord("SHIFT+TAB", config.previousHostile); ParseChord("TAB", config.nextHostile); ParseChord("CTRL+TAB", config.nextFriendly);
@@ -62,7 +65,7 @@ int main()
     snapshot.state.leftTrigger = .44f; gameplay.Update(snapshot, .01f, 41); assert(gameplay.Layer() == 2); snapshot.state.rightTrigger = .44f; gameplay.Update(snapshot, .01f, 42); assert(gameplay.Layer() == 0);
     snapshot.state.leftShoulder = true; gameplay.Update(snapshot, .01f, 50); gameplay.Update(snapshot, .01f, 60); assert(input.targets.size() == 1 && input.targets[0] == "SHIFT+TAB");
     snapshot.state.start = true; snapshot.state.back = true; snapshot.state.leftStickButton = true; gameplay.Update(snapshot, .01f, 61); gameplay.Update(snapshot, .01f, 62);
-    assert(input.commands.size() == 2); assert(input.commands[0] == GameCommand::ToggleGameMenu); assert(input.commands[1] == GameCommand::ToggleAllBags);
+    assert(input.commands.size() == 2); assert(input.commands[0] == GameCommand::ToggleGameMenu); assert(input.commands[1] == GameCommand::ToggleWorldMap);
     snapshot.state.start = snapshot.state.back = snapshot.state.leftStickButton = false; gameplay.Update(snapshot, .01f, 63); snapshot.state.start = snapshot.state.back = snapshot.state.leftStickButton = true; gameplay.Update(snapshot, .01f, 64); assert(input.commands.size() == 4);
     snapshot.state.rightStickButton = true; gameplay.Update(snapshot, .01f, 65); assert(input.targets.size() == 2 && input.targets[1] == "CTRL+TAB");
     snapshot.state.start = snapshot.state.back = snapshot.state.leftStickButton = snapshot.state.rightStickButton = false; gameplay.Update(snapshot, .01f, 66);
@@ -89,12 +92,23 @@ int main()
     uiSnapshot.state.south = false; uiSnapshot.state.east = true; uiGameplay.Update(uiSnapshot, .01f, 759); assert(uiInput.uiCommands.back() == UINavigationCommand::Back);
     const size_t uiActionCount = uiInput.wowActions.size(), uiTargetCount = uiInput.targets.size(); uiSnapshot.state.leftShoulder = true; uiSnapshot.state.leftY = -.8f; uiSnapshot.state.rightX = 1; uiGameplay.Update(uiSnapshot, .01f, 759);
     assert(uiInput.wowActions.size() == uiActionCount && uiInput.targets.size() == uiTargetCount && !uiInput.movement[0] && !uiInput.camera);
-    uiSnapshot.state.start = true; uiSnapshot.state.back = true; uiGameplay.Update(uiSnapshot, .01f, 760); assert(uiInput.commands.size() == 2 && uiInput.commands[0] == GameCommand::ToggleGameMenu && uiInput.commands[1] == GameCommand::ToggleAllBags);
+    uiSnapshot.state.start = true; uiSnapshot.state.back = true; uiGameplay.Update(uiSnapshot, .01f, 760); assert(uiInput.commands.size() == 2 && uiInput.commands[0] == GameCommand::ToggleGameMenu && uiInput.commands[1] == GameCommand::ToggleWorldMap);
     const size_t uiBeforeFocusLoss = uiInput.uiCommands.size(); uiInput.foreground = false; uiSnapshot.state.dpadRight = true; uiGameplay.Update(uiSnapshot, .01f, 761); uiInput.foreground = true; uiGameplay.Update(uiSnapshot, .01f, 762); assert(uiInput.uiCommands.size() == uiBeforeFocusLoss);
     uiSnapshot.state = {}; uiGameplay.Update(uiSnapshot, .01f, 763); uiSnapshot.state.dpadRight = true; uiGameplay.Update(uiSnapshot, .01f, 764); assert(uiInput.uiCommands.back() == UINavigationCommand::Right);
     const size_t uiBeforeDisconnect = uiInput.uiCommands.size(); uiSnapshot.connected = false; ++uiSnapshot.generation; uiGameplay.Update(uiSnapshot, .01f, 765); uiSnapshot.connected = true; ++uiSnapshot.generation; uiGameplay.Update(uiSnapshot, .01f, 766); assert(uiInput.uiCommands.size() == uiBeforeDisconnect);
     uiSnapshot.state = {}; uiGameplay.Update(uiSnapshot, .01f, 767); uiGameplay.SetUINavigationActive(false, 768); assert(!uiGameplay.UINavigationActive()); uiGameplay.Update(uiSnapshot, .01f, 769);
     uiSnapshot.state.south = true; uiGameplay.Update(uiSnapshot, .01f, 770); assert(uiInput.systemActions.back().state == InputState::Pressed);
+
+    FakeInput eastConfirmInput; ControllerGameplay eastConfirmGameplay(config, eastConfirmInput, false); ControllerSnapshot eastConfirmSnapshot; eastConfirmSnapshot.generation = 1; eastConfirmSnapshot.connected = true;
+    eastConfirmGameplay.SetActive(true, 800); eastConfirmGameplay.Update(eastConfirmSnapshot, .01f, 801); eastConfirmGameplay.SetMenuConfirmEast(true); eastConfirmGameplay.SetUINavigationActive(true, 802);
+    eastConfirmGameplay.Update(eastConfirmSnapshot, .01f, 803); eastConfirmSnapshot.state.east = true; eastConfirmGameplay.Update(eastConfirmSnapshot, .01f, 804);
+    assert(eastConfirmInput.uiCommands.size() == 1 && eastConfirmInput.uiCommands.back() == UINavigationCommand::Confirm);
+    eastConfirmSnapshot.state = {}; eastConfirmGameplay.Update(eastConfirmSnapshot, .01f, 805); eastConfirmSnapshot.state.south = true; eastConfirmGameplay.Update(eastConfirmSnapshot, .01f, 806);
+    assert(eastConfirmInput.uiCommands.back() == UINavigationCommand::Back);
+
+    eastConfirmGameplay.SetUINavigationActive(false, 807); eastConfirmSnapshot.state = {}; eastConfirmGameplay.Update(eastConfirmSnapshot, .01f, 808);
+    eastConfirmSnapshot.state.south = true; eastConfirmGameplay.Update(eastConfirmSnapshot, .01f, 809);
+    assert(eastConfirmInput.wowActions.size() == 1 && eastConfirmInput.wowActions.back().slot == 5);
 
     FakeInput actionInput; ControllerGameplay actionGameplay(config, actionInput, false); ControllerSnapshot actionSnapshot; actionSnapshot.generation = 1; actionSnapshot.connected = true;
     actionGameplay.SetActive(true, 100); actionGameplay.Update(actionSnapshot, .01f, 101);

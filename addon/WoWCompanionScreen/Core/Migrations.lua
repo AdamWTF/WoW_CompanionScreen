@@ -19,6 +19,9 @@ function WCS.Migrations:Run(database)
     -- Version 4 introduces controller UI navigation. The database initializer
     -- enables it by default for both existing and new controller users.
 
+    -- Version 5 adds a persisted menu confirm/cancel orientation. Existing
+    -- users retain the original South-confirm, East-cancel behavior.
+
     database.version = WCS.Constants.DB_VERSION
     return database
 end

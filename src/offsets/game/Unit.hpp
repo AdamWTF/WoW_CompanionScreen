@@ -102,6 +102,8 @@ namespace wxl::offsets::game::unit
     constexpr size_t kGameObjectDynamicField = 0x0E;
 
     constexpr uint32_t kUnitFlagInCombat = 0x00080000;
+    constexpr uint32_t kUnitFlagSkinnable = 0x04000000;
+    constexpr uint32_t kUnitDynamicFlagLootable = 0x00000001;
     constexpr uint32_t kGameObjectFlagNotSelectable = 0x00000010;
     constexpr uint32_t kGameObjectDynamicActivate = 0x00000001;
 

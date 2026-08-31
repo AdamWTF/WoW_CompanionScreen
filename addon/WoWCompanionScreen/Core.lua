@@ -14,7 +14,7 @@ function Core:RefreshActions()
     WCS.ActionOverlay:Refresh(); if WCS.Settings.frame and WCS.Settings.frame:IsShown() then WCS.Settings:RefreshActions() end
 end
 
-local events = { "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "ACTIONBAR_SLOT_CHANGED", "ACTIONBAR_UPDATE_COOLDOWN", "ACTIONBAR_UPDATE_USABLE", "ACTIONBAR_UPDATE_STATE", "SPELLS_CHANGED", "BAG_UPDATE", "UPDATE_BINDINGS", "CURSOR_UPDATE", "PLAYER_TARGET_CHANGED", "PLAYER_LEVEL_UP", "PLAYER_XP_UPDATE", "UPDATE_EXHAUSTION", "PLAYER_MONEY" }
+local events = { "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "ACTIONBAR_SLOT_CHANGED", "ACTIONBAR_UPDATE_COOLDOWN", "ACTIONBAR_UPDATE_USABLE", "ACTIONBAR_UPDATE_STATE", "ACTIONBAR_PAGE_CHANGED", "UPDATE_BONUS_ACTIONBAR", "UPDATE_SHAPESHIFT_FORM", "SPELLS_CHANGED", "BAG_UPDATE", "UPDATE_BINDINGS", "CURSOR_UPDATE", "PLAYER_TARGET_CHANGED", "PLAYER_LEVEL_UP", "PLAYER_XP_UPDATE", "UPDATE_EXHAUSTION", "PLAYER_MONEY" }
 for _, event in ipairs(events) do eventFrame:RegisterEvent(event) end
 eventFrame:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_LOGIN" then Core:Initialize(); return end
@@ -22,6 +22,7 @@ eventFrame:SetScript("OnEvent", function(_, event)
     if event == "CURSOR_UPDATE" then WCS.Controller:CursorChanged(); return end
     WCS.Bridge:OnEvent(event)
     WCS.UINavigation:OnEvent(event)
+    if event == "ACTIONBAR_PAGE_CHANGED" or event == "UPDATE_BONUS_ACTIONBAR" or event == "UPDATE_SHAPESHIFT_FORM" then WCS.Controller:ResolveMainActions() end
     if event == "PLAYER_REGEN_ENABLED" then WCS.Controller:ApplyAll(); WCS.Controller:MarkSyncDirty(); WCS.Display:Apply() end
     if event == "PLAYER_ENTERING_WORLD" then WCS.Controller:MarkSyncDirty() end
     if event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_REGEN_ENABLED" then WCS.Display:Reconcile() end
@@ -31,7 +32,7 @@ end)
 
 eventFrame:SetScript("OnUpdate", function(_, elapsed)
     if not Core.initialized then return end
-    WCS.Controller:Tick()
+    WCS.Controller:Tick(elapsed)
     WCS.Bridge:Tick(elapsed)
     WCS.UINavigation:Tick(elapsed)
     Core.layerElapsed = (Core.layerElapsed or 0) + elapsed; Core.reconcileElapsed = (Core.reconcileElapsed or 0) + elapsed
