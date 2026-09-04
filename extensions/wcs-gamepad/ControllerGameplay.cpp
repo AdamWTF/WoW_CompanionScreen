@@ -141,7 +141,7 @@ namespace wcs_gamepad
         }
         const bool foreground = input_.Foreground(); if (!foreground) { if (wasForeground_) Release(time); previous_ = snapshot.state; const ControllerState& held = snapshot.state; actions_[0]=held.dpadUp; actions_[1]=held.dpadDown; actions_[2]=held.dpadLeft; actions_[3]=held.dpadRight; actions_[4]=held.south; actions_[5]=held.east; actions_[6]=held.west; actions_[7]=held.north; wasForeground_ = false; return; } wasForeground_ = true;
         const ControllerState& s = snapshot.state;
-        if (waitForNeutral_) { previous_ = s; if (IsNeutral(s)) { waitForNeutral_ = false; previous_ = {}; } return; }
+        if (waitForNeutral_) { previous_ = s; if (IsNeutral(s)) { waitForNeutral_ = false; previous_ = {}; for (bool& action : actions_) action = false; } return; }
         if (uiNavigation_) { UpdateUINavigation(s, time); if (!waitForNeutral_) Touch(s, time); previous_ = s; return; }
         leftTrigger_ = Hysteresis(s.leftTrigger, leftTrigger_, config_.triggerPressThreshold, config_.triggerReleaseThreshold); rightTrigger_ = Hysteresis(s.rightTrigger, rightTrigger_, config_.triggerPressThreshold, config_.triggerReleaseThreshold); layer_ = (leftTrigger_ ? 1 : 0) | (rightTrigger_ ? 2 : 0);
         forward_ = DirectionHysteresis(-s.leftY, forward_, config_.movementPressThreshold, config_.movementReleaseThreshold); backward_ = DirectionHysteresis(s.leftY, backward_, config_.movementPressThreshold, config_.movementReleaseThreshold); strafeLeft_ = DirectionHysteresis(-s.leftX, strafeLeft_, config_.movementPressThreshold, config_.movementReleaseThreshold); strafeRight_ = DirectionHysteresis(s.leftX, strafeRight_, config_.movementPressThreshold, config_.movementReleaseThreshold);

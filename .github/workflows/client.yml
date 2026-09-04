@@ -93,7 +93,7 @@ jobs:
         run: cmake -S . -B build -A Win32
 
       - name: Build native components and tests
-        run: cmake --build build --config Release --target wcs-core wcs-patcher wcs-gamepad wcs-bridge wcs-gamepad-tests wcs-gamepad-smart-interact-tests wcs-bridge-tests wcs-bridge-websocket-tests --parallel
+        run: cmake --build build --config Release --target wcs-core wcs-patcher wcs-gamepad wcs-bridge wcs-gamepad-tests wcs-gamepad-camera-view-tests wcs-gamepad-smart-interact-tests wcs-bridge-tests wcs-bridge-websocket-tests --parallel
 
       - name: Run native tests
         run: ctest --test-dir build -C Release --output-on-failure

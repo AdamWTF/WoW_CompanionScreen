@@ -12,6 +12,8 @@ namespace wcs_gamepad
     enum class GameCommand { ToggleGameMenu, ToggleWorldMap, NextView };
     enum class UINavigationCommand { Up, Down, Left, Right, Confirm, Back };
 
+    constexpr unsigned AdvanceCameraView(unsigned current) { return current % 5 + 1; }
+
     class IGameInput
     {
     public:
@@ -54,7 +56,7 @@ namespace wcs_gamepad
         static void* Window(); static intptr_t KeyParameter(unsigned key, bool down); void Key(unsigned key, bool down);
         void MouseButton(bool right, bool down, bool force = false); void Move(float dx, float dy, bool camera);
         bool movement_[4]{}, keys_[256]{}, rightMouse_{}; float cameraRemainderX_{}, cameraRemainderY_{};
-        bool pendingPointerMove_{}, pendingPointerClick_{}, pendingPointerRight_{}; float pendingPointerX_{}, pendingPointerY_{};
+        bool pendingPointerMove_{}, pendingPointerClick_{}, pendingPointerRight_{}; float pendingPointerX_{}, pendingPointerY_{}; unsigned cameraView_{1};
         std::unique_ptr<SmartInteractState> smartInteract_;
     };
 }

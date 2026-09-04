@@ -2,6 +2,14 @@
 
 All notable changes to WoW Companion Screen are documented here. Releases use semantic versioning with matching client and PWA versions.
 
+## 1.0.2 - 2026-09-04
+
+### Fixed
+
+- Open the world map from the controller's Select/Back button on WoW 3.3.5a.
+- Keep the left-stick camera-view shortcut cycling after the fifth predefined view.
+- Restore controller action presses after focus loss or controller reconnection.
+
 ## 1.0.1 - 2026-08-31
 
 ### Fixed
