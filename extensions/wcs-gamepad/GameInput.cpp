@@ -92,7 +92,10 @@ namespace wcs_gamepad
         {
         case GameCommand::ToggleGameMenu: Key(VK_ESCAPE, true); Key(VK_ESCAPE, false); break;
         case GameCommand::ToggleWorldMap: wxl::game::script::Execute("ToggleFrame(WorldMapFrame)"); break;
-        case GameCommand::NextView: wxl::game::script::Execute("NextView()"); break;
+        case GameCommand::NextView:
+        {
+            cameraView_ = AdvanceCameraView(cameraView_); char script[32]; std::snprintf(script, sizeof script, "SetView(%u)", cameraView_); wxl::game::script::Execute(script); break;
+        }
         }
     }
     void GameInput::MouseButton(bool right, bool down, bool force)

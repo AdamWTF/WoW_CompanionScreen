@@ -68,7 +68,7 @@ int main()
     assert(input.commands.size() == 2); assert(input.commands[0] == GameCommand::ToggleGameMenu); assert(input.commands[1] == GameCommand::ToggleWorldMap);
     snapshot.state.start = snapshot.state.back = snapshot.state.leftStickButton = false; gameplay.Update(snapshot, .01f, 63); snapshot.state.start = snapshot.state.back = snapshot.state.leftStickButton = true; gameplay.Update(snapshot, .01f, 64); assert(input.commands.size() == 4);
     snapshot.state.rightStickButton = true; gameplay.Update(snapshot, .01f, 65); assert(input.targets.size() == 2 && input.targets[1] == "CTRL+TAB");
-    snapshot.state.start = snapshot.state.back = snapshot.state.leftStickButton = snapshot.state.rightStickButton = false; gameplay.Update(snapshot, .01f, 66);
+    snapshot.state.start = snapshot.state.back = snapshot.state.leftStickButton = snapshot.state.rightStickButton = snapshot.state.leftShoulder = false; gameplay.Update(snapshot, .01f, 66);
     input.foreground = false; snapshot.state.start = snapshot.state.back = snapshot.state.leftStickButton = true; gameplay.Update(snapshot, .01f, 67); input.foreground = true; gameplay.Update(snapshot, .01f, 68); assert(input.commands.size() == 4);
     snapshot.connected = false; ++snapshot.generation; gameplay.Update(snapshot, .01f, 69); snapshot.connected = true; ++snapshot.generation; gameplay.Update(snapshot, .01f, 70); assert(input.commands.size() == 4);
     snapshot.state.start = snapshot.state.back = snapshot.state.leftStickButton = false; gameplay.Update(snapshot, .01f, 71); snapshot.state.start = snapshot.state.back = snapshot.state.leftStickButton = true; gameplay.Update(snapshot, .01f, 72); assert(input.commands.size() == 6);

@@ -11,10 +11,19 @@ if(BUILD_TESTING)
     target_link_libraries(wcs-gamepad-tests PRIVATE user32)
     add_test(NAME wcs-gamepad-processing COMMAND wcs-gamepad-tests)
 
-    add_test(NAME wcs-gamepad-map-command
+    add_test(NAME wcs-gamepad-input-commands
         COMMAND "${CMAKE_COMMAND}"
             "-DGAME_INPUT_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/extensions/wcs-gamepad/GameInput.cpp"
             -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/wcs-gamepad/GameInputSourceTests.cmake")
+
+    add_executable(wcs-gamepad-camera-view-tests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/wcs-gamepad/CameraViewTests.cpp")
+    target_include_directories(wcs-gamepad-camera-view-tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/extensions/wcs-gamepad"
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src")
+    target_compile_definitions(wcs-gamepad-camera-view-tests PRIVATE ${WXL_DEFS})
+    add_test(NAME wcs-gamepad-camera-view COMMAND wcs-gamepad-camera-view-tests)
 
     find_program(WXL_LUA_EXECUTABLE NAMES lua5.1 lua luajit)
     if(WXL_LUA_EXECUTABLE)
