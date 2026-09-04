@@ -108,7 +108,7 @@ int main()
 
     eastConfirmGameplay.SetUINavigationActive(false, 807); eastConfirmSnapshot.state = {}; eastConfirmGameplay.Update(eastConfirmSnapshot, .01f, 808);
     eastConfirmSnapshot.state.south = true; eastConfirmGameplay.Update(eastConfirmSnapshot, .01f, 809);
-    assert(eastConfirmInput.wowActions.size() == 1 && eastConfirmInput.wowActions.back().slot == 5);
+    assert(eastConfirmInput.wowActions.size() == 1 && eastConfirmInput.wowActions.back() == 5);
 
     FakeInput actionInput; ControllerGameplay actionGameplay(config, actionInput, false); ControllerSnapshot actionSnapshot; actionSnapshot.generation = 1; actionSnapshot.connected = true;
     actionGameplay.SetActive(true, 100); actionGameplay.Update(actionSnapshot, .01f, 101);
