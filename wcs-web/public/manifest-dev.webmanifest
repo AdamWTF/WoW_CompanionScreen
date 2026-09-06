@@ -1,7 +1,7 @@
 {
-  "name": "WoW Companion Screen",
-  "short_name": "WCS",
-  "start_url": ".",
+  "name": "WoW Companion Screen DEV",
+  "short_name": "WCS DEV",
+  "start_url": "./?demo",
   "scope": ".",
   "display": "standalone",
   "orientation": "landscape",
