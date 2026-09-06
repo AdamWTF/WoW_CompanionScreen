@@ -27,6 +27,7 @@ namespace wcs_bridge
         void DisconnectClient();
         bool Listening() const { return listening_.load(); }
         bool Connected() const { return connected_.load(); }
+        bool PartyCapable() const { return partyCapable_.load(); }
         std::string Address() const;
         uint16_t Port() const { return port_; }
 
@@ -41,7 +42,7 @@ namespace wcs_bridge
         NoticeSink notices_;
         std::string address_;
         uint16_t port_ = 0;
-        std::atomic<bool> running_{false}, listening_{false}, connected_{false}, disconnect_{false};
+        std::atomic<bool> running_{false}, listening_{false}, connected_{false}, disconnect_{false}, partyCapable_{false};
         std::thread thread_;
         mutable std::mutex outboundMutex_;
         std::deque<Outbound> outbound_;

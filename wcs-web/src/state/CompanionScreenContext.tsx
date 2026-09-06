@@ -17,6 +17,7 @@ interface CompanionScreenContextValue {
   pair(code: string): void;
   retry(): void;
   pressAction(slot: number): void;
+  selectPartyMember(member: number): void;
   pressKey(key: string, modifiers?: Modifier[]): void;
   movePointer(dx: number, dy: number): void;
   clickPointer(button: "left" | "right" | "middle"): void;
@@ -94,6 +95,7 @@ export function CompanionScreenProvider({ children }: { children: ReactNode }) {
     pair: (code) => clientRef.current?.pair(code, { id: preferences.deviceId, name: preferences.deviceName }),
     retry: () => clientRef.current?.retry(),
     pressAction: (slot) => clientRef.current?.pressAction(slot),
+    selectPartyMember: (member) => clientRef.current?.selectPartyMember(member),
     pressKey: (key, modifiers) => clientRef.current?.pressKey(key, modifiers),
     movePointer: (dx, dy) => clientRef.current?.movePointer(dx, dy),
     clickPointer: (button) => clientRef.current?.clickPointer(button),

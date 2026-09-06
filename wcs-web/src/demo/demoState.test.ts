@@ -10,6 +10,8 @@ describe("demo state", () => {
     expect(runtime.bridgeState.actions.slots).toHaveLength(24);
     expect(runtime.bridgeState.actions.slots.some((action) => !action.empty)).toBe(true);
     expect(runtime.bridgeState.actions.slots.some((action) => action.empty)).toBe(true);
+    expect(runtime.bridgeState.party.members).toHaveLength(4);
+    expect(runtime.bridgeState.party.members.some((member) => member.targeted)).toBe(true);
   });
 
   it("enables demo mode whenever the query flag is present", () => {

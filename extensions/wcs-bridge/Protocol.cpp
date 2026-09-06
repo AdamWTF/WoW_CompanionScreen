@@ -1,6 +1,7 @@
 #include "Protocol.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <set>
 
@@ -44,6 +45,14 @@ namespace wcs_bridge
             else if (*name == "middle") button = 2;
             else return false;
             return true;
+        }
+
+        bool ParseGuid(std::string_view text, uint64_t& guid)
+        {
+            if (text.size() != 18 || text[0] != '0' || (text[1] != 'x' && text[1] != 'X')) return false;
+            const char* first = text.data() + 2; const char* last = text.data() + text.size();
+            const auto result = std::from_chars(first, last, guid, 16);
+            return result.ec == std::errc{} && result.ptr == last && guid != 0;
         }
     }
 
@@ -102,6 +111,11 @@ namespace wcs_bridge
             if (!ReadInt(root, "slot", 1, 24, command.value)) { errorCode = "invalid-action-slot"; return false; }
             command.kind = CommandKind::ActionPress; return true;
         }
+        if (*type == "party.select")
+        {
+            if (!ReadInt(root, "member", 1, 4, command.value)) { errorCode = "invalid-party-member"; return false; }
+            command.kind = CommandKind::PartySelect; return true;
+        }
         errorCode = "unsupported-command"; return false;
     }
 
@@ -112,13 +126,18 @@ namespace wcs_bridge
         return result;
     }
 
-    StateStore::StateStore() : actions_(EmptyActions()) {}
+    StateStore::StateStore() : actions_(EmptyActions()), party_(EmptyParty()) {}
 
     json::Value StateStore::EmptyActions()
     {
         json::Value::Array slots; slots.reserve(24);
         for (int slot = 1; slot <= 24; ++slot) slots.emplace_back(json::Value::Object{{"slot", slot}, {"empty", true}});
         return json::Value(json::Value::Object{{"slots", std::move(slots)}});
+    }
+
+    json::Value StateStore::EmptyParty()
+    {
+        return json::Value(json::Value::Object{{"members", json::Value::Array{}}});
     }
 
     bool StateStore::NormalizeActions(json::Value& actions, std::string& error)
@@ -140,18 +159,41 @@ namespace wcs_bridge
         actions = json::Value::Object{{"slots", std::move(result)}}; return true;
     }
 
+    bool StateStore::NormalizeParty(json::Value& party, std::string& error)
+    {
+        const auto* object = party.ObjectValue(); const auto* membersValue = object ? party.Find("members") : nullptr;
+        const auto* members = membersValue ? membersValue->ArrayValue() : nullptr;
+        if (!members || members->size() > 4) { error = "party.members must be an array of at most four members"; return false; }
+        std::array<bool, 4> seen{}; json::Value::Array normalized; normalized.reserve(members->size());
+        for (const auto& member : *members)
+        {
+            int64_t slot = 0; uint64_t guid = 0; const auto* slotValue = member.Find("slot"); const auto* guidValue = member.Find("guid");
+            const auto* guidText = guidValue ? guidValue->String() : nullptr;
+            if (!member.IsObject() || !slotValue || !slotValue->Integer(slot) || slot < 1 || slot > 4 || seen[size_t(slot - 1)] || !guidText || !ParseGuid(*guidText, guid))
+            { error = "party member must have a unique slot in 1..4 and a valid GUID"; return false; }
+            seen[size_t(slot - 1)] = true; normalized.push_back(member);
+        }
+        std::sort(normalized.begin(), normalized.end(), [](const json::Value& left, const json::Value& right)
+        {
+            int64_t a = 0, b = 0; left.Find("slot")->Integer(a); right.Find("slot")->Integer(b); return a < b;
+        });
+        party = json::Value::Object{{"members", std::move(normalized)}}; return true;
+    }
+
     bool StateStore::PublishSnapshot(const json::Value& data, std::string& error)
     {
         if (!data.IsObject()) { error = "snapshot data must be an object"; return false; }
         json::Value player = data.Find("player") ? *data.Find("player") : json::Value(nullptr);
         json::Value actions = data.Find("actions") ? *data.Find("actions") : EmptyActions();
+        json::Value party = data.Find("party") ? *data.Find("party") : EmptyParty();
         if (!player.IsNull() && !player.IsObject()) { error = "player must be an object or null"; return false; }
         if (!NormalizeActions(actions, error)) return false;
+        if (!NormalizeParty(party, error)) return false;
         // Addon snapshots can only be published from the in-world FrameScript context. Treat one as
         // authoritative lifecycle evidence as well as authoritative player/action state. The client's
         // CWorldEnter routine does not return until the world is left, so the lower-level lifecycle
         // detour cannot reliably mark the active session as "world" on its own.
-        std::lock_guard lock(mutex_); gameState_ = "world"; player_ = std::move(player); actions_ = std::move(actions); return true;
+        std::lock_guard lock(mutex_); gameState_ = "world"; player_ = std::move(player); actions_ = std::move(actions); party_ = std::move(party); return true;
     }
 
     bool StateStore::PublishEvent(std::string_view type, const json::Value& data, std::string& error)
@@ -179,21 +221,40 @@ namespace wcs_bridge
             if (!slotValue || !slotValue->Integer(slot) || slot < 1 || slot > 24) { error = "invalid action slot"; return false; }
             auto* slots = actions_.ObjectValue()->at("slots").ArrayValue(); (*slots)[size_t(slot - 1)] = data; return true;
         }
+        if (type == "party.state")
+        {
+            json::Value copy = data; if (!NormalizeParty(copy, error)) return false; party_ = std::move(copy); return true;
+        }
         error = "event type is not publishable"; return false;
     }
 
     void StateStore::SetGameState(std::string state, bool clearWorldState)
     {
         std::lock_guard lock(mutex_); gameState_ = std::move(state);
-        if (clearWorldState) { player_ = nullptr; actions_ = EmptyActions(); }
+        if (clearWorldState) { player_ = nullptr; actions_ = EmptyActions(); party_ = EmptyParty(); }
     }
 
     json::Value StateStore::SnapshotMessage() const
     {
         std::lock_guard lock(mutex_);
-        json::Value::Object data{{"game", json::Value::Object{{"state", gameState_}}}, {"player", player_}, {"actions", actions_}};
+        json::Value::Object data{{"game", json::Value::Object{{"state", gameState_}}}, {"player", player_}, {"actions", actions_}, {"party", party_}};
         return json::Value::Object{{"type", "state.snapshot"}, {"data", std::move(data)}};
     }
 
     std::string StateStore::GameState() const { std::lock_guard lock(mutex_); return gameState_; }
+
+    std::optional<uint64_t> StateStore::PartyGuid(int member) const
+    {
+        if (member < 1 || member > 4) return std::nullopt;
+        std::lock_guard lock(mutex_); if (gameState_ != "world") return std::nullopt;
+        const auto* membersValue = party_.Find("members"); const auto* members = membersValue ? membersValue->ArrayValue() : nullptr;
+        if (!members) return std::nullopt;
+        for (const auto& entry : *members)
+        {
+            int64_t slot = 0; const auto* slotValue = entry.Find("slot"); const auto* guidValue = entry.Find("guid");
+            const auto* guidText = guidValue ? guidValue->String() : nullptr; uint64_t guid = 0;
+            if (slotValue && slotValue->Integer(slot) && slot == member && guidText && ParseGuid(*guidText, guid)) return guid;
+        }
+        return std::nullopt;
+    }
 }

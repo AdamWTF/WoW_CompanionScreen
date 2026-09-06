@@ -33,4 +33,14 @@ describe("bridgeReducer", () => {
     expect(repaired.bridgeState.actions.slots[2]).toEqual({ slot: 3, empty: true });
     expect(repaired.bridgeState.actions.slots).toHaveLength(24);
   });
+
+  it("defaults old snapshots to an empty party and applies party replacement events", () => {
+    const legacy = emptyBridgeState() as unknown as Record<string, unknown>;
+    delete legacy.party;
+    const ready = bridgeReducer(initialRuntimeState, { type: "message", message: { type: "state.snapshot", data: legacy } });
+    expect(ready.bridgeState.party.members).toEqual([]);
+    const party = { members: [{ slot: 1, guid: "0x0000000000000001", name: "Member" }] } as never;
+    const updated = bridgeReducer(ready, { type: "message", message: { type: "party.state", data: party } });
+    expect(updated.bridgeState.party).toEqual(party);
+  });
 });

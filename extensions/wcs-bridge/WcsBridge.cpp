@@ -2,6 +2,7 @@
 
 #include "ExtensionApi.hpp"
 #include "common/ExtensionConfig.hpp"
+#include "game/Interaction.hpp"
 #include "game/Script.hpp"
 
 #include <windows.h>
@@ -63,7 +64,14 @@ namespace wcs_bridge
     {
         void* const context = wxl::game::script::Context(); if (context && context != luaContext_) RegisterLua(context);
         std::deque<Command> pending; { std::lock_guard lock(commandMutex_); pending.swap(commands_); }
-        for (const Command& command : pending) input_->Dispatch(command);
+        for (const Command& command : pending)
+        {
+            if (command.kind == CommandKind::PartySelect)
+            {
+                if (const auto guid = state_.PartyGuid(command.value)) wxl::game::interaction::Target(*guid);
+            }
+            else input_->Dispatch(command);
+        }
     }
 
     void WcsBridge::SetLifecycle(const char* state, bool clear)
@@ -94,7 +102,8 @@ namespace wcs_bridge
     std::string WcsBridge::StatusJson() const
     {
         json::Value::Object status{{"enabled", enabled_}, {"listening", server_ && server_->Listening()}, {"connected", server_ && server_->Connected()},
-            {"bindAddress", bindAddress_}, {"port", int(port_)}, {"paired", pairing_.IsPaired()}, {"device", pairing_.DeviceName()}, {"pairingCode", pairing_.PairingCode()}};
+            {"partyCapable", server_ && server_->PartyCapable()}, {"bindAddress", bindAddress_}, {"port", int(port_)}, {"paired", pairing_.IsPaired()},
+            {"device", pairing_.DeviceName()}, {"pairingCode", pairing_.PairingCode()}};
         return json::Dump(status);
     }
 

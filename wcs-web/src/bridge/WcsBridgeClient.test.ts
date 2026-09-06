@@ -56,4 +56,19 @@ describe("WcsBridgeClient authentication", () => {
 
     expect(socket.sent.map((payload) => JSON.parse(payload))).toContainEqual({ type: "auth", token: "saved-token" });
   });
+
+  it("sends only valid party member selections", () => {
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    const { client } = makeClient(async () => null);
+    client.connect("192.168.1.50");
+    const socket = FakeWebSocket.instances[0];
+    socket.open();
+    expect(JSON.parse(socket.sent[0])).toEqual({ type: "hello", protocol: 1, client: "thor", capabilities: ["party"] });
+    client.selectPartyMember(3);
+    client.selectPartyMember(0);
+    client.selectPartyMember(2.5);
+
+    expect(socket.sent.map((payload) => JSON.parse(payload))).toContainEqual({ type: "party.select", member: 3 });
+    expect(socket.sent.map((payload) => JSON.parse(payload)).filter((payload) => payload.type === "party.select")).toHaveLength(1);
+  });
 });

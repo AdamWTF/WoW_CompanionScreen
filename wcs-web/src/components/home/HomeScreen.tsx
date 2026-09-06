@@ -5,12 +5,14 @@ import { useCompanionScreen } from "@/state/CompanionScreenContext";
 import { ConnectionIndicator } from "../connection/ConnectionIndicator";
 import { ShortcutBar } from "./ShortcutBar";
 import { ActionGrid } from "./ActionGrid";
+import { PartyRoster } from "../party/PartyRoster";
 
 export function HomeScreen({ openSettings }: { openSettings(): void }) {
   const { runtime } = useCompanionScreen();
   const { bridgeState, hasSnapshot, sessionState } = runtime;
   const world = hasSnapshot && sessionState === "ready" && bridgeState.game.state === "world";
   const player = world ? bridgeState.player : null;
+  const party = world ? bridgeState.party.members : [];
 
   return (
     <div className="home-screen">
@@ -30,8 +32,13 @@ export function HomeScreen({ openSettings }: { openSettings(): void }) {
         </div>
       </section>
       <ShortcutBar enabled={world} />
-      <div className="section-heading"><span>Quick Actions</span></div>
-      <ActionGrid enabled={world} slots={world ? bridgeState.actions.slots : []} />
+      <div className={`combat-layout${party.length ? " has-party" : ""}`}>
+        {party.length > 0 && <PartyRoster members={party} />}
+        <div className="action-panel">
+          <div className="section-heading"><span>Quick Actions</span></div>
+          <ActionGrid enabled={world} slots={world ? bridgeState.actions.slots : []} />
+        </div>
+      </div>
     </div>
   );
 }

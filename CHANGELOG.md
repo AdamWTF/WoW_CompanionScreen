@@ -2,6 +2,18 @@
 
 All notable changes to WoW Companion Screen are documented here. Releases use semantic versioning with matching client and PWA versions.
 
+## 1.2.0 - 2026-09-04
+
+### Added
+
+- Show non-raid party members in Wrath-styled circular unit frames with class styling, health, class resources, and group status.
+- Select a party member in WoW by tapping their companion-screen portrait.
+
+### Changed
+
+- Move quick actions beside the party roster on wide screens and adapt the roster above them on narrow screens.
+- Replace Blizzard party frames only while reduced UI is active and an authenticated companion screen is connected.
+
 ## 1.0.2 - 2026-09-04
 
 ### Fixed

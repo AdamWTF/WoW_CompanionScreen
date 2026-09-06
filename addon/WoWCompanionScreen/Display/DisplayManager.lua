@@ -25,14 +25,24 @@ function Display:SetReservedBarsHidden(hidden)
         end
     end
 end
+function Display:ShouldHidePartyFrames(reduced)
+    if not reduced or not WCS.Bridge then return false end
+    local bridge = WCS.Bridge:GetStatus()
+    if not bridge.connected or not bridge.partyCapable then return false end
+    if GetNumRaidMembers and GetNumRaidMembers() > 0 then return false end
+    return GetNumPartyMembers and GetNumPartyMembers() > 0
+end
 function Display:Apply()
     if InCombatLockdown() then self.pending = true; return end
     self.pending = false; local controller, screen = WCSDB.controller.enabled, WCSDB.secondScreen.enabled
     if WCS.ActionOverlay and WCS.ActionOverlay.frame then if controller then WCS.ActionOverlay.frame:Show() else WCS.ActionOverlay.frame:Hide() end end
-    self:SetReservedBarsHidden(screen); WCS.UIReduction:Apply(controller and screen and WCSDB.secondScreen.reduceUI)
+    local reduced = controller and screen and WCSDB.secondScreen.reduceUI
+    self:SetReservedBarsHidden(screen); WCS.UIReduction:Apply(reduced, self:ShouldHidePartyFrames(reduced))
 end
 function Display:Reconcile()
     if InCombatLockdown() then return end
     if self.pending and not InCombatLockdown() then self:Apply(); return end
-    if WCSDB.secondScreen.enabled then self:SetReservedBarsHidden(true) end; WCS.UIReduction:Reconcile()
+    if WCSDB.secondScreen.enabled then self:SetReservedBarsHidden(true) end
+    local reduced = WCSDB.controller.enabled and WCSDB.secondScreen.enabled and WCSDB.secondScreen.reduceUI
+    WCS.UIReduction:Apply(reduced, self:ShouldHidePartyFrames(reduced)); WCS.UIReduction:Reconcile()
 end

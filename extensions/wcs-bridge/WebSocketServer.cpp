@@ -139,6 +139,14 @@ namespace wcs_bridge
         {
             const auto* value = root.Find(name); const auto* string = value ? value->String() : nullptr; return string ? *string : std::string{};
         }
+
+        bool HasCapability(const json::Value& root, std::string_view expected)
+        {
+            const auto* value = root.Find("capabilities"); const auto* capabilities = value ? value->ArrayValue() : nullptr;
+            if (!capabilities) return false;
+            for (const auto& capability : *capabilities) { const auto* name = capability.String(); if (name && *name == expected) return true; }
+            return false;
+        }
     }
 
     WebSocketServer::WebSocketServer(PairingManager& pairing, CommandSink commands, SnapshotSource snapshot, NoticeSink notices)
@@ -203,7 +211,7 @@ namespace wcs_bridge
             if (client != INVALID_SOCKET) { SendFrame(client, 8, {}); shutdown(client, SD_BOTH); closesocket(client); client = INVALID_SOCKET; }
             if (connected_.exchange(false)) commands_(Command{CommandKind::ReleaseAll});
             { std::lock_guard lock(outboundMutex_); outbound_.clear(); }
-            phase = Phase::Hello; reader = {}; disconnect_ = false;
+            phase = Phase::Hello; reader = {}; disconnect_ = false; partyCapable_ = false;
         };
         auto sendJson = [&](const json::Value& value) { return client != INVALID_SOCKET && SendFrame(client, 1, json::Dump(value)); };
         auto activate = [&]
@@ -251,6 +259,7 @@ namespace wcs_bridge
                         int64_t protocol = 0; const auto* protocolValue = root.Find("protocol");
                         if (type != "hello" || StringField(root, "client") != "thor" || !protocolValue || !protocolValue->Integer(protocol)) { sendJson(ErrorMessage("invalid-message")); closeClient(); break; }
                         if (protocol != kProtocolVersion) { sendJson(ErrorMessage("protocol-mismatch")); closeClient(); break; }
+                        partyCapable_ = HasCapability(root, "party");
                         sendJson(json::Value::Object{{"type", "hello"}, {"protocol", kProtocolVersion}, {"game", json::Value::Object{{"version", "3.3.5a"}, {"build", 12340}}}, {"bridge", json::Value::Object{{"version", kBridgeVersion}}}});
                         if (!pairing_.Required()) activate();
                         else { phase = Phase::Authentication; sendJson(json::Value::Object{{"type", pairing_.IsPaired() ? "auth.required" : "pairing.required"}}); }

@@ -4,6 +4,13 @@ WCS.Bridge = {}
 local Bridge = WCS.Bridge
 local Null = {}
 local nativeSlots = {}
+local resourceNames = { [0] = "mana", [1] = "rage", [3] = "energy", [6] = "runic-power" }
+local partyUnitEvents = {
+    UNIT_HEALTH = true, UNIT_MAXHEALTH = true, UNIT_MANA = true, UNIT_MAXMANA = true,
+    UNIT_RAGE = true, UNIT_MAXRAGE = true, UNIT_ENERGY = true, UNIT_MAXENERGY = true,
+    UNIT_RUNIC_POWER = true, UNIT_MAXRUNIC_POWER = true, UNIT_DISPLAYPOWER = true,
+    UNIT_NAME_UPDATE = true, UNIT_LEVEL = true, UNIT_FLAGS = true,
+}
 for logical = 1, WCS.Constants.SECOND_SCREEN_SLOT_COUNT do nativeSlots[logical] = WCS.SecondScreen:GetActionID(logical) end
 
 local function escape(value)
@@ -84,11 +91,40 @@ local function allActions()
     return { slots = slots }
 end
 
+local function partyState()
+    local members = {}
+    if (GetNumRaidMembers and GetNumRaidMembers() > 0) or not GetNumPartyMembers or GetNumPartyMembers() < 1 then return { members = members } end
+    for slot = 1, 4 do
+        local unit = "party" .. slot
+        local guid = UnitGUID(unit)
+        if guid and UnitExists(unit) then
+            local className, class = UnitClass(unit); local raceName, race = UnitRace(unit); local sex = UnitSex(unit)
+            local health, healthMax = UnitHealth(unit) or 0, UnitHealthMax(unit) or 0
+            local resource, resourceMax = UnitMana(unit) or 0, UnitManaMax(unit) or 0
+            local powerType = UnitPowerType(unit)
+            members[#members + 1] = {
+                slot = slot, unit = unit, guid = guid, name = UnitName(unit) or "", level = UnitLevel(unit) or 0,
+                class = { name = className or "", token = class or "UNKNOWN" }, race = { name = raceName or "", token = race or "UNKNOWN" },
+                sex = sex == 2 and "male" or (sex == 3 and "female" or "unknown"),
+                health = { current = health, maximum = healthMax },
+                resource = { type = resourceNames[powerType] or "unknown", current = resource, maximum = resourceMax },
+                targeted = UnitIsUnit(unit, "target") and true or false,
+                leader = UnitIsPartyLeader(unit) and true or false, connected = UnitIsConnected(unit) and true or false,
+                dead = UnitIsDead(unit) and true or false, ghost = UnitIsGhost(unit) and true or false,
+                afk = UnitIsAFK(unit) and true or false, dnd = UnitIsDND(unit) and true or false,
+            }
+        end
+    end
+    return { members = members }
+end
+
 function Bridge:PublishSnapshot()
     if not WCS.Native:IsBridgeAvailable() then return false end
-    local ok = WCS.Native:PublishBridgeSnapshot(encode({ player = playerState(), actions = allActions() }))
+    local party = partyState()
+    local ok = WCS.Native:PublishBridgeSnapshot(encode({ player = playerState(), actions = allActions(), party = party }))
     if ok then
         self.lastActions = {}; for logical = 1, WCS.Constants.SECOND_SCREEN_SLOT_COUNT do self.lastActions[logical] = encode(actionState(logical)) end
+        self.lastParty = encode(party); self.partyDirty = false
     end
     return ok
 end
@@ -101,6 +137,14 @@ function Bridge:PublishPlayer() local state = playerState(); self:Publish("playe
 function Bridge:PublishMoney() self:Publish("player.money", { copper = GetMoney() or 0 }) end
 function Bridge:PublishExperience() self:Publish("player.experience", playerState().experience) end
 function Bridge:PublishBags() self:Publish("player.bags", playerState().bags) end
+function Bridge:MarkPartyDirty() self.partyDirty = true end
+
+function Bridge:PublishParty()
+    if not WCS.Native:IsBridgeAvailable() then return end
+    local state = partyState(); local serialized = encode(state)
+    if self.lastParty ~= serialized then self.lastParty = serialized; WCS.Native:PublishBridgeEvent("party.state", serialized) end
+    self.partyDirty = false
+end
 
 function Bridge:ReconcileActions()
     if not WCS.Native:IsBridgeAvailable() then return end
@@ -129,7 +173,7 @@ function Bridge:GetStatus()
         end
         return ""
     end
-    return { available = true, enabled = boolean("enabled"), listening = boolean("listening"), connected = boolean("connected"), paired = boolean("paired"),
+    return { available = true, enabled = boolean("enabled"), listening = boolean("listening"), connected = boolean("connected"), partyCapable = boolean("partyCapable"), paired = boolean("paired"),
         bindAddress = stringValue("bindAddress"), port = number("port") or 0, device = stringValue("device"), pairingCode = stringValue("pairingCode") }
 end
 
@@ -151,17 +195,21 @@ function Bridge:Initialize()
     self.wasAvailable = WCS.Native:IsBridgeAvailable(); if self.wasAvailable then self:PublishSnapshot() end
 end
 
-function Bridge:OnEvent(event)
+function Bridge:OnEvent(event, unit)
     if event == "PLAYER_ENTERING_WORLD" then self:PublishSnapshot()
     elseif event == "PLAYER_LEVEL_UP" then self:PublishPlayer(); self:PublishExperience()
     elseif event == "PLAYER_XP_UPDATE" or event == "UPDATE_EXHAUSTION" then self:PublishExperience()
     elseif event == "PLAYER_MONEY" then self:PublishMoney()
     elseif event == "BAG_UPDATE" then self:PublishBags()
-    elseif event == "ACTIONBAR_SLOT_CHANGED" or event == "ACTIONBAR_UPDATE_COOLDOWN" or event == "ACTIONBAR_UPDATE_USABLE" or event == "ACTIONBAR_UPDATE_STATE" then self:ReconcileActions() end
+    elseif event == "ACTIONBAR_SLOT_CHANGED" or event == "ACTIONBAR_UPDATE_COOLDOWN" or event == "ACTIONBAR_UPDATE_USABLE" or event == "ACTIONBAR_UPDATE_STATE" then self:ReconcileActions()
+    elseif event == "PARTY_MEMBERS_CHANGED" or event == "RAID_ROSTER_UPDATE" or event == "PARTY_LEADER_CHANGED" or event == "PLAYER_TARGET_CHANGED" or
+        event == "PARTY_MEMBER_ENABLE" or event == "PARTY_MEMBER_DISABLE" or event == "PLAYER_FLAGS_CHANGED" then self:PublishParty()
+    elseif type(unit) == "string" and unit:match("^party[1-4]$") and partyUnitEvents[event] then self:MarkPartyDirty() end
 end
 
 function Bridge:Tick(elapsed)
-    self.elapsed = (self.elapsed or 0) + elapsed; self.statusElapsed = (self.statusElapsed or 0) + elapsed
+    self.elapsed = (self.elapsed or 0) + elapsed; self.statusElapsed = (self.statusElapsed or 0) + elapsed; self.partyElapsed = (self.partyElapsed or 0) + elapsed
+    if self.partyDirty and self.partyElapsed >= .1 then self.partyElapsed = 0; self:PublishParty() end
     if self.elapsed >= 1 then
         self.elapsed = 0
         local available = WCS.Native:IsBridgeAvailable()

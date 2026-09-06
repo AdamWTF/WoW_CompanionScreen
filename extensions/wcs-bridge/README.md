@@ -15,7 +15,7 @@ Configuration comes from `wcs-bridge.cfg`, with environment variables taking pre
 Connect to `/wcs` with RFC 6455 JSON text frames:
 
 ```json
-{"type":"hello","protocol":1,"client":"wcs"}
+{"type":"hello","protocol":1,"client":"thor","capabilities":["party"]}
 ```
 
 An unpaired client receives `pairing.required` and sends:
@@ -24,8 +24,8 @@ An unpaired client receives `pairing.required` and sends:
 {"type":"pair.request","code":"ABCD-2345","device":{"id":"stable-device-id","name":"My phone"}}
 ```
 
-Store the token from `pairing.complete`. Returning clients send `{"type":"auth","token":"..."}`. `auth.ok` is followed by `state.snapshot`, then incremental state events.
+Store the token from `pairing.complete`. Returning clients send `{"type":"auth","token":"..."}`. `auth.ok` is followed by `state.snapshot`, then incremental state events. Snapshots include `player`, `actions`, and a `party.members` array containing at most `party1`–`party4`; `party.state` replaces that complete array between snapshots. The `party` capability tells the add-on it is safe to replace Blizzard's party frames for this connection.
 
-Input commands are `key.press`, `key.down`, `key.up`, `text.insert`, `pointer.move`, `pointer.click`, `pointer.down`, `pointer.up`, `pointer.scroll`, and `action.press`. Companion slots 1–24 map to WoW action IDs 25–48. Keyboard/text may target WoW in the background; pointer input requires WoW to be foreground.
+Input commands are `key.press`, `key.down`, `key.up`, `text.insert`, `pointer.move`, `pointer.click`, `pointer.down`, `pointer.up`, `pointer.scroll`, `action.press`, and `party.select`. Companion slots 1–24 map to WoW action IDs 25–48. `party.select` accepts `member` 1–4 and resolves it through the latest server-owned roster. Keyboard/text and party targeting may reach WoW in the background; pointer input requires WoW to be foreground.
 
 Transport is plaintext. Keep LAN traffic trusted and never expose port `18423` to the Internet.

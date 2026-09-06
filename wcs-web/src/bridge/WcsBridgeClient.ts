@@ -53,7 +53,7 @@ export class WcsBridgeClient {
       socket.onopen = () => {
         this.attempt = 0;
         this.callbacks.onOpen();
-        this.sendRaw({ type: "hello", protocol: 1, client: "thor" });
+        this.sendRaw({ type: "hello", protocol: 1, client: "thor", capabilities: ["party"] });
       };
       socket.onmessage = async (event) => {
         let message: BridgeMessage;
@@ -100,6 +100,7 @@ export class WcsBridgeClient {
     this.sendRaw({ type: "pair.request", code: code.trim().toUpperCase(), device });
   }
   pressAction(slot: number) { if (slot >= 1 && slot <= 24) this.sendRaw({ type: "action.press", slot }); }
+  selectPartyMember(member: number) { if (Number.isInteger(member) && member >= 1 && member <= 4) this.sendRaw({ type: "party.select", member }); }
   pressKey(key: string, modifiers: Modifier[] = []) { if (isSupportedKey(key)) this.sendRaw({ type: "key.press", key, modifiers: [...new Set(modifiers)].slice(0, 3) }); }
   keyDown(key: string, modifiers: Modifier[] = []) { if (isSupportedKey(key)) this.sendRaw({ type: "key.down", key, modifiers }); }
   keyUp(key: string, modifiers: Modifier[] = []) { if (isSupportedKey(key)) this.sendRaw({ type: "key.up", key, modifiers }); }

@@ -1,10 +1,10 @@
 local addonName, WCS = ...
 
-WCS.UIReduction = { saved = {}, active = false }
+WCS.UIReduction = { saved = {}, active = false, partyActive = false }
 local Reduction = WCS.UIReduction
 
--- Explicitly limited to Blizzard's bottom action/menu chrome. Combat HUD,
--- unit frames, chat, minimap, buffs, cast bars, and objectives are untouched.
+-- Blizzard's bottom action/menu chrome is reduced whenever the existing mode is active. Party frames
+-- are managed separately and only replaced while the authenticated companion screen is connected.
 Reduction.frames = {
     "MainMenuBar", "MainMenuBarArtFrame", "MainMenuBarOverlayFrame",
     "MultiBarBottomLeft", "MultiBarBottomRight", "BonusActionBarFrame",
@@ -16,6 +16,7 @@ Reduction.frames = {
     "MainMenuMicroButton", "HelpMicroButton", "KeyRingButton", "CharacterBag3Slot",
     "CharacterBag2Slot", "CharacterBag1Slot", "CharacterBag0Slot", "MainMenuBarBackpackButton",
 }
+Reduction.partyFrames = { "PartyMemberFrame1", "PartyMemberFrame2", "PartyMemberFrame3", "PartyMemberFrame4" }
 
 function Reduction:SetFrameHidden(name, hidden)
     local frame = _G[name]; if not frame then return end
@@ -30,11 +31,14 @@ function Reduction:SetFrameHidden(name, hidden)
     end
 end
 
-function Reduction:Apply(active)
+function Reduction:Apply(active, partyActive)
     self.active = active and true or false
+    self.partyActive = partyActive and true or false
     for _, name in ipairs(self.frames) do self:SetFrameHidden(name, self.active) end
+    for _, name in ipairs(self.partyFrames) do self:SetFrameHidden(name, self.partyActive) end
 end
 
 function Reduction:Reconcile()
     if self.active then for _, name in ipairs(self.frames) do self:SetFrameHidden(name, true) end end
+    if self.partyActive then for _, name in ipairs(self.partyFrames) do self:SetFrameHidden(name, true) end end
 end
