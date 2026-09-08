@@ -89,6 +89,9 @@ namespace wcs_bridge
     {
         if (payload.size() > kMaxMessageBytes || !ValidUtf8(payload)) { error = "snapshot is too large or not UTF-8"; return false; }
         json::Value data; if (!json::Parse(payload, data, error) || !state_.PublishSnapshot(data, error)) return false;
+        if (const auto* actions = data.Find("actions"))
+            if (const auto* slots = actions->Find("slots"); slots && slots->ArrayValue())
+                for (const auto& action : *slots->ArrayValue()) LogActionMetadata(action);
         if (server_) server_->Send(state_.SnapshotMessage(), true); return true;
     }
 
@@ -96,7 +99,32 @@ namespace wcs_bridge
     {
         if (payload.size() > kMaxMessageBytes || !ValidUtf8(payload)) { error = "event is too large or not UTF-8"; return false; }
         json::Value data; if (!json::Parse(payload, data, error) || !state_.PublishEvent(type, data, error)) return false;
+        if (type == "action.updated") LogActionMetadata(data);
+        else if (type == "actions.state")
+            if (const auto* slots = data.Find("slots"); slots && slots->ArrayValue())
+                for (const auto& action : *slots->ArrayValue()) LogActionMetadata(action);
         if (server_) server_->Send(EventMessage(type, data), true); return true;
+    }
+
+    void WcsBridge::LogActionMetadata(const json::Value& action)
+    {
+        int64_t slot = 0; const auto* slotValue = action.Find("slot");
+        if (!slotValue || !slotValue->Integer(slot) || slot < 1 || slot > 24) return;
+        auto& previous = actionDiagnostics_[size_t(slot - 1)];
+        bool empty = false;
+        if (const auto* value = action.Find("empty"); value && value->Boolean(empty) && empty) { previous.clear(); return; }
+        // Allowlist only action metadata, never full snapshots or authentication data.
+        json::Value::Object metadata{{"slot", slot}};
+        for (const char* key : {"kind", "id", "name", "icon"})
+            if (const auto* value = action.Find(key))
+            {
+                if (const auto* text = value->String()) metadata[key] = text->substr(0, 256);
+                else if (value->IsNumber()) metadata[key] = *value;
+            }
+        const auto serialized = json::Dump(metadata);
+        if (previous == serialized) return;
+        previous = serialized;
+        Log(WXL_LOG_INFO, ("action-metadata-test: " + serialized).c_str());
     }
 
     std::string WcsBridge::StatusJson() const

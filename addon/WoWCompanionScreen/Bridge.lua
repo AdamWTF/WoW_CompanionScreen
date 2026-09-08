@@ -60,7 +60,8 @@ end
 
 local function actionName(kind, id)
     if not id then return nil end
-    if kind == "spell" and GetSpellInfo then return GetSpellInfo(id) end
+    -- Wrath action IDs identify spellbook entries, not global spell IDs.
+    if kind == "spell" and GetSpellName then return GetSpellName(id, BOOKTYPE_SPELL) end
     if kind == "item" and GetItemInfo then return GetItemInfo(id) end
     if kind == "macro" and GetMacroInfo then return GetMacroInfo(id) end
     return nil
