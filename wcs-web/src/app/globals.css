@@ -181,4 +181,32 @@ h1,h2,.character-name,.section-heading { font-family:Cinzel,Georgia,serif; }
   .action-panel .action-grid { --action-size:min(calc((100cqw - (3 * var(--home-x-gap))) / 4),calc((100cqh - var(--heading-size) - (6 * var(--home-gap))) / 6)); }
   .bottom-nav { padding-inline:3%; }
 }
+/* Keyboard sizes refer to CSS pixels, independently of Android display density. */
+.keyboard-page { display:grid;grid-template-rows:44px minmax(0,1fr) 24px;min-width:0;min-height:0; }
+.keyboard-header { display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 8px;border-bottom:1px solid var(--line);background:linear-gradient(#302316,#17110c); }
+.keyboard-header h1 { margin:0;font:700 calc(16px * var(--ui-scale))/1.1 Segoe UI,system-ui,sans-serif;color:#fff1c5; }
+.keyboard-modes { display:flex;gap:3px; }
+.keyboard-modes button { min-height:34px;padding:3px 12px;border:1px solid #6f4b20;border-radius:4px;background:#17110c;color:#d5c5a4;font-size:calc(12px * var(--ui-scale));cursor:pointer; }
+.keyboard-modes button[aria-pressed="true"] { background:#51381c;border-color:#d5a33c;color:#fff1c5; }
+.keyboard-page .keyboard-board { display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:repeat(5,minmax(0,1fr));justify-content:stretch;padding:6px;gap:5px;min-height:0; }
+.keyboard-page .keyboard-board.advanced { grid-template-rows:repeat(6,minmax(0,1fr)); }
+.keyboard-row { display:flex;gap:4px;min-width:0;min-height:0; }
+.keyboard-key { flex:1 1 0;min-width:0;min-height:0;padding:2px;border:1px solid #87602e;border-bottom-width:3px;border-radius:5px;background:linear-gradient(#3c2c1b,#1b140e);color:#fff1d1;display:flex;align-items:center;justify-content:center;font:600 calc(14px * var(--ui-scale))/1.1 Segoe UI,system-ui,sans-serif;cursor:pointer;touch-action:manipulation; }
+.keyboard-key>span { min-width:0;text-align:center; }
+.keyboard-key-icon { display:flex;align-items:center;justify-content:center; }
+.keyboard-key svg { width:22px;height:22px; }
+.keyboard-key:hover:not(:disabled) { border-color:#e4bd66;background:#49341e; }
+.keyboard-key:active:not(:disabled) { background:#735024;box-shadow:inset 0 2px 6px #000; }
+.keyboard-key:focus-visible { outline:2px solid #fff1b9;outline-offset:-4px; }
+.keyboard-key.modifier { color:#e8c777; }
+.keyboard-key[aria-pressed="true"] { background:#75501f;border-color:#ffdf83;color:#fff5d1;box-shadow:inset 0 0 8px #e9bb5650; }
+.keyboard-key:disabled { opacity:.35;cursor:default; }
+.keyboard-page .keyboard-hint { height:auto;margin:0;padding:3px 6px;font:500 10px/1.4 Segoe UI,system-ui,sans-serif;text-align:center;color:#c9b58e; }
+@container viewport (width < 420px) {
+  .keyboard-page { grid-template-rows:auto minmax(0,1fr) 30px; }
+  .keyboard-header { min-height:44px;flex-wrap:wrap; }
+  .keyboard-page .keyboard-board { padding:4px;gap:4px; }
+  .keyboard-row { gap:2px; }
+  .keyboard-key { font-size:calc(12px * var(--ui-scale)); }
+}
 @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important;animation:none!important}}

@@ -8,7 +8,6 @@
 #include "engine/events/Event.hpp"
 
 #include <deque>
-#include <array>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -36,9 +35,6 @@ namespace wcs_bridge
         bool Enqueue(Command command);
         void SendError(std::string code);
         void SetLifecycle(const char* state, bool clear);
-        // Temporary live-test diagnostics; remove after Thor verification.
-        void LogActionMetadata(const json::Value& action);
-        std::array<std::string, 24> actionDiagnostics_{};
 
         mutable std::mutex commandMutex_;
         std::deque<Command> commands_;
