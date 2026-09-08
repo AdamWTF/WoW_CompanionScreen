@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { PartyMember } from "@/bridge/protocol";
-import { classColor, partyPortraitPath, partyStatuses, percent, resourceColor } from "./partyPresentation";
+import { classColor, compactValue, partyPortraitPath, partyStatuses, percent, resourceColor } from "./partyPresentation";
 
 const member: PartyMember = {
   slot: 1, unit: "party1", guid: "0x0000000000000001", name: "Tester", level: 80,
@@ -10,6 +10,13 @@ const member: PartyMember = {
 };
 
 describe("party presentation", () => {
+  it("formats compact readable values without abbreviating small resources", () => {
+    expect(compactValue(18420)).toBe("18.4k");
+    expect(compactValue(22100)).toBe("22.1k");
+    expect(compactValue(64)).toBe("64");
+    expect(compactValue(1520000)).toBe("1.5m");
+    expect(compactValue(0)).toBe("0");
+  });
   it("maps Wrath class, resource, race and sex values", () => {
     expect(classColor(member.class.token)).toBe("#c41f3b");
     expect(resourceColor(member.resource.type)).toBe("#36c9d8");

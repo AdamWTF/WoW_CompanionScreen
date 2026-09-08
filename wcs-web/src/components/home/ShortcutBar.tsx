@@ -14,9 +14,9 @@ export function ShortcutBar({ enabled }: { enabled: boolean }) {
       {shortcuts.map(({ name, Icon }) => {
         const binding = preferences.shortcutBindings[name];
         return (
-          <button key={name} disabled={!enabled} className="shortcut-button" onClick={() => pressKey(binding.key, binding.modifiers)}>
+          <button key={name} disabled={!enabled} className="shortcut-button" aria-label={`WoW ${name}`} onClick={() => pressKey(binding.key, binding.modifiers)}>
             <Icon />
-            <span>{name}</span>
+            <span>{({ "Spell Book": "Spellbook", Achievements: "Achieve.", "Dungeon Finder": "Dungeon" } as Record<string, string>)[name] ?? name}</span>
           </button>
         );
       })}

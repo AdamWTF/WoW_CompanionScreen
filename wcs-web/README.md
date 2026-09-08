@@ -13,7 +13,9 @@ npm run typecheck
 npm run dev
 ```
 
-Open `http://localhost:3000/?demo` for representative data without WoW. `npm run build` creates the static site in `out/`.
+Open `http://localhost:3000/?demo` for representative data without WoW. Development uses `.next-dev/`, independently of production builds. `npm run build` creates the static site in `out/`.
+
+For Thor layout checks, open companion **Settings → Interface → Display diagnostics** in the dev app to read its CSS viewport, display density, visible height, scale, and active layout. Start with the measured 537×468 CSS viewport, then check 1240×1080, 620×540, and 496×432: party members belong on the left with square portraits, full-width bars, a 6×4 action grid, and visible bottom navigation. The 390×844 phone fallback uses a two-column party roster and 4×6 actions. Repeat at UI scales 0.85 and 1.15 and verify on the device itself.
 
 ## GitHub Pages
 

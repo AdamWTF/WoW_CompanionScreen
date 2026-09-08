@@ -18,11 +18,14 @@ describe("PartyRosterView", () => {
     const { container } = render(<PartyRosterView members={demoMembers()} onSelect={() => undefined} />);
 
     expect(screen.getAllByRole("button")).toHaveLength(4);
-    expect(container.querySelectorAll(".party-portrait-ring")).toHaveLength(4);
+    expect(container.querySelectorAll(".party-identity > .party-portrait-wrap")).toHaveLength(4);
+    expect(container.querySelectorAll(".party-details .character-name")).toHaveLength(4);
+    expect(container.querySelectorAll(".party-member > .party-stats")).toHaveLength(4);
     expect(screen.getByText("Ironward")).toBeTruthy();
-    expect(screen.getAllByText("LV 72")).toHaveLength(2);
+    expect(screen.getAllByText("LEVEL 72")).toHaveLength(2);
     expect(screen.getAllByText("HP")).toHaveLength(4);
-    expect(screen.getByText("18,420 / 22,100")).toBeTruthy();
+    expect(screen.getByText("18.4k / 22.1k")).toBeTruthy();
+    expect(screen.getByRole("img", { name: "HP: 18,420 / 22,100" })).toBeTruthy();
     expect(screen.getByText("RAGE")).toBeTruthy();
   });
 
@@ -46,6 +49,8 @@ describe("PartyRosterView", () => {
     expect(screen.getByText(/ghost/i)).toBeTruthy();
     expect(screen.getAllByText("AFK")).toHaveLength(2);
     expect(screen.getByText("DND")).toBeTruthy();
+    expect(container.querySelectorAll(".party-portrait-wrap .party-statuses")).toHaveLength(0);
+    expect(container.querySelectorAll(".party-details .party-statuses")).toHaveLength(3);
   });
 
   it("targets valid, dead and ghost members but disables missing identities", () => {
@@ -80,5 +85,16 @@ describe("PartyRosterView", () => {
     expect(screen.getByRole("button", { name: /Offline/ }).textContent).not.toContain("Ghost");
     expect(screen.getByRole("button", { name: /Ghost/ }).textContent).not.toContain("Dead");
     expect(screen.getByRole("button", { name: /Dead/ })).toBeTruthy();
+  });
+
+  it("keeps long names accessible and replaces failed portrait artwork", () => {
+    const name = "AReallyLongCharacterName";
+    const { container } = render(<PartyRosterView members={[{ ...demoMembers()[0], name }]} onSelect={() => undefined} />);
+    const member = screen.getByRole("button", { name: new RegExp(name) });
+    expect(member.getAttribute("title")).toBe(name);
+    expect(member.querySelector(".party-name")?.textContent).toBe(name);
+    const portrait = container.querySelector(".party-portrait") as HTMLImageElement;
+    fireEvent.error(portrait);
+    expect(portrait.getAttribute("src")).toContain("inv_misc_questionmark.webp");
   });
 });

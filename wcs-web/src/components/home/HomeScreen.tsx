@@ -2,7 +2,7 @@
 
 import { Backpack, Settings } from "lucide-react";
 import { useCompanionScreen } from "@/state/CompanionScreenContext";
-import { ConnectionIndicator } from "../connection/ConnectionIndicator";
+import { compactValue } from "../party/partyPresentation";
 import { ShortcutBar } from "./ShortcutBar";
 import { ActionGrid } from "./ActionGrid";
 import { PartyRoster } from "../party/PartyRoster";
@@ -27,8 +27,7 @@ export function HomeScreen({ openSettings }: { openSettings(): void }) {
         </div>
         <ExperienceBar player={player} />
         <div className="status-tools">
-          <ConnectionIndicator onClick={openSettings} />
-          <button className="icon-button" onClick={openSettings} aria-label="WoW Companion Screen settings"><Settings /></button>
+          <button className="icon-button companion-settings" onClick={openSettings} aria-label={`Companion settings, ${runtime.connectionState}, ${sessionState}`}><Settings /><span className={`connection-dot ${world ? "ready" : "waiting"}`} aria-hidden="true" /></button>
         </div>
       </section>
       <ShortcutBar enabled={world} />
@@ -61,7 +60,7 @@ function ExperienceBar({ player }: { player: ReturnType<typeof useCompanionScree
       <div className="xp-track">
         <div className="xp-fill" style={{ width: `${percent}%` }} />
         <div className="rested-fill" style={{ left: `${percent}%`, width: `${rested}%` }} />
-        <div className="xp-overlay"><span>{capped ? `LEVEL ${xp?.level ?? 80}` : "XP"} <b>{capped ? "MAX" : xp ? `${Math.round(percent)}%` : "—"}</b></span><strong>{progress}</strong></div>
+        <div className="xp-overlay" role="img" aria-label={progress} title={progress}><span>{capped ? `LEVEL ${xp?.level ?? 80}` : "XP"} <b>{capped ? "MAX" : xp ? `${Math.round(percent)}%` : "—"}</b></span><strong aria-hidden="true">{capped ? "Maximum level" : xp ? `${compactValue(xp.current)} / ${compactValue(xp.required)}${xp.rested > 0 ? " · Rested" : ""}` : "Waiting for player"}</strong></div>
       </div>
     </div>
   );

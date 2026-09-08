@@ -7,7 +7,7 @@ import { Modifier, ShortcutBinding } from "@/bridge/protocol";
 import { defaultBindings, shortcutNames, validIpv4 } from "@/persistence/preferences";
 import { useCompanionScreen } from "@/state/CompanionScreenContext";
 
-export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenChange(open: boolean): void }) {
+export function SettingsPanel({ open, onOpenChange, diagnostics }: { open: boolean; onOpenChange(open: boolean): void; diagnostics?: string }) {
   const { runtime, preferences, updatePreferences, setBinding, retry } = useCompanionScreen();
   const [host, setHost] = useState(preferences.hostIp ?? "");
   const [hostError, setHostError] = useState("");
@@ -64,6 +64,7 @@ export function SettingsPanel({ open, onOpenChange }: { open: boolean; onOpenCha
               <RangeSetting label="Scroll sensitivity" value={preferences.scrollSensitivity} min={0.4} max={2.5} step={0.1} onChange={(scrollSensitivity) => updatePreferences({ scrollSensitivity })} />
             </SettingsSection>
             <SettingsSection title="Interface">
+              {diagnostics && <details className="viewport-diagnostics"><summary>Display diagnostics</summary><output>{diagnostics}</output></details>}
               <label className="toggle-row"><span><strong>Haptics</strong><small>Short vibration after input where supported</small></span><input type="checkbox" checked={preferences.hapticsEnabled} onChange={(event) => updatePreferences({ hapticsEnabled: event.target.checked })} /></label>
               <RangeSetting label="UI scale" value={preferences.uiScale} min={0.85} max={1.15} step={0.05} onChange={(uiScale) => updatePreferences({ uiScale })} />
             </SettingsSection>

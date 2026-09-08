@@ -36,3 +36,10 @@ export function partyStatuses(member: PartyMember) {
 export function percent(current: number, maximum: number) {
   return maximum > 0 ? Math.max(0, Math.min(100, current / maximum * 100)) : 0;
 }
+
+export function compactValue(value: number) {
+  const safe = Number.isFinite(value) ? Math.max(0, value) : 0;
+  if (safe < 1000) return Math.round(safe).toLocaleString("en-US");
+  const divisor = safe >= 1_000_000 ? 1_000_000 : 1000;
+  return `${(safe / divisor).toFixed(1).replace(/\.0$/, "")}${divisor === 1000 ? "k" : "m"}`;
+}

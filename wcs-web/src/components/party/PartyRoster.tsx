@@ -5,7 +5,7 @@ import { Crown } from "lucide-react";
 import { PartyMember } from "@/bridge/protocol";
 import { withBasePath } from "@/deployment/basePath";
 import { useCompanionScreen } from "@/state/CompanionScreenContext";
-import { classColor, partyPortraitPath, partyStatuses, percent, resourceColor } from "./partyPresentation";
+import { classColor, compactValue, partyPortraitPath, partyStatuses, percent, resourceColor } from "./partyPresentation";
 
 export function PartyRoster({ members }: { members: PartyMember[] }) {
   const { selectPartyMember } = useCompanionScreen();
@@ -31,19 +31,21 @@ export function PartyRosterView({ members, onSelect }: { members: PartyMember[];
             className={`party-member${stateClasses ? ` ${stateClasses}` : ""}`}
             style={style}
             disabled={!member.guid}
+            title={member.name || "Unknown"}
             aria-current={member.targeted ? "true" : undefined}
             aria-label={`${member.targeted ? "Current target" : "Target"} ${member.name}, level ${member.level > 0 ? member.level : "unknown"} ${member.class.name}${statusLabel}`}
             onClick={() => onSelect(member.slot)}
           >
-            <span className="party-portrait-wrap">
-              <span className="party-portrait-ring"><PartyPortrait member={member} /></span>
-              {(member.dead || member.ghost || !member.connected) && <span className="party-state-shade" aria-hidden="true" />}
-              {statuses.length > 0 && <span className="party-statuses">{statuses.map((status) => <b key={status}>{status}</b>)}</span>}
-            </span>
-            <span className="party-heading">
-              <small>LV {member.level > 0 ? member.level : "??"}</small>
-              <strong>{member.name || "Unknown"}</strong>
-              <span className="party-role-mark">{member.leader && <Crown aria-label="Party leader" />}</span>
+            <span className="party-identity">
+              <span className="party-portrait-wrap">
+                <PartyPortrait member={member} />
+                {(member.dead || member.ghost || !member.connected) && <span className="party-state-shade" aria-hidden="true" />}
+              </span>
+              <span className="party-details">
+                <strong className="character-name party-name">{member.name || "Unknown"}</strong>
+                <span className="party-level-row"><small className="level-label">LEVEL {member.level > 0 ? member.level : "??"}</small>{member.leader && <Crown className="party-leader" aria-label="Party leader" />}</span>
+                {statuses.length > 0 && <span className="party-statuses">{statuses.map((status) => <b key={status}>{status}</b>)}</span>}
+              </span>
             </span>
             <span className="party-stats">
               <StatBar kind="health" label="HP" current={member.health.current} maximum={member.health.maximum} />
@@ -67,9 +69,9 @@ function PartyPortrait({ member }: { member: PartyMember }) {
 function StatBar({ kind, label, current, maximum }: { kind: "health" | "resource"; label: string; current: number; maximum: number }) {
   const value = maximum > 0 ? `${current.toLocaleString()} / ${maximum.toLocaleString()}` : "Unknown";
   return (
-    <span className={`party-stat ${kind}`} title={`${label}: ${value}`}>
+    <span className={`party-stat ${kind}`} role="img" aria-label={`${label}: ${value}`} title={`${label}: ${value}`}>
       <i style={{ width: `${percent(current, maximum)}%` }} />
-      <span><b>{label}</b><em>{value}</em></span>
+      <span aria-hidden="true"><b>{label}</b><em>{maximum > 0 ? `${compactValue(current)} / ${compactValue(maximum)}` : "—"}</em></span>
     </span>
   );
 }
