@@ -16,6 +16,9 @@ PromoteToLeader = function(unit) calls[#calls + 1] = { "promote", unit } end
 LeaveParty = function() calls[#calls + 1] = { "leave" } end
 assert(loadfile(arg[1] or "addon/WoWCompanionScreen/PartyManagement.lua"))("WCS", WCS)
 local management = WCS.PartyManagement
+UninviteUnit = nil
+assert(management:State().canRemove, "native removal availability must not depend on protected Lua wrapper")
+UninviteUnit = function(name) calls[#calls + 1] = { "remove", name } end
 local function run(operation, generation, guid)
     queued = { operation, 1, generation or management:State().generation, "request", guid or units.party1 }
     management:Tick()

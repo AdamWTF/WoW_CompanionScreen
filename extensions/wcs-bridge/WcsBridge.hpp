@@ -32,6 +32,7 @@ namespace wcs_bridge
         bool IsOwnLuaFunction(uintptr_t function) const;
         void RegisterLua(void* context);
         int TakePartyCommand(void* state);
+        bool PreparePartyCommand(const Command& command, std::string& guid);
         void PartyResult(const std::string& request, const std::string& status);
         std::string NextPartyGeneration();
 

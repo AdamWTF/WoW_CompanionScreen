@@ -29,7 +29,7 @@ function Management:State()
     end
     local available = self.generation ~= nil and type(WCSBridgeTakePartyCommand) == "function"
     return { groupType = group, generation = self.generation,
-        canRemove = available and group == "party" and leader and type(UninviteUnit) == "function",
+        canRemove = available and group == "party" and leader,
         canPromote = available and group == "party" and leader and type(PromoteToLeader) == "function",
         canLeave = available and (group == "party" or group == "dungeon-finder") and type(LeaveParty) == "function" }
 end

@@ -2,6 +2,7 @@
 
 #include "ExtensionApi.hpp"
 #include "common/ExtensionConfig.hpp"
+#include "game/Group.hpp"
 #include "game/Interaction.hpp"
 #include "game/Script.hpp"
 
@@ -70,7 +71,16 @@ namespace wcs_bridge
             {
                 if (const auto guid = state_.PartyGuid(command.value)) wxl::game::interaction::Target(*guid);
             }
-            else if (command.kind == CommandKind::PartyRemove || command.kind == CommandKind::PartyPromote || command.kind == CommandKind::PartyLeave)
+            else if (command.kind == CommandKind::PartyRemove)
+            {
+                std::string guidText;
+                if (server_ && server_->Connected() && command.session == server_->Session() && PreparePartyCommand(command, guidText))
+                {
+                    const auto guid = state_.PartyGuid(command.value);
+                    PartyResult(command.requestId, guid && wxl::game::group::Remove(*guid) ? "dispatched" : "client-unavailable");
+                }
+            }
+            else if (command.kind == CommandKind::PartyPromote || command.kind == CommandKind::PartyLeave)
             {
                 if (partyCommands_.size() < 256) partyCommands_.push_back(command);
                 else if (server_) server_->Send(json::Value::Object{{"type", "party.result"}, {"requestId", command.requestId}, {"status", "queue-full"}});
@@ -93,16 +103,23 @@ namespace wcs_bridge
     {
         if (partyCommands_.empty()) return 0;
         Command command = std::move(partyCommands_.front()); partyCommands_.pop_front();
-        std::string guid, error;
+        std::string guid;
         if (!server_ || !server_->Connected() || command.session != server_->Session()) return 0;
-        activePartyRequest_ = command.requestId;
-        if (!state_.ValidatePartyCommand(command, guid, error)) { PartyResult(command.requestId, error); return 0; }
-        if (requestGeneration_ != command.generation) { requestGeneration_ = command.generation; partyRequests_.clear(); }
-        if (partyRequests_.size() >= 4096 || !partyRequests_.insert(command.requestId).second) { PartyResult(command.requestId, "duplicate-request"); return 0; }
+        if (!PreparePartyCommand(command, guid)) return 0;
         using namespace wxl::game::script;
         PushString(state, command.kind == CommandKind::PartyLeave ? "leave" : command.kind == CommandKind::PartyRemove ? "remove" : "promote");
         PushNumber(state, command.value); PushString(state, command.generation.c_str()); PushString(state, command.requestId.c_str()); PushString(state, guid.c_str());
         return 5;
+    }
+
+    bool WcsBridge::PreparePartyCommand(const Command& command, std::string& guid)
+    {
+        activePartyRequest_ = command.requestId;
+        std::string error;
+        if (!state_.ValidatePartyCommand(command, guid, error)) { PartyResult(command.requestId, error); return false; }
+        if (requestGeneration_ != command.generation) { requestGeneration_ = command.generation; partyRequests_.clear(); }
+        if (partyRequests_.size() >= 4096 || !partyRequests_.insert(command.requestId).second) { PartyResult(command.requestId, "duplicate-request"); return false; }
+        return true;
     }
 
     void WcsBridge::PartyResult(const std::string& request, const std::string& status)
