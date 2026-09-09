@@ -7,6 +7,8 @@ export interface RuntimeState {
   hasSnapshot: boolean;
   error: string | null;
   touchpadWarning: string | null;
+  capabilities?: string[];
+  partyResult?: { requestId: string; status: string };
 }
 
 export const initialRuntimeState: RuntimeState = {
@@ -38,18 +40,25 @@ export function bridgeReducer(state: RuntimeState, action: RuntimeAction): Runti
 
   const message = action.message;
   switch (message.type) {
+    case "hello": return { ...state, capabilities: Array.isArray(message.capabilities) ? message.capabilities.filter((value): value is string => typeof value === "string") : [] };
+    case "party.result":
+      if (typeof message.requestId !== "string" || typeof message.status !== "string") return state;
+      return { ...state, partyResult: { requestId: message.requestId, status: message.status } };
     case "pairing.required": return { ...state, sessionState: "pairing" };
     case "auth.required": return { ...state, sessionState: "authenticating" };
     case "auth.ok": return { ...state, sessionState: "awaiting-snapshot" };
     case "state.snapshot":
+      {
+        const snapshot = message.data as BridgeState;
       return {
         ...state,
-        bridgeState: message.data as BridgeState,
+        bridgeState: { ...snapshot, party: snapshot.party ?? { members: [] } },
         hasSnapshot: true,
         connectionState: "connected",
         sessionState: "ready",
         error: null,
       };
+      }
     case "player.state":
       if (!state.hasSnapshot || !state.bridgeState.player) return state;
       return { ...state, bridgeState: { ...state.bridgeState, player: { ...state.bridgeState.player, ...(message.data as Partial<BridgeState["player"]>) } } };
@@ -70,6 +79,9 @@ export function bridgeReducer(state: RuntimeState, action: RuntimeAction): Runti
       const updated = message.data as BridgeState["actions"]["slots"][number];
       return { ...state, bridgeState: { ...state.bridgeState, actions: { slots: state.bridgeState.actions.slots.map((slot) => slot.slot === updated.slot ? updated : slot) } } };
     }
+    case "party.state":
+      if (!state.hasSnapshot) return state;
+      return { ...state, bridgeState: { ...state.bridgeState, party: message.data as BridgeState["party"] } };
     default: return state;
   }
 }

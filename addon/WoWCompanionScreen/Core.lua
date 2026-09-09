@@ -14,18 +14,20 @@ function Core:RefreshActions()
     WCS.ActionOverlay:Refresh(); if WCS.Settings.frame and WCS.Settings.frame:IsShown() then WCS.Settings:RefreshActions() end
 end
 
-local events = { "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "ACTIONBAR_SLOT_CHANGED", "ACTIONBAR_UPDATE_COOLDOWN", "ACTIONBAR_UPDATE_USABLE", "ACTIONBAR_UPDATE_STATE", "ACTIONBAR_PAGE_CHANGED", "UPDATE_BONUS_ACTIONBAR", "UPDATE_SHAPESHIFT_FORM", "SPELLS_CHANGED", "BAG_UPDATE", "UPDATE_BINDINGS", "CURSOR_UPDATE", "PLAYER_TARGET_CHANGED", "PLAYER_LEVEL_UP", "PLAYER_XP_UPDATE", "UPDATE_EXHAUSTION", "PLAYER_MONEY" }
+local events = { "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED", "PLAYER_REGEN_DISABLED", "ACTIONBAR_SLOT_CHANGED", "ACTIONBAR_UPDATE_COOLDOWN", "ACTIONBAR_UPDATE_USABLE", "ACTIONBAR_UPDATE_STATE", "ACTIONBAR_PAGE_CHANGED", "UPDATE_BONUS_ACTIONBAR", "UPDATE_SHAPESHIFT_FORM", "SPELLS_CHANGED", "BAG_UPDATE", "UPDATE_BINDINGS", "CURSOR_UPDATE", "PLAYER_TARGET_CHANGED", "PLAYER_LEVEL_UP", "PLAYER_XP_UPDATE", "UPDATE_EXHAUSTION", "PLAYER_MONEY", "PARTY_MEMBERS_CHANGED", "RAID_ROSTER_UPDATE", "PARTY_LEADER_CHANGED", "PARTY_MEMBER_ENABLE", "PARTY_MEMBER_DISABLE", "PLAYER_FLAGS_CHANGED", "UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_MANA", "UNIT_MAXMANA", "UNIT_RAGE", "UNIT_MAXRAGE", "UNIT_ENERGY", "UNIT_MAXENERGY", "UNIT_RUNIC_POWER", "UNIT_MAXRUNIC_POWER", "UNIT_DISPLAYPOWER", "UNIT_NAME_UPDATE", "UNIT_LEVEL", "UNIT_FLAGS" }
 for _, event in ipairs(events) do eventFrame:RegisterEvent(event) end
-eventFrame:SetScript("OnEvent", function(_, event)
+eventFrame:RegisterEvent("PLAYER_LEAVING_WORLD")
+eventFrame:SetScript("OnEvent", function(_, event, ...)
     if event == "PLAYER_LOGIN" then Core:Initialize(); return end
     if not Core.initialized then return end
     if event == "CURSOR_UPDATE" then WCS.Controller:CursorChanged(); return end
-    WCS.Bridge:OnEvent(event)
+    WCS.Bridge:OnEvent(event, ...)
     WCS.UINavigation:OnEvent(event)
     if event == "ACTIONBAR_PAGE_CHANGED" or event == "UPDATE_BONUS_ACTIONBAR" or event == "UPDATE_SHAPESHIFT_FORM" then WCS.Controller:ResolveMainActions() end
     if event == "PLAYER_REGEN_ENABLED" then WCS.Controller:ApplyAll(); WCS.Controller:MarkSyncDirty(); WCS.Display:Apply() end
     if event == "PLAYER_ENTERING_WORLD" then WCS.Controller:MarkSyncDirty() end
     if event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_REGEN_ENABLED" then WCS.Display:Reconcile() end
+    if event == "PARTY_MEMBERS_CHANGED" or event == "RAID_ROSTER_UPDATE" then WCS.Display:Reconcile() end
     if event == "PLAYER_REGEN_DISABLED" and WCS.Settings.frame:IsShown() then WCS.Settings:SetStatus("Configuration changes are locked during combat.", true) end
     Core:RefreshActions()
 end)

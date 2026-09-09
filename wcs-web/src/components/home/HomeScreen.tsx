@@ -1,20 +1,26 @@
 "use client";
 
-import { Backpack, Settings } from "lucide-react";
+import React, { useState } from "react";
+import { Backpack, Settings, Users } from "lucide-react";
+import { PartyMenu } from "../party/PartyMenu";
 import { useCompanionScreen } from "@/state/CompanionScreenContext";
-import { ConnectionIndicator } from "../connection/ConnectionIndicator";
+import { compactValue } from "../party/partyPresentation";
 import { ShortcutBar } from "./ShortcutBar";
 import { ActionGrid } from "./ActionGrid";
+import { PartyRoster } from "../party/PartyRoster";
 
 export function HomeScreen({ openSettings }: { openSettings(): void }) {
-  const { runtime } = useCompanionScreen();
+  const { runtime, demoMode } = useCompanionScreen();
+  const [menuSlot, setMenuSlot] = useState<number | null>(null);
   const { bridgeState, hasSnapshot, sessionState } = runtime;
   const world = hasSnapshot && sessionState === "ready" && bridgeState.game.state === "world";
   const player = world ? bridgeState.player : null;
+  const party = world ? bridgeState.party.members : [];
+  const management = world && (demoMode || runtime.capabilities?.includes("party-management")) && !!bridgeState.party.generation && ["party", "dungeon-finder"].includes(bridgeState.party.groupType ?? "");
 
   return (
     <div className="home-screen">
-      <section className="status-strip panel-frame">
+      <section className={`status-strip panel-frame${management ? " has-party-controls" : ""}`}>
         <div className="character-block">
           <div className="character-name">{player?.name || gameTitle(bridgeState.game.state, runtime.connectionState)}</div>
           <div className="level-label">{player ? `LEVEL ${player.level}` : gameSubtitle(bridgeState.game.state, runtime.connectionState)}</div>
@@ -25,13 +31,19 @@ export function HomeScreen({ openSettings }: { openSettings(): void }) {
         </div>
         <ExperienceBar player={player} />
         <div className="status-tools">
-          <ConnectionIndicator onClick={openSettings} />
-          <button className="icon-button" onClick={openSettings} aria-label="WoW Companion Screen settings"><Settings /></button>
+          {management && <button className="icon-button" aria-label="Party menu" aria-haspopup="dialog" onClick={() => setMenuSlot(0)}><Users /></button>}
+          <button className="icon-button companion-settings" onClick={openSettings} aria-label={`Companion settings, ${runtime.connectionState}, ${sessionState}`}><Settings /><span className={`connection-dot ${world ? "ready" : "waiting"}`} aria-hidden="true" /></button>
         </div>
       </section>
       <ShortcutBar enabled={world} />
-      <div className="section-heading"><span>Quick Actions</span></div>
-      <ActionGrid enabled={world} slots={world ? bridgeState.actions.slots : []} />
+      <div className={`combat-layout${party.length ? " has-party" : ""}`}>
+        {party.length > 0 && <PartyRoster members={party} onMenu={management ? setMenuSlot : undefined} />}
+        <div className="action-panel">
+          <div className="section-heading"><span>Quick Actions</span></div>
+          <ActionGrid enabled={world} slots={world ? bridgeState.actions.slots : []} />
+        </div>
+      </div>
+      <PartyMenu slot={management ? menuSlot : null} close={() => setMenuSlot(null)} choose={setMenuSlot} />
     </div>
   );
 }
@@ -54,7 +66,7 @@ function ExperienceBar({ player }: { player: ReturnType<typeof useCompanionScree
       <div className="xp-track">
         <div className="xp-fill" style={{ width: `${percent}%` }} />
         <div className="rested-fill" style={{ left: `${percent}%`, width: `${rested}%` }} />
-        <div className="xp-overlay"><span>{capped ? `LEVEL ${xp?.level ?? 80}` : "XP"} <b>{capped ? "MAX" : xp ? `${Math.round(percent)}%` : "—"}</b></span><strong>{progress}</strong></div>
+        <div className="xp-overlay" role="img" aria-label={progress} title={progress}><span>{capped ? `LEVEL ${xp?.level ?? 80}` : "XP"} <b>{capped ? "MAX" : xp ? `${Math.round(percent)}%` : "—"}</b></span><strong aria-hidden="true">{capped ? "Maximum level" : xp ? `${compactValue(xp.current)} / ${compactValue(xp.required)}${xp.rested > 0 ? " · Rested" : ""}` : "Waiting for player"}</strong></div>
       </div>
     </div>
   );

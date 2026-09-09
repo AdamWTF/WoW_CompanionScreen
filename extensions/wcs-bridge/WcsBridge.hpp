@@ -11,6 +11,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <set>
 
 namespace wcs_bridge
 {
@@ -30,6 +31,10 @@ namespace wcs_bridge
         void DrawPanel();
         bool IsOwnLuaFunction(uintptr_t function) const;
         void RegisterLua(void* context);
+        int TakePartyCommand(void* state);
+        bool PreparePartyCommand(const Command& command, std::string& guid);
+        void PartyResult(const std::string& request, const std::string& status);
+        std::string NextPartyGeneration();
 
     private:
         bool Enqueue(Command command);
@@ -38,6 +43,11 @@ namespace wcs_bridge
 
         mutable std::mutex commandMutex_;
         std::deque<Command> commands_;
+        std::deque<Command> partyCommands_;
+        std::set<std::string> partyRequests_;
+        std::string requestGeneration_;
+        std::string activePartyRequest_;
+        uint64_t partyGeneration_ = 0;
         StateStore state_;
         PairingManager pairing_;
         std::unique_ptr<WebSocketServer> server_;
@@ -54,4 +64,7 @@ namespace wcs_bridge
     int __cdecl LuaPublishEvent(void* state);
     int __cdecl LuaGetStatus(void* state);
     int __cdecl LuaForgetDevice(void* state);
+    int __cdecl LuaTakePartyCommand(void* state);
+    int __cdecl LuaPartyResult(void* state);
+    int __cdecl LuaPartyGeneration(void* state);
 }

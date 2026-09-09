@@ -1,49 +1,58 @@
 "use client";
-
-import { useState } from "react";
-import { Delete, CornerDownLeft, Space } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { Delete, CornerDownLeft, ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from "lucide-react";
 import { Modifier } from "@/bridge/protocol";
 import { useCompanionScreen } from "@/state/CompanionScreenContext";
 
-const rows = ["1234567890", "QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM", ",./;'-=[]\\"];
-const named = ["ESCAPE", "TAB", "ENTER", "BACKSPACE", "INSERT", "DELETE", "HOME", "END", "PAGEUP", "PAGEDOWN", "UP", "LEFT", "DOWN", "RIGHT"];
+const basicRows = [
+  [..."1234567890"], [..."QWERTYUIOP"], [..."ASDFGHJKL", "BACKSPACE"],
+  ["SHIFT", ..."ZXCVBNM", ",", "."], ["ESCAPE", "TAB", "/", "SPACE", "ENTER"],
+];
+const advancedRows = [
+  Array.from({ length: 6 }, (_, i) => "F" + (i + 1)),
+  Array.from({ length: 6 }, (_, i) => "F" + (i + 7)),
+  [String.fromCharCode(96), ..." -=[]\\;',./".trim()],
+  ["INSERT", "DELETE", "HOME", "END", "PAGEUP", "PAGEDOWN"],
+  ["SHIFT", "CTRL", "ALT", "ESCAPE", "UP", "BACKSPACE"],
+  ["TAB", "SPACE", "ENTER", "LEFT", "DOWN", "RIGHT"],
+];
+const shifted = Object.fromEntries(
+  [..."1234567890", String.fromCharCode(96), ..."-=[]\\;',./"].map((key, index) => [key, [...'!@#$%^&*()~_+{}|:"<>?'][index]])
+);
+const labels: Record<string, string> = { ESCAPE: "Esc", TAB: "Tab", SPACE: "Space", ENTER: "Enter", BACKSPACE: "Backspace", INSERT: "Insert", DELETE: "Delete", HOME: "Home", END: "End", PAGEUP: "Page Up", PAGEDOWN: "Page Down", SHIFT: "Shift", CTRL: "Ctrl", ALT: "Alt", UP: "Up", DOWN: "Down", LEFT: "Left", RIGHT: "Right" };
+const icons: Record<string, React.ReactNode> = { BACKSPACE: <Delete />, ENTER: <CornerDownLeft />, UP: <ArrowUp />, DOWN: <ArrowDown />, LEFT: <ArrowLeft />, RIGHT: <ArrowRight /> };
+const isModifier = (key: string): key is Modifier => key === "SHIFT" || key === "CTRL" || key === "ALT";
 
 export function RemoteKeyboard() {
   const { runtime, pressKey, preferences } = useCompanionScreen();
-  const [mode, setMode] = useState<"basic" | "extended">("basic");
+  const [mode, setMode] = useState<"basic" | "advanced">("basic");
   const [modifiers, setModifiers] = useState<Modifier[]>([]);
-  const enabled = runtime.sessionState === "ready" && runtime.hasSnapshot;
-
-  const toggle = (modifier: Modifier) => setModifiers((current) => current.includes(modifier) ? current.filter((item) => item !== modifier) : [...current, modifier]);
+  const enabled = runtime.connectionState === "connected" && runtime.sessionState === "ready" && runtime.hasSnapshot;
+  useEffect(() => { if (!enabled) setModifiers([]); }, [enabled]);
   const press = (key: string) => {
     if (!enabled) return;
+    if (isModifier(key)) {
+      setModifiers((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key]);
+      return;
+    }
     pressKey(key, modifiers);
     if (preferences.hapticsEnabled) navigator.vibrate?.(8);
     setModifiers([]);
   };
-
-  return (
-    <section className="keyboard-page">
-      <header className="page-heading"><div><p className="eyebrow">DIRECT INPUT</p><h1>Remote Keyboard</h1></div><div className="mode-switch"><button className={mode === "basic" ? "active" : ""} onClick={() => setMode("basic")}>Basic</button><button className={mode === "extended" ? "active" : ""} onClick={() => setMode("extended")}>Extended</button></div></header>
-      <div className={!enabled ? "keyboard-board disabled" : "keyboard-board"}>
-        {mode === "basic" ? <>
-          {rows.map((row, index) => <div className="key-row" key={row}>{[...row].map((key) => <Key key={`${index}-${key}`} label={key} onClick={() => press(key)} />)}</div>)}
-          <div className="key-row utility-row"><Key label="Esc" onClick={() => press("ESCAPE")} /><ModifierKey name="SHIFT" active={modifiers.includes("SHIFT")} onClick={() => toggle("SHIFT")} /><Key wide label="Space" icon={<Space />} onClick={() => press("SPACE")} /><Key label="Back" icon={<Delete />} onClick={() => press("BACKSPACE")} /><Key label="Enter" icon={<CornerDownLeft />} onClick={() => press("ENTER")} /></div>
-        </> : <>
-          <div className="function-row">{Array.from({ length: 12 }, (_, i) => <Key key={i} label={`F${i + 1}`} onClick={() => press(`F${i + 1}`)} />)}</div>
-          <div className="extended-grid">{named.map((key) => <Key key={key} label={friendly(key)} onClick={() => press(key)} />)}</div>
-          <div className="key-row utility-row"><ModifierKey name="SHIFT" active={modifiers.includes("SHIFT")} onClick={() => toggle("SHIFT")} /><ModifierKey name="CTRL" active={modifiers.includes("CTRL")} onClick={() => toggle("CTRL")} /><ModifierKey name="ALT" active={modifiers.includes("ALT")} onClick={() => toggle("ALT")} /><Key wide label="Space" onClick={() => press("SPACE")} /></div>
-        </>}
-      </div>
-      <p className="keyboard-hint">{enabled ? modifiers.length ? `${modifiers.join(" + ")} latched — select a key` : "Tap Enter to open chat, type, then tap Enter again to send." : "Keyboard input is available after the bridge snapshot arrives."}</p>
-    </section>
-  );
+  const label = (key: string) => labels[key] ?? (/^F[0-9]+$/.test(key) ? key : modifiers.includes("SHIFT") ? shifted[key] ?? key : key.toLowerCase());
+  const weight = (key: string) => mode === "advanced" ? 1 : key === "SPACE" ? 3 : key === "ENTER" ? 2 : key === "SHIFT" || key === "BACKSPACE" ? 1.5 : 1;
+  return <section className="keyboard-page">
+    <header className="keyboard-header"><h1>Keyboard</h1><div className="keyboard-modes" role="group" aria-label="Keyboard layout">
+      {(["basic", "advanced"] as const).map((choice) => <button key={choice} aria-pressed={mode === choice} onClick={() => setMode(choice)}>{choice === "basic" ? "Basic" : "Advanced"}</button>)}
+    </div></header>
+    <div className={"keyboard-board " + mode}>
+      {(mode === "basic" ? basicRows : advancedRows).map((row, index) => <div className="keyboard-row" key={mode + index}>
+        {row.map((key) => <button key={key} type="button" className={"keyboard-key" + (isModifier(key) ? " modifier" : "")} style={{ flexGrow: weight(key) }}
+          disabled={!enabled} aria-label={label(key)} aria-pressed={isModifier(key) ? modifiers.includes(key) : undefined} data-key={key} onClick={() => press(key)}>
+          {icons[key] ? <span aria-hidden="true" className="keyboard-key-icon">{icons[key]}</span> : <span>{label(key)}</span>}
+        </button>)}
+      </div>)}
+    </div>
+    <p className="keyboard-hint" role="status">{!enabled ? "Connect to WoW to use the keyboard." : modifiers.length ? modifiers.join(" + ") + " — next key only" : "Enter opens chat • Enter again sends • Esc cancels"}</p>
+  </section>;
 }
-
-function Key({ label, onClick, wide, icon }: { label: string; onClick(): void; wide?: boolean; icon?: React.ReactNode }) {
-  return <button className={wide ? "key wide" : "key"} onClick={onClick}>{icon}{label}</button>;
-}
-function ModifierKey({ name, active, onClick }: { name: Modifier; active: boolean; onClick(): void }) {
-  return <button className={active ? "key modifier active" : "key modifier"} aria-pressed={active} onClick={onClick}>{name}</button>;
-}
-function friendly(key: string) { return key.replace("PAGEUP", "Page Up").replace("PAGEDOWN", "Page Down").replace("BACKSPACE", "Backspace").replace("ESCAPE", "Esc"); }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Action, emptyBridgeState, PopulatedAction } from "@/bridge/protocol";
 import { withBasePath } from "@/deployment/basePath";
 import { resolveWowIcon } from "@/icons/resolveWowIcon";
@@ -24,16 +24,17 @@ function ActionSlot({ action, enabled }: { action: Action; enabled: boolean }) {
   }, [action]);
 
   if (action.empty) return <div className="action-slot empty" aria-label={`Empty action slot ${action.slot}`}><span>{action.slot}</span></div>;
+  const caption = action.name.trim() || action.text.trim();
   const cooldownPercent = action.cooldown.durationMs > 0 ? remaining / action.cooldown.durationMs * 100 : 0;
   const classes = ["action-slot", !action.usable && "unusable", action.insufficientResource && "no-resource", action.inRange === false && "out-of-range", action.current && "current", action.equipped && "equipped"].filter(Boolean).join(" ");
   return (
-    <button className={classes} disabled={!enabled} onClick={() => { pressAction(action.slot); if (preferences.hapticsEnabled) navigator.vibrate?.(12); }} aria-label={`${action.name}, slot ${action.slot}`}>
+    <button className={classes} disabled={!enabled} onClick={() => { pressAction(action.slot); if (preferences.hapticsEnabled) navigator.vibrate?.(12); }} aria-label={`${caption || "Unnamed action"}, slot ${action.slot}`}>
       <img src={fallback ? withBasePath("/icons/action-fallback.svg") : resolveWowIcon(action.icon)} onError={() => setFallback(true)} alt="" draggable={false} />
       <span className="slot-number">{action.slot}</span>
       {action.count > 0 && <b className="count-badge">{action.count}</b>}
       {action.equipped && <span className="equipped-mark">◆</span>}
       {remaining > 0 && <CooldownOverlay action={action} percent={cooldownPercent} remaining={remaining} />}
-      <span className="action-name">{action.name || action.text || `Action ${action.slot}`}</span>
+      {caption && <span className="action-name">{caption}</span>}
     </button>
   );
 }

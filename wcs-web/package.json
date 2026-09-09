@@ -1,9 +1,10 @@
 {
   "name": "wcs-web",
-  "version": "1.0.2",
+  "version": "1.2.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:thor": "node scripts/dev-thor.mjs",
     "build": "next build",
     "icons:brand": "node scripts/generate-brand-icons.mjs",
     "icons:import": "node scripts/import-wow-icons.mjs",
@@ -24,6 +25,7 @@
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
+    "jsdom": "^29.1.1",
     "sharp": "^0.34.5",
     "typescript": "^5.7.2",
     "vitest": "^3.2.4",

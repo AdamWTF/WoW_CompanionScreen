@@ -5,20 +5,21 @@
 #include <array>
 #include <cstdint>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 
 namespace wcs_bridge
 {
     inline constexpr int kProtocolVersion = 1;
-    inline constexpr const char* kBridgeVersion = "1.0.2";
+    inline constexpr const char* kBridgeVersion = "1.2.0";
     inline constexpr size_t kMaxMessageBytes = 64 * 1024;
 
     enum class CommandKind
     {
         KeyPress, KeyDown, KeyUp, TextInsert,
         PointerMove, PointerClick, PointerDown, PointerUp, PointerScroll,
-        ActionPress, ReleaseAll,
+        ActionPress, PartySelect, PartyRemove, PartyPromote, PartyLeave, ReleaseAll,
     };
 
     struct Command
@@ -26,6 +27,9 @@ namespace wcs_bridge
         CommandKind kind{};
         std::string key;
         std::string text;
+        std::string generation;
+        std::string requestId;
+        uint64_t session = 0;
         uint8_t modifiers = 0; // bit 0 shift, bit 1 ctrl, bit 2 alt
         int x = 0;
         int y = 0;
@@ -45,14 +49,19 @@ namespace wcs_bridge
         void SetGameState(std::string state, bool clearWorldState);
         json::Value SnapshotMessage() const;
         std::string GameState() const;
+        std::optional<uint64_t> PartyGuid(int member) const;
+        bool ValidatePartyCommand(const Command& command, std::string& guid, std::string& error) const;
 
     private:
         static json::Value EmptyActions();
+        static json::Value EmptyParty();
         static bool NormalizeActions(json::Value& actions, std::string& error);
+        static bool NormalizeParty(json::Value& party, std::string& error);
 
         mutable std::mutex mutex_;
         std::string gameState_ = "login";
         json::Value player_ = nullptr;
         json::Value actions_;
+        json::Value party_;
     };
 }

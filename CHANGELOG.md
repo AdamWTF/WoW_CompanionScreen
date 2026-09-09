@@ -2,6 +2,26 @@
 
 All notable changes to WoW Companion Screen are documented here. Releases use semantic versioning with matching client and PWA versions.
 
+## 1.2.0 - 2026-09-04
+
+### Added
+
+- Show non-raid party members in Thor-optimized Wrath-styled unit frames with class styling, health, class resources, and group status.
+- Select party members by tapping their companion-screen frame, or manage the party through confirmed remove, promote, and leave controls.
+- Provide Basic and Advanced on-screen keyboard layouts sized for the Thor second screen.
+
+### Changed
+
+- Present party portraits as readable square artwork beside member identity and resource details.
+- Move quick actions beside the party roster on wide screens and adapt the roster above them on narrow screens.
+- Replace Blizzard party frames only while reduced UI is active and an authenticated companion screen is connected.
+
+### Fixed
+
+- Resolve live spell names and action icons correctly while leaving genuinely unnamed actions uncaptioned.
+- Restore Blizzard party frames cleanly after leaving a party without showing a disconnected ghost entry.
+- Remove party members reliably through the stock game-thread party operation when Wrath rejects the protected Lua wrapper.
+
 ## 1.0.2 - 2026-09-04
 
 ### Fixed

@@ -28,3 +28,5 @@ Navigation is out-of-combat only. D-pad moves focus; South confirms and East ret
 ## Second-screen contract
 
 Slots 1–24 map directly to WoW action IDs 25–48 and are not duplicated into `WCSDB`. Use `WCS.SecondScreen:GetActionID(slot)`.
+
+In a non-raid party, the add-on publishes `party1`–`party4` to the paired companion screen. Reduced UI hides Blizzard's party frames only while that screen is authenticated and connected; disconnecting or entering a raid restores them at the first combat-safe opportunity.

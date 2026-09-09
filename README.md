@@ -20,7 +20,7 @@ Keep an untouched client copy. See the [installation guide](docs/CLIENT_INSTALL.
 ## Features
 
 - Native movement, camera, targeting, layered actions, Jump, Smart Interact, and configurable UI navigation.
-- A paired companion screen with 24 actions, character state, keyboard, touchpad, and shortcuts.
+- A paired companion screen with 24 actions, character and non-raid party state, tap-to-target party portraits, keyboard, touchpad, and shortcuts.
 - Direct local communication with WoW; the hosted app does not relay game state through GitHub.
 
 | Component | Purpose |

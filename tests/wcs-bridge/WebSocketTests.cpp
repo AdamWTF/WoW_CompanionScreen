@@ -73,11 +73,12 @@ int main()
     Check(server.Listening(), "server listening");
 
     SOCKET client = Connect(); Upgrade(client);
-    const std::string hello = R"({"type":"hello","protocol":1,"client":"thor"})";
+    const std::string hello = R"({"type":"hello","protocol":1,"client":"thor","capabilities":["party"]})";
     const size_t half = hello.size() / 2; Check(SendAll(client, MaskedFrame(std::string_view(hello).substr(0, half), 1, false) + MaskedFrame(std::string_view(hello).substr(half), 0, true)), "send fragmented hello");
     Check(ReceiveFrame(client).find("\"type\":\"hello\"") != std::string::npos, "server hello first");
     Check(ReceiveFrame(client).find("\"type\":\"auth.ok\"") != std::string::npos, "auth ok second");
     Check(ReceiveFrame(client).find("\"type\":\"state.snapshot\"") != std::string::npos, "snapshot third");
+    Check(server.PartyCapable(), "party capability retained for active client");
 
     for (int slot = 1; slot <= 32; ++slot)
         Check(server.Send(json::Value::Object{{"type", "action.updated"}, {"data", json::Value::Object{{"slot", slot}}}}, true), "queue replaceable delta");
@@ -93,6 +94,7 @@ int main()
     Check(SendAll(client, std::string("\x81\x02{}", 4)), "send unmasked frame"); ReceiveFrame(client, &opcode); Check(opcode == 8, "unmasked frame closes session");
     closesocket(client);
     for (int i = 0; i < 100 && server.Connected(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    Check(!server.PartyCapable(), "party capability clears with disconnected client");
     client = Connect(); Upgrade(client); Check(SendAll(client, MaskedFrame(hello)), "send reconnect hello");
     Check(ReceiveFrame(client).find("\"type\":\"hello\"") != std::string::npos, "reconnect server hello");
     Check(ReceiveFrame(client).find("auth.ok") != std::string::npos, "reconnect authenticates");
@@ -103,14 +105,18 @@ int main()
     WebSocketServer pairedServer(wirePairing, [](Command) { return true; }, [] { StateStore store; return store.SnapshotMessage(); });
     Check(pairedServer.Start("127.0.0.1", 28424), "start paired server");
     for (int i = 0; i < 100 && !pairedServer.Listening(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    SOCKET pairingClient = Connect(28424); Upgrade(pairingClient); Check(SendAll(pairingClient, MaskedFrame(hello)), "send paired hello");
+    const std::string oldHello = R"({"type":"hello","protocol":1,"client":"thor"})";
+    SOCKET pairingClient = Connect(28424); Upgrade(pairingClient); Check(SendAll(pairingClient, MaskedFrame(oldHello)), "send paired hello");
     Check(ReceiveFrame(pairingClient).find("\"type\":\"hello\"") != std::string::npos, "paired server hello");
     Check(ReceiveFrame(pairingClient).find("pairing.required") != std::string::npos, "pairing requested");
+    Check(SendAll(pairingClient, MaskedFrame(R"({"type":"party.remove","member":1,"generation":"g","requestId":"r"})")), "send unauthenticated management request");
+    Check(ReceiveFrame(pairingClient).find("auth-required") != std::string::npos, "unauthenticated management rejected");
     const std::string pairRequest = std::string("{\"type\":\"pair.request\",\"code\":\"") + wireCode + "\",\"device\":{\"id\":\"phone-1\",\"name\":\"Test phone\"}}";
     Check(SendAll(pairingClient, MaskedFrame(pairRequest)), "send pairing request");
     Check(ReceiveFrame(pairingClient).find("pairing.complete") != std::string::npos, "pairing completes");
     Check(ReceiveFrame(pairingClient).find("auth.ok") != std::string::npos, "paired session authenticates");
     Check(ReceiveFrame(pairingClient).find("state.snapshot") != std::string::npos, "paired session receives snapshot");
+    Check(!pairedServer.PartyCapable(), "legacy protocol client does not advertise party replacement");
     closesocket(pairingClient); pairedServer.Stop(); wirePairing.Forget();
 
     WSACleanup(); std::cout << "WoW Companion Screen bridge WebSocket tests passed\n"; return 0;
