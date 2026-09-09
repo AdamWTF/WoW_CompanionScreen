@@ -116,6 +116,20 @@ namespace wcs_bridge
             if (!ReadInt(root, "member", 1, 4, command.value)) { errorCode = "invalid-party-member"; return false; }
             command.kind = CommandKind::PartySelect; return true;
         }
+        if (*type == "party.remove" || *type == "party.promote" || *type == "party.leave")
+        {
+            auto token = [&](const char* key, std::string& out) {
+                const auto* value = root.Find(key); const auto* text = value ? value->String() : nullptr;
+                if (!text || text->empty() || text->size() > 64 || !std::all_of(text->begin(), text->end(), [](unsigned char c) {
+                    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_';
+                })) return false;
+                out = *text; return true;
+            };
+            if (!token("generation", command.generation) || !token("requestId", command.requestId)) { errorCode = "invalid-party-request"; return false; }
+            if (*type != "party.leave" && !ReadInt(root, "member", 1, 4, command.value)) { errorCode = "invalid-party-member"; return false; }
+            command.kind = *type == "party.remove" ? CommandKind::PartyRemove : *type == "party.promote" ? CommandKind::PartyPromote : CommandKind::PartyLeave;
+            return true;
+        }
         errorCode = "unsupported-command"; return false;
     }
 
@@ -177,7 +191,9 @@ namespace wcs_bridge
         {
             int64_t a = 0, b = 0; left.Find("slot")->Integer(a); right.Find("slot")->Integer(b); return a < b;
         });
-        party = json::Value::Object{{"members", std::move(normalized)}}; return true;
+        auto result = *object;
+        result.insert_or_assign("members", std::move(normalized));
+        party = std::move(result); return true;
     }
 
     bool StateStore::PublishSnapshot(const json::Value& data, std::string& error)
@@ -242,6 +258,24 @@ namespace wcs_bridge
     }
 
     std::string StateStore::GameState() const { std::lock_guard lock(mutex_); return gameState_; }
+
+    bool StateStore::ValidatePartyCommand(const Command& command, std::string& guid, std::string& error) const
+    {
+        std::lock_guard lock(mutex_);
+        auto string = [&](const char* key) { const auto* v = party_.Find(key); return v && v->String() ? *v->String() : std::string{}; };
+        auto flag = [&](const char* key) { bool value = false; const auto* v = party_.Find(key); return v && v->Boolean(value) && value; };
+        if (gameState_ != "world" || command.generation.empty() || command.generation != string("generation")) { error = "stale-party"; return false; }
+        const auto group = string("groupType");
+        if (group != "party" && group != "dungeon-finder") { error = "unsupported-group"; return false; }
+        if (command.kind == CommandKind::PartyLeave) { if (flag("canLeave")) return true; error = "not-permitted"; return false; }
+        if (group != "party" || !flag(command.kind == CommandKind::PartyRemove ? "canRemove" : "canPromote")) { error = "not-permitted"; return false; }
+        const auto* members = party_.Find("members")->ArrayValue();
+        for (const auto& member : *members) {
+            int64_t slot = 0; member.Find("slot")->Integer(slot);
+            if (slot == command.value) { guid = *member.Find("guid")->String(); return true; }
+        }
+        error = "stale-party"; return false;
+    }
 
     std::optional<uint64_t> StateStore::PartyGuid(int member) const
     {

@@ -2,10 +2,10 @@
 
 import { createContext, Dispatch, ReactNode, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { WcsBridgeClient } from "@/bridge/WcsBridgeClient";
-import { BridgeMessage, Modifier, ShortcutBinding, CompanionScreenPreferences } from "@/bridge/protocol";
+import { BridgeMessage, Modifier, ShortcutBinding, CompanionScreenPreferences, PartyOperation } from "@/bridge/protocol";
 import { getAuthToken, setAuthToken } from "@/persistence/credentials";
 import { defaultPreferences, loadPreferences, savePreferences } from "@/persistence/preferences";
-import { createDemoRuntimeState, isDemoRequested } from "@/demo/demoState";
+import { createDemoBridgeState, isDemoRequested } from "@/demo/demoState";
 import { bridgeReducer, initialRuntimeState, RuntimeAction, RuntimeState } from "./reducer";
 
 interface CompanionScreenContextValue {
@@ -18,6 +18,8 @@ interface CompanionScreenContextValue {
   retry(): void;
   pressAction(slot: number): void;
   selectPartyMember(member: number): void;
+  manageParty(operation: PartyOperation, generation: string, requestId: string, member?: number): void;
+  requestState(): void;
   pressKey(key: string, modifiers?: Modifier[]): void;
   movePointer(dx: number, dy: number): void;
   clickPointer(button: "left" | "right" | "middle"): void;
@@ -40,7 +42,8 @@ export function CompanionScreenProvider({ children }: { children: ReactNode }) {
     setPreferences(loadPreferences());
     if (isDemoRequested(window.location.search)) {
       setDemoMode(true);
-      dispatch({ type: "message", message: { type: "state.snapshot", data: createDemoRuntimeState().bridgeState } });
+      const permission = new URLSearchParams(window.location.search).get("party");
+      dispatch({ type: "message", message: { type: "state.snapshot", data: createDemoBridgeState(permission === "member" || permission === "dungeon-finder" ? permission : "leader") } });
     }
     setHydrated(true);
   }, []);
@@ -96,6 +99,8 @@ export function CompanionScreenProvider({ children }: { children: ReactNode }) {
     retry: () => clientRef.current?.retry(),
     pressAction: (slot) => clientRef.current?.pressAction(slot),
     selectPartyMember: (member) => clientRef.current?.selectPartyMember(member),
+    manageParty: (operation, generation, requestId, member) => { if (!demoMode) clientRef.current?.manageParty(operation, generation, requestId, member); },
+    requestState: () => { if (!demoMode) clientRef.current?.requestState(); },
     pressKey: (key, modifiers) => clientRef.current?.pressKey(key, modifiers),
     movePointer: (dx, dy) => clientRef.current?.movePointer(dx, dy),
     clickPointer: (button) => clientRef.current?.clickPointer(button),

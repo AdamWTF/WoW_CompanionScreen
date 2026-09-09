@@ -70,8 +70,46 @@ namespace wcs_bridge
             {
                 if (const auto guid = state_.PartyGuid(command.value)) wxl::game::interaction::Target(*guid);
             }
-            else input_->Dispatch(command);
+            else if (command.kind == CommandKind::PartyRemove || command.kind == CommandKind::PartyPromote || command.kind == CommandKind::PartyLeave)
+            {
+                if (partyCommands_.size() < 256) partyCommands_.push_back(command);
+                else if (server_) server_->Send(json::Value::Object{{"type", "party.result"}, {"requestId", command.requestId}, {"status", "queue-full"}});
+            }
+            else {
+                if (command.kind == CommandKind::ReleaseAll) { partyCommands_.clear(); activePartyRequest_.clear(); }
+                input_->Dispatch(command);
+            }
         }
+    }
+
+    std::string WcsBridge::NextPartyGeneration()
+    {
+        // Process-local counter never resets on a Lua reload or world transition.
+        static const auto epoch = GetTickCount64();
+        return std::to_string(epoch) + "-" + std::to_string(++partyGeneration_);
+    }
+
+    int WcsBridge::TakePartyCommand(void* state)
+    {
+        if (partyCommands_.empty()) return 0;
+        Command command = std::move(partyCommands_.front()); partyCommands_.pop_front();
+        std::string guid, error;
+        if (!server_ || !server_->Connected() || command.session != server_->Session()) return 0;
+        activePartyRequest_ = command.requestId;
+        if (!state_.ValidatePartyCommand(command, guid, error)) { PartyResult(command.requestId, error); return 0; }
+        if (requestGeneration_ != command.generation) { requestGeneration_ = command.generation; partyRequests_.clear(); }
+        if (partyRequests_.size() >= 4096 || !partyRequests_.insert(command.requestId).second) { PartyResult(command.requestId, "duplicate-request"); return 0; }
+        using namespace wxl::game::script;
+        PushString(state, command.kind == CommandKind::PartyLeave ? "leave" : command.kind == CommandKind::PartyRemove ? "remove" : "promote");
+        PushNumber(state, command.value); PushString(state, command.generation.c_str()); PushString(state, command.requestId.c_str()); PushString(state, guid.c_str());
+        return 5;
+    }
+
+    void WcsBridge::PartyResult(const std::string& request, const std::string& status)
+    {
+        if (request != activePartyRequest_ || request.empty()) return;
+        activePartyRequest_.clear();
+        if (server_) server_->Send(json::Value::Object{{"type", "party.result"}, {"requestId", request}, {"status", status}});
     }
 
     void WcsBridge::SetLifecycle(const char* state, bool clear)
@@ -81,7 +119,7 @@ namespace wcs_bridge
     }
 
     void WcsBridge::OnWorldEnter(const wxl::events::WorldEnterArgs&) { everWorld_ = true; SetLifecycle("world", false); if (server_) server_->Send(state_.SnapshotMessage(), true); }
-    void WcsBridge::OnWorldLeave(const wxl::events::WorldLeaveArgs&) { if (input_) input_->ReleaseAll(); SetLifecycle("loading", true); }
+    void WcsBridge::OnWorldLeave(const wxl::events::WorldLeaveArgs&) { partyCommands_.clear(); activePartyRequest_.clear(); if (input_) input_->ReleaseAll(); SetLifecycle("loading", true); }
     void WcsBridge::OnLoading() { SetLifecycle("loading", false); }
     void WcsBridge::OnGlueRender() { if (everWorld_ && state_.GameState() != "world") SetLifecycle("character-select", false); }
 
@@ -124,7 +162,8 @@ namespace wcs_bridge
     bool WcsBridge::IsOwnLuaFunction(uintptr_t function) const
     {
         return function == reinterpret_cast<uintptr_t>(&LuaPublishSnapshot) || function == reinterpret_cast<uintptr_t>(&LuaPublishEvent) ||
-            function == reinterpret_cast<uintptr_t>(&LuaGetStatus) || function == reinterpret_cast<uintptr_t>(&LuaForgetDevice);
+            function == reinterpret_cast<uintptr_t>(&LuaGetStatus) || function == reinterpret_cast<uintptr_t>(&LuaForgetDevice) ||
+            function == reinterpret_cast<uintptr_t>(&LuaTakePartyCommand) || function == reinterpret_cast<uintptr_t>(&LuaPartyResult) || function == reinterpret_cast<uintptr_t>(&LuaPartyGeneration);
     }
 
     void WcsBridge::RegisterLua(void* context)
@@ -133,6 +172,9 @@ namespace wcs_bridge
         luaContext_ = context; wxl::game::script::Register("WCSBridgePublishSnapshot", &LuaPublishSnapshot);
         wxl::game::script::Register("WCSBridgePublishEvent", &LuaPublishEvent); wxl::game::script::Register("WCSBridgeGetStatus", &LuaGetStatus);
         wxl::game::script::Register("WCSBridgeForgetDevice", &LuaForgetDevice);
+        wxl::game::script::Register("WCSBridgeTakePartyCommand", &LuaTakePartyCommand);
+        wxl::game::script::Register("WCSBridgePartyResult", &LuaPartyResult);
+        wxl::game::script::Register("WCSBridgePartyGeneration", &LuaPartyGeneration);
         if (replaced) { state_.SetGameState(state_.GameState(), true); if (server_) server_->Send(state_.SnapshotMessage(), true); }
         Log(WXL_LOG_INFO, "registered Lua bridge in a new FrameScript context");
     }
@@ -149,4 +191,7 @@ namespace wcs_bridge
     }
     int __cdecl LuaGetStatus(void* state) { const std::string status = g_bridge ? g_bridge->StatusJson() : "{}"; wxl::game::script::PushString(state, status.c_str()); return 1; }
     int __cdecl LuaForgetDevice(void* state) { if (g_bridge) g_bridge->ForgetDevice(); wxl::game::script::PushBoolean(state, g_bridge != nullptr); return 1; }
+    int __cdecl LuaTakePartyCommand(void* state) { return g_bridge ? g_bridge->TakePartyCommand(state) : 0; }
+    int __cdecl LuaPartyResult(void* state) { if (g_bridge) g_bridge->PartyResult(ArgString(state, 1), ArgString(state, 2)); return 0; }
+    int __cdecl LuaPartyGeneration(void* state) { if (!g_bridge) return 0; wxl::game::script::PushString(state, g_bridge->NextPartyGeneration().c_str()); return 1; }
 }

@@ -94,7 +94,9 @@ end
 
 local function partyState()
     local members = {}
-    if (GetNumRaidMembers and GetNumRaidMembers() > 0) or not GetNumPartyMembers or GetNumPartyMembers() < 1 then return { members = members } end
+    local state = WCS.PartyManagement and WCS.PartyManagement:State() or {}
+    state.members = members
+    if (GetNumRaidMembers and GetNumRaidMembers() > 0) or not GetNumPartyMembers or GetNumPartyMembers() < 1 then return state end
     for slot = 1, 4 do
         local unit = "party" .. slot
         local guid = UnitGUID(unit)
@@ -116,7 +118,7 @@ local function partyState()
             }
         end
     end
-    return { members = members }
+    return state
 end
 
 function Bridge:PublishSnapshot()
@@ -197,7 +199,8 @@ function Bridge:Initialize()
 end
 
 function Bridge:OnEvent(event, unit)
-    if event == "PLAYER_ENTERING_WORLD" then self:PublishSnapshot()
+    if event == "PLAYER_LEAVING_WORLD" then if WCS.PartyManagement then WCS.PartyManagement:Invalidate() end
+    elseif event == "PLAYER_ENTERING_WORLD" then self:PublishSnapshot()
     elseif event == "PLAYER_LEVEL_UP" then self:PublishPlayer(); self:PublishExperience()
     elseif event == "PLAYER_XP_UPDATE" or event == "UPDATE_EXHAUSTION" then self:PublishExperience()
     elseif event == "PLAYER_MONEY" then self:PublishMoney()
@@ -209,6 +212,7 @@ function Bridge:OnEvent(event, unit)
 end
 
 function Bridge:Tick(elapsed)
+    if WCS.PartyManagement then WCS.PartyManagement:Tick() end
     self.elapsed = (self.elapsed or 0) + elapsed; self.statusElapsed = (self.statusElapsed or 0) + elapsed; self.partyElapsed = (self.partyElapsed or 0) + elapsed
     if self.partyDirty and self.partyElapsed >= .1 then self.partyElapsed = 0; self:PublishParty() end
     if self.elapsed >= 1 then

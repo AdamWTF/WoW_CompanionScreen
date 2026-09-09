@@ -109,6 +109,8 @@ int main()
     SOCKET pairingClient = Connect(28424); Upgrade(pairingClient); Check(SendAll(pairingClient, MaskedFrame(oldHello)), "send paired hello");
     Check(ReceiveFrame(pairingClient).find("\"type\":\"hello\"") != std::string::npos, "paired server hello");
     Check(ReceiveFrame(pairingClient).find("pairing.required") != std::string::npos, "pairing requested");
+    Check(SendAll(pairingClient, MaskedFrame(R"({"type":"party.remove","member":1,"generation":"g","requestId":"r"})")), "send unauthenticated management request");
+    Check(ReceiveFrame(pairingClient).find("auth-required") != std::string::npos, "unauthenticated management rejected");
     const std::string pairRequest = std::string("{\"type\":\"pair.request\",\"code\":\"") + wireCode + "\",\"device\":{\"id\":\"phone-1\",\"name\":\"Test phone\"}}";
     Check(SendAll(pairingClient, MaskedFrame(pairRequest)), "send pairing request");
     Check(ReceiveFrame(pairingClient).find("pairing.complete") != std::string::npos, "pairing completes");

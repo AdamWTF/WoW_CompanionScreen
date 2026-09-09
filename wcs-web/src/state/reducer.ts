@@ -7,6 +7,8 @@ export interface RuntimeState {
   hasSnapshot: boolean;
   error: string | null;
   touchpadWarning: string | null;
+  capabilities?: string[];
+  partyResult?: { requestId: string; status: string };
 }
 
 export const initialRuntimeState: RuntimeState = {
@@ -38,6 +40,10 @@ export function bridgeReducer(state: RuntimeState, action: RuntimeAction): Runti
 
   const message = action.message;
   switch (message.type) {
+    case "hello": return { ...state, capabilities: Array.isArray(message.capabilities) ? message.capabilities.filter((value): value is string => typeof value === "string") : [] };
+    case "party.result":
+      if (typeof message.requestId !== "string" || typeof message.status !== "string") return state;
+      return { ...state, partyResult: { requestId: message.requestId, status: message.status } };
     case "pairing.required": return { ...state, sessionState: "pairing" };
     case "auth.required": return { ...state, sessionState: "authenticating" };
     case "auth.ok": return { ...state, sessionState: "awaiting-snapshot" };

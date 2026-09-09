@@ -19,7 +19,7 @@ namespace wcs_bridge
     {
         KeyPress, KeyDown, KeyUp, TextInsert,
         PointerMove, PointerClick, PointerDown, PointerUp, PointerScroll,
-        ActionPress, PartySelect, ReleaseAll,
+        ActionPress, PartySelect, PartyRemove, PartyPromote, PartyLeave, ReleaseAll,
     };
 
     struct Command
@@ -27,6 +27,9 @@ namespace wcs_bridge
         CommandKind kind{};
         std::string key;
         std::string text;
+        std::string generation;
+        std::string requestId;
+        uint64_t session = 0;
         uint8_t modifiers = 0; // bit 0 shift, bit 1 ctrl, bit 2 alt
         int x = 0;
         int y = 0;
@@ -47,6 +50,7 @@ namespace wcs_bridge
         json::Value SnapshotMessage() const;
         std::string GameState() const;
         std::optional<uint64_t> PartyGuid(int member) const;
+        bool ValidatePartyCommand(const Command& command, std::string& guid, std::string& error) const;
 
     private:
         static json::Value EmptyActions();

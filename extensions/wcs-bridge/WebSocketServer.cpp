@@ -208,6 +208,8 @@ namespace wcs_bridge
 
         auto closeClient = [&]
         {
+            ++session_;
+            partyCapable_ = false;
             if (client != INVALID_SOCKET) { SendFrame(client, 8, {}); shutdown(client, SD_BOTH); closesocket(client); client = INVALID_SOCKET; }
             if (connected_.exchange(false)) commands_(Command{CommandKind::ReleaseAll});
             { std::lock_guard lock(outboundMutex_); outbound_.clear(); }
@@ -260,7 +262,7 @@ namespace wcs_bridge
                         if (type != "hello" || StringField(root, "client") != "thor" || !protocolValue || !protocolValue->Integer(protocol)) { sendJson(ErrorMessage("invalid-message")); closeClient(); break; }
                         if (protocol != kProtocolVersion) { sendJson(ErrorMessage("protocol-mismatch")); closeClient(); break; }
                         partyCapable_ = HasCapability(root, "party");
-                        sendJson(json::Value::Object{{"type", "hello"}, {"protocol", kProtocolVersion}, {"game", json::Value::Object{{"version", "3.3.5a"}, {"build", 12340}}}, {"bridge", json::Value::Object{{"version", kBridgeVersion}}}});
+                        sendJson(json::Value::Object{{"type", "hello"}, {"protocol", kProtocolVersion}, {"capabilities", json::Value::Array{"party", "party-management"}}, {"game", json::Value::Object{{"version", "3.3.5a"}, {"build", 12340}}}, {"bridge", json::Value::Object{{"version", kBridgeVersion}}}});
                         if (!pairing_.Required()) activate();
                         else { phase = Phase::Authentication; sendJson(json::Value::Object{{"type", pairing_.IsPaired() ? "auth.required" : "pairing.required"}}); }
                         continue;
@@ -276,9 +278,15 @@ namespace wcs_bridge
                         }
                         sendJson(ErrorMessage(type == "auth" ? "auth-failed" : "auth-required")); continue;
                     }
+                    if (type == "state.request") { sendJson(snapshot_()); continue; }
                     Command command; std::string code;
                     if (!ParseCommand(root, command, code)) { sendJson(ErrorMessage(std::move(code))); continue; }
-                    if (!commands_(std::move(command))) sendJson(ErrorMessage("queue-full"));
+                    command.session = session_.load();
+                    const std::string request = command.requestId;
+                    if (!commands_(std::move(command))) {
+                        if (!request.empty()) sendJson(json::Value::Object{{"type", "party.result"}, {"requestId", request}, {"status", "queue-full"}});
+                        else sendJson(ErrorMessage("queue-full"));
+                    }
                 }
             }
             if (client != INVALID_SOCKET && phase != Phase::Active && GetTickCount64() >= authDeadline) { if (notices_) notices_("client authentication timed out"); closeClient(); }

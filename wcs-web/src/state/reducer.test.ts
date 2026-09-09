@@ -3,6 +3,15 @@ import { emptyBridgeState } from "@/bridge/protocol";
 import { bridgeReducer, initialRuntimeState } from "./reducer";
 
 describe("bridgeReducer", () => {
+  it("advertises management only on supporting bridges and clears results on reset", () => {
+    const old = bridgeReducer(initialRuntimeState, { type: "message", message: { type: "hello" } });
+    expect(old.capabilities).toEqual([]);
+    const capable = bridgeReducer(old, { type: "message", message: { type: "hello", capabilities: ["party-management"] } });
+    const result = bridgeReducer(capable, { type: "message", message: { type: "party.result", requestId: "r", status: "dispatched" } });
+    expect(result.partyResult).toEqual({ requestId: "r", status: "dispatched" });
+    const reset = bridgeReducer(result, { type: "reset", connection: "disconnected" });
+    expect(reset.capabilities).toBeUndefined(); expect(reset.partyResult).toBeUndefined();
+  });
   it("ignores incrementals before an authoritative snapshot", () => {
     const result = bridgeReducer(initialRuntimeState, { type: "message", message: { type: "player.money", data: { copper: 999 } } });
     expect(result).toBe(initialRuntimeState);

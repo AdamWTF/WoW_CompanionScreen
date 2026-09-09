@@ -31,6 +31,7 @@ describe("PartyRosterView", () => {
 
   it("applies class, resource, target, leader and status presentation", () => {
     const members = demoMembers();
+    members[0] = { ...members[0], leader: true };
     members[1] = { ...members[1], ghost: true, afk: true, dnd: true };
     const { container } = render(<PartyRosterView members={members} onSelect={() => undefined} />);
 

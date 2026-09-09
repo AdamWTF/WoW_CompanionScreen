@@ -66,6 +66,22 @@ int main()
     Check(snapshot.Find("data")->Find("party")->Find("members")->ArrayValue()->empty(), "world clear drops party state");
     Check(!state.PartyGuid(4).has_value(), "party targeting unavailable outside world");
 
+    Command management;
+    Check(ParseCommand(Parse(R"({"type":"party.remove","member":1,"generation":"epoch-1","requestId":"request-1"})"), management, error), "management command accepted");
+    std::string guid;
+    Check(!state.ValidatePartyCommand(management, guid, error), "management rejected outside world");
+    Check(state.PublishSnapshot(Parse(R"({"party":{"groupType":"party","generation":"epoch-1","canRemove":true,"canPromote":true,"canLeave":true,"members":[{"slot":1,"guid":"0x0000000000000001","connected":false}]}})"), error), "management metadata retained");
+    Check(state.ValidatePartyCommand(management, guid, error) && guid == "0x0000000000000001", "offline identity resolves from roster");
+    management.generation = "old";
+    Check(!state.ValidatePartyCommand(management, guid, error), "stale generation rejected");
+    management.generation = "epoch-1";
+    Check(state.PublishEvent("party.state", Parse(R"({"groupType":"dungeon-finder","generation":"epoch-1","canRemove":true,"canPromote":true,"canLeave":true,"members":[]})"), error), "LFD state accepted");
+    Check(!state.ValidatePartyCommand(management, guid, error), "LFD removal rejected even with permission flag");
+    management.kind = CommandKind::PartyLeave;
+    Check(state.ValidatePartyCommand(management, guid, error), "LFD leave allowed");
+    Check(!ParseCommand(Parse(R"({"type":"party.remove","member":5,"generation":"epoch-1","requestId":"r"})"), management, error), "invalid management slot rejected");
+    Check(!ParseCommand(Parse(R"({"type":"party.leave","generation":"","requestId":"r"})"), management, error), "empty generation rejected");
+    Check(!ParseCommand(Parse(R"({"type":"party.leave","generation":"epoch-1","requestId":"bad token"})"), management, error), "malformed request rejected");
     Check(ValidUtf8("hello"), "ASCII UTF-8");
     const std::string invalid("\xc0\x80", 2); Check(!ValidUtf8(invalid), "overlong UTF-8 rejected");
     std::cout << "WoW Companion Screen bridge protocol tests passed\n";

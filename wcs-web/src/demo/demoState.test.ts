@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { createDemoRuntimeState, isDemoRequested } from "./demoState";
+import { createDemoBridgeState, createDemoRuntimeState, isDemoRequested } from "./demoState";
 
 describe("demo state", () => {
+  it("represents leader, member and Dungeon Finder permissions", () => {
+    expect(createDemoBridgeState().party).toMatchObject({ canRemove: true, canPromote: true, canLeave: true });
+    expect(createDemoBridgeState("member").party).toMatchObject({ canRemove: false, canPromote: false, canLeave: true });
+    expect(createDemoBridgeState("dungeon-finder").party).toMatchObject({ groupType: "dungeon-finder", canRemove: false, canPromote: false, canLeave: true });
+  });
   it("provides a ready, representative bridge snapshot", () => {
     const runtime = createDemoRuntimeState();
     expect(runtime).toMatchObject({ connectionState: "connected", sessionState: "ready", hasSnapshot: true });

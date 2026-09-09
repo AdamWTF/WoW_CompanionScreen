@@ -45,12 +45,21 @@ export interface PopulatedAction {
   cooldown: Cooldown;
 }
 export type Action = EmptyAction | PopulatedAction;
+export type PartyOperation = "remove" | "promote" | "leave";
+export interface PartyState {
+  members: PartyMember[];
+  groupType?: "solo" | "party" | "dungeon-finder" | "raid";
+  generation?: string;
+  canRemove?: boolean;
+  canPromote?: boolean;
+  canLeave?: boolean;
+}
 
 export interface BridgeState {
   game: { state: GameState };
   player: PlayerState | null;
   actions: { slots: Action[] };
-  party: { members: PartyMember[] };
+  party: PartyState;
 }
 
 export type ConnectionState = "unconfigured" | "connecting" | "connected" | "reconnecting" | "disconnected" | "error" | "busy";

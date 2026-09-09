@@ -6,13 +6,15 @@ import { PartyMember } from "@/bridge/protocol";
 import { withBasePath } from "@/deployment/basePath";
 import { useCompanionScreen } from "@/state/CompanionScreenContext";
 import { classColor, compactValue, partyPortraitPath, partyStatuses, percent, resourceColor } from "./partyPresentation";
+import { usePartyGesture } from "./usePartyGesture";
 
-export function PartyRoster({ members }: { members: PartyMember[] }) {
+export function PartyRoster({ members, onMenu }: { members: PartyMember[]; onMenu?(slot: number): void }) {
   const { selectPartyMember } = useCompanionScreen();
-  return <PartyRosterView members={members} onSelect={selectPartyMember} />;
+  return <PartyRosterView members={members} onSelect={selectPartyMember} onMenu={onMenu} />;
 }
 
-export function PartyRosterView({ members, onSelect }: { members: PartyMember[]; onSelect(member: number): void }) {
+export function PartyRosterView({ members, onSelect, onMenu }: { members: PartyMember[]; onSelect(member: number): void; onMenu?(slot: number): void }) {
+  const gestures = usePartyGesture(onSelect, onMenu);
   return (
     <section className="party-roster panel-frame" aria-label="Party members">
       {members.map((member) => {
@@ -34,7 +36,8 @@ export function PartyRosterView({ members, onSelect }: { members: PartyMember[];
             title={member.name || "Unknown"}
             aria-current={member.targeted ? "true" : undefined}
             aria-label={`${member.targeted ? "Current target" : "Target"} ${member.name}, level ${member.level > 0 ? member.level : "unknown"} ${member.class.name}${statusLabel}`}
-            onClick={() => onSelect(member.slot)}
+            {...gestures(member.slot)}
+            aria-haspopup={onMenu ? "dialog" : undefined}
           >
             <span className="party-identity">
               <span className="party-portrait-wrap">
@@ -58,7 +61,7 @@ export function PartyRosterView({ members, onSelect }: { members: PartyMember[];
   );
 }
 
-function PartyPortrait({ member }: { member: PartyMember }) {
+export function PartyPortrait({ member }: { member: PartyMember }) {
   const requested = withBasePath(partyPortraitPath(member));
   const fallback = withBasePath("/assets/wow-icons/inv_misc_questionmark.webp");
   const [source, setSource] = useState(requested);

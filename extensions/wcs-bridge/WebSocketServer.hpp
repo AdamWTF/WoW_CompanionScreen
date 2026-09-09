@@ -28,6 +28,7 @@ namespace wcs_bridge
         bool Listening() const { return listening_.load(); }
         bool Connected() const { return connected_.load(); }
         bool PartyCapable() const { return partyCapable_.load(); }
+        uint64_t Session() const { return session_.load(); }
         std::string Address() const;
         uint16_t Port() const { return port_; }
 
@@ -44,6 +45,7 @@ namespace wcs_bridge
         uint16_t port_ = 0;
         std::atomic<bool> running_{false}, listening_{false}, connected_{false}, disconnect_{false}, partyCapable_{false};
         std::thread thread_;
+        std::atomic<uint64_t> session_{0};
         mutable std::mutex outboundMutex_;
         std::deque<Outbound> outbound_;
     };
